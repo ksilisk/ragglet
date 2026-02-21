@@ -10,7 +10,7 @@ timeouts:
   llm_ms: 3500
 run:
   repeats: 2
-  shuffle: true
+  shuffle: false
   save_per_query: true
   artifacts_dir: results/runs
 output:
@@ -66,9 +66,14 @@ generation:
   temperature: 0.2
   max_output_tokens: 300
 cache:
-  enabled: false
-  embedding: null
-  retrieval: null
+  enabled: true
+  embedding:
+    type: "redis"
+    endpoint: "redis://localhost:6379/0"
+    ttl_seconds: 86400
+  retrieval:
+    type: "memory_lru"
+    size: 10000
 metrics:
   results_path: results/{name}_{timestamp}.parquet
   latency_steps:

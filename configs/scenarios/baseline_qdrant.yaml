@@ -5,7 +5,7 @@ description: "Single-source vector retrieval (Qdrant), no rerank, no cache, no g
 run:
   repeats: 2
   shuffle: true
-  save_per_query:
+  save_per_query: true
   artifacts_dir: "results/runs"
 
 output:
