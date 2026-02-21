@@ -1,0 +1,19 @@
+id: "demo"
+corpus: "datasets/demo/corpus"
+parser: "plain_text"
+chunking:
+  method: "recursive"
+  chunk_size: 100
+  chunk_overlap: 120
+embedding:
+  model: "all-MiniLM-L6-v2"
+  normalize: true
+storage:
+  type: "qdrant"
+  endpoint: "http://localhost:6333"
+  collection: "chunks_v1"
+index_params:
+  distance: "cosine"
+  hnsw:
+    m: 16
+    ef_construct: 128

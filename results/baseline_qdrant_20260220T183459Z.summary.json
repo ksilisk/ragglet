@@ -1,0 +1,12 @@
+{
+  "scenario": "baseline_qdrant",
+  "n": 100,
+  "mrr_mean": 0.0,
+  "lat_total_p50": 11.8686455535,
+  "lat_total_p95": 34.2794312979,
+  "recall@1_mean": 0.0,
+  "recall@3_mean": 0.0,
+  "recall@5_mean": 0.0,
+  "recall@10_mean": 0.0,
+  "recall@30_mean": 0.0
+}

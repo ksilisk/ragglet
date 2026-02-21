@@ -1,0 +1,64 @@
+version: 1
+name: "baseline_qdrant"
+description: "Single-source vector retrieval (Qdrant), no rerank, no cache, no generation"
+
+run:
+  repeats: 1
+  shuffle: true
+  save_per_query: true
+  artifacts_dir: "results/runs"
+
+output:
+  format: "csv"
+  include_debug_fields: false
+
+seed: 42
+timeouts:
+  total_ms: 6000
+  retrieval_ms: 1500
+  rerank_ms: 800
+  llm_ms: 3500
+
+dataset:
+  id: "data/queries/baseline_qdrant.jsonl"
+  limit: 2000
+  query_field: "question"
+  truth_field: "relevant"
+
+storage:
+  mode: "single"
+  backend:
+    type: "qdrant"
+    endpoint: "http://localhost:6333"
+    collection: "chunks_v1"
+
+embedding:
+  model: "all-MiniLM-L6-v2"
+  normalize: true
+
+retrieval:
+  strategy: "single"
+  top_k: 30
+  async: true
+  sources: []   # можно вообще не указывать; если схема требует — оставь пустым
+  merge:
+    method: "rrf"
+    rrf_k: 60
+    deduplicate: true
+
+rerank:
+  enabled: false
+
+generation:
+  enabled: false
+
+cache:
+  enabled: false
+
+metrics:
+  results_path: "results/{name}_{timestamp}.parquet"
+  latency_steps: ["embed", "retrieve", "total"]
+  percentiles: [50, 95, 99]
+  quality:
+    recall_at_k: [1, 3, 5, 10, 30]
+    mrr_at_k: 30

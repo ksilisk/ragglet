@@ -1,0 +1,12 @@
+{
+  "scenario": "async_rerank_cache",
+  "n": 100,
+  "mrr_mean": 0.0,
+  "lat_total_p50": 11.1042499775,
+  "lat_total_p95": 233.4718472208,
+  "recall@1_mean": 0.0,
+  "recall@3_mean": 0.0,
+  "recall@5_mean": 0.0,
+  "recall@10_mean": 0.0,
+  "recall@30_mean": 0.0
+}

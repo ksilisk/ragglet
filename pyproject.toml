@@ -1,0 +1,73 @@
+[project]
+name = "ragglet"
+version = "0.1.0"
+description = "RAG benchmarking playground (NIR2/VKR)"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "Shaliko" }]
+dependencies = [
+  # CLI
+  "typer>=0.12.3",
+  "rich>=13.7.1",
+
+  # retrieval
+  "qdrant-client>=1.17.0",
+  "numpy>=2.0.0",
+  "sentence-transformers>=3.0.0",
+
+  # Config/schema
+  "pydantic>=2.8.2",
+  "pydantic-settings>=2.4.0",
+  "PyYAML>=6.0.2",
+
+  # Async & HTTP
+  "anyio>=4.4.0",
+  "httpx>=0.27.0",
+
+  # Data / results
+  "pandas>=2.2.2",
+  "pyarrow>=17.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "ruff>=0.6.9",
+  "pytest>=8.3.2",
+  "pytest-asyncio>=0.23.8",
+  "mypy>=1.11.2",
+  "types-PyYAML>=6.0.12.20240808",
+]
+
+[project.scripts]
+ragglet = "ragglet.cli.app:app"
+
+[build-system]
+requires = ["setuptools>=70.0.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501"]  # длину строк держим в line-length, но не падаем по E501
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+no_implicit_optional = true
+strict_equality = true

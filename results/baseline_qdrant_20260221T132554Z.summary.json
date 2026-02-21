@@ -1,0 +1,1 @@
+{"scenario":"baseline_qdrant","n":100,"mrr_mean":0.2217247863,"lat_total_p50":11.7017914308,"lat_total_p95":34.2538896832,"recall@1_mean":0.19,"recall@3_mean":0.24,"recall@5_mean":0.26,"recall@10_mean":0.29,"recall@30_mean":0.31}
