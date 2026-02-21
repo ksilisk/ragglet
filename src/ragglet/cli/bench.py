@@ -13,4 +13,4 @@ def run(scenario: Path = typer.Argument(..., exists=True, dir_okay=False)) -> No
     res = run_scenario(cfg)
     rprint("[bold green]Done[/bold green]")
     rprint(res["summary"])
-    rprint(f"Artifacts base: {res['out_base']}")
+    rprint(f"Artifacts: {res['run_dir']}")

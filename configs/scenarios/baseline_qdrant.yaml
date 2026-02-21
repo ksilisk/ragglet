@@ -3,9 +3,9 @@ name: "baseline_qdrant"
 description: "Single-source vector retrieval (Qdrant), no rerank, no cache, no generation"
 
 run:
-  repeats: 1
+  repeats: 2
   shuffle: true
-  save_per_query: true
+  save_per_query:
   artifacts_dir: "results/runs"
 
 output:
