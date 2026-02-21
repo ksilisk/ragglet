@@ -4,6 +4,8 @@ from pathlib import Path
 import random
 import time
 from typing import Any
+import anyio
+from ragglet.retrieval.fanout_rrf import SourceSpec, RetrievedItem, rrf_merge, run_sources
 
 import pandas as pd
 
@@ -14,6 +16,18 @@ from ragglet.bench.artifacts import make_artifact_paths, save_config_snapshot
 from ragglet.modules.embedders.st_embedder import SentenceTransformerEmbedder
 from ragglet.stores.qdrant_store import QdrantStore
 
+def _to_retrieved(candidate, source_name: str) -> RetrievedItem:
+    payload = candidate.payload or {}
+    ext = payload.get("external_id")
+    # если external_id вдруг отсутствует — fallback на point id
+    external_id = str(ext) if ext is not None else str(candidate.id)
+    return RetrievedItem(
+        point_id=str(candidate.id),
+        external_id=external_id,
+        score_raw=float(candidate.score_raw),
+        source=source_name,
+        payload=candidate.payload,
+    )
 
 def _extract_retrieved_ids(candidates) -> list[str]:
     # сравниваем именно по external_id (payload), иначе метрики бессмысленны
@@ -24,7 +38,7 @@ def _extract_retrieved_ids(candidates) -> list[str]:
     return ids
 
 
-def _run_once(cfg: ScenarioConfig, items, store: QdrantStore, embedder: SentenceTransformerEmbedder) -> pd.DataFrame:
+async def _run_once(cfg: ScenarioConfig, items, store: QdrantStore, embedder: SentenceTransformerEmbedder) -> pd.DataFrame:
     rows: list[dict[str, Any]] = []
 
     for it in items:
@@ -34,10 +48,68 @@ def _run_once(cfg: ScenarioConfig, items, store: QdrantStore, embedder: Sentence
         vec = embedder.embed_batch([it.query])[0]
         t2 = time.perf_counter()
 
-        candidates = store.search(vec, top_k=cfg.retrieval.top_k)
+        strategy = cfg.retrieval.strategy
+        top_k = cfg.retrieval.top_k
+
+        if strategy == "single":
+            # один источник: либо первый из sources, либо дефолт "vec"
+            src = None
+            if cfg.retrieval.sources:
+                s0 = cfg.retrieval.sources[0]
+                src = SourceSpec(name=s0.name, kind=s0.kind, weight=s0.weight, params=s0.params)
+            else:
+                src = SourceSpec(name="vec", kind="vector", weight=1.0, params={})
+
+            if src.kind != "vector":
+                raise NotImplementedError("Only vector source is implemented in baseline")
+
+            candidates = store.search(vec, top_k=top_k, params=src.params)
+            retrieved_items = [_to_retrieved(c, src.name) for c in candidates]
+
+        elif strategy == "fanout_merge":
+            # готовим источники
+            sources: list[SourceSpec] = []
+            for s in cfg.retrieval.sources:
+                sources.append(SourceSpec(name=s.name, kind=s.kind, weight=s.weight, params=s.params))
+
+            # сейчас реализуем только vector источники (keyword позже)
+            for s in sources:
+                if s.kind != "vector":
+                    raise NotImplementedError(f"Source kind '{s.kind}' is not implemented yet")
+
+            # fanout tasks (параллельно)
+            async def _query_source(s: SourceSpec):
+                # можно добавить per-source timeout, пока используем общий retrieval_ms на весь fanout
+                return store.search(vec, top_k=top_k, params=s.params)
+
+            tasks = [(s.name, lambda s=s: _query_source(s)) for s in sources]
+
+            # timeout на retrieval fanout
+            with anyio.fail_after(cfg.timeouts.retrieval_ms / 1000.0):
+                parallel = bool(cfg.retrieval.async_enabled)  # поле в модели с alias="async"
+                res_map = await run_sources(tasks, parallel=parallel)
+
+            per_source_ranked: dict[str, list[RetrievedItem]] = {}
+            weights: dict[str, float] = {}
+            for s in sources:
+                weights[s.name] = s.weight
+                per_source_ranked[s.name] = [_to_retrieved(c, s.name) for c in res_map.get(s.name, [])]
+
+            merged = rrf_merge(
+                per_source_ranked=per_source_ranked,
+                weights=weights,
+                rrf_k=cfg.retrieval.merge.rrf_k,
+                top_k=top_k,
+                deduplicate=cfg.retrieval.merge.deduplicate,
+            )
+            retrieved_items = merged
+
+        else:
+            raise NotImplementedError(f"retrieval.strategy='{strategy}' is not implemented")
+
         t3 = time.perf_counter()
 
-        retrieved_ids = _extract_retrieved_ids(candidates)
+        retrieved_ids = [it.external_id for it in retrieved_items]
         truth = set(it.truth_ids)
 
         rec = {f"recall@{k}": recall_at_k(retrieved_ids, truth, k) for k in cfg.metrics.quality.recall_at_k}
@@ -104,9 +176,12 @@ def run_scenario(cfg: ScenarioConfig) -> dict[str, Any]:
             seed_r = base_rng.randint(0, 2**31 - 1)
             random.Random(seed_r).shuffle(run_items)
 
-        df = _run_once(cfg, run_items, store, embedder)
+        df = anyio.run(_run_once,cfg, run_items, store, embedder)
         summary = _summarize(cfg, df)
         summary["repeat_idx"] = r
+        summary["retrieval_parallel"] = bool(cfg.retrieval.async_enabled)
+        summary["retrieval_strategy"] = cfg.retrieval.strategy
+        summary["sources_count"] = len(cfg.retrieval.sources) if cfg.retrieval.sources else 1
         all_summaries.append(summary)
 
         # 5) Сохранение per-query
