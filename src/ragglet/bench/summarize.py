@@ -6,6 +6,25 @@ from ragglet.config.scenario import ScenarioConfig
 
 
 def summarize_repeat(cfg: ScenarioConfig, df: pd.DataFrame) -> dict[str, Any]:
+    n = int(len(df))
+
+    # timeout aggregates
+    if n and "timed_out" in df.columns:
+        timed_out_count = int(df["timed_out"].fillna(False).sum())
+        timeout_rate = float(timed_out_count) / n
+    else:
+        timed_out_count = 0
+        timeout_rate = 0.0
+
+    stage_rates: dict[str, float] = {}
+    stage_counts: dict[str, int] = {}
+    if n and timed_out_count and "timeout_stage" in df.columns:
+        # считаем только для таймаутнутых
+        stages = df.loc[df["timed_out"] == True, "timeout_stage"].fillna("unknown")
+        counts = stages.value_counts()
+        stage_counts = {str(k): int(v) for k, v in counts.items()}
+        stage_rates = {k: v / n for k, v in stage_counts.items()}  # rate по всем запросам
+
     s: dict[str, Any] = {
         "scenario": cfg.name,
         "n": int(len(df)),
@@ -14,6 +33,10 @@ def summarize_repeat(cfg: ScenarioConfig, df: pd.DataFrame) -> dict[str, Any]:
         "lat_total_p95": float(df["lat_total_ms"].quantile(0.95)) if len(df) else 0.0,
         "emb_hit_rate": float(df["emb_hit_rate"].mean()) if len(df) else 0.0,
         "ret_hit_rate": float(df["ret_hit_rate"].mean()) if len(df) else 0.0,
+        "timeout_count": timed_out_count,
+        "timeout_rate": timeout_rate,
+        "timeout_stage_counts": stage_counts,
+        "timeout_stage_rates": stage_rates,
     }
     for k in cfg.metrics.quality.recall_at_k:
         col = f"recall@{k}"

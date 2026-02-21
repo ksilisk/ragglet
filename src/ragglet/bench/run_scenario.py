@@ -1,30 +1,31 @@
 from __future__ import annotations
 
-from pathlib import Path
 import random
+from pathlib import Path
 
 import pandas as pd
 
-from ragglet.config.scenario import ScenarioConfig
-from ragglet.bench.dataset import load_jsonl_dataset
 from ragglet.bench.artifacts import make_artifact_paths, save_config_snapshot
+from ragglet.bench.dataset import load_jsonl_dataset
 from ragglet.bench.query_loop import run_queries_once
 from ragglet.bench.summarize import summarize_repeat, aggregate_over_repeats
 from ragglet.cache.manager import CacheManager
+from ragglet.config.scenario import ScenarioConfig
 from ragglet.modules.embedders.st_embedder import SentenceTransformerEmbedder
-from ragglet.stores.qdrant_store import QdrantStore
+from ragglet.stores.qdrant_store_async import AsyncQdrantStore
 
 
 async def run_scenario(cfg: ScenarioConfig) -> dict:
     paths = make_artifact_paths(cfg.run.artifacts_dir, cfg.name)
     save_config_snapshot(paths.run_dir, cfg)
 
-    items = load_jsonl_dataset(Path(cfg.dataset.id), cfg.dataset.query_field, cfg.dataset.truth_field, cfg.dataset.limit)
+    items = load_jsonl_dataset(Path(cfg.dataset.id), cfg.dataset.query_field, cfg.dataset.truth_field,
+                               cfg.dataset.limit)
 
     if cfg.storage.backend.type != "qdrant":
         raise NotImplementedError("Only qdrant backend is implemented in the first iteration")
 
-    store = QdrantStore(cfg.storage.backend.endpoint, cfg.storage.backend.collection)
+    async_store = AsyncQdrantStore(cfg.storage.backend.endpoint, cfg.storage.backend.collection)
     embedder = SentenceTransformerEmbedder(cfg.embedding.model, normalize=cfg.embedding.normalize)
     caches = CacheManager(cfg)
 
@@ -35,11 +36,11 @@ async def run_scenario(cfg: ScenarioConfig) -> dict:
         for r in range(cfg.run.repeats):
             run_items = list(items)
             if cfg.run.shuffle:
-                seed_r = base_rng.randint(0, 2**31 - 1)
+                seed_r = base_rng.randint(0, 2 ** 31 - 1)
                 random.Random(seed_r).shuffle(run_items)
 
             caches.reset_stats()
-            df = await run_queries_once(cfg, run_items, store, embedder, caches)
+            df = await run_queries_once(cfg, run_items, async_store, embedder, caches)
 
             summary = summarize_repeat(cfg, df)
             summary["repeat_idx"] = r
