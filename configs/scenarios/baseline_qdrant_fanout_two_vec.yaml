@@ -40,11 +40,11 @@ retrieval:
       weight: 1.0
       params:
         ef_search: 64
-    - name: vec_quality
-      kind: vector
+    - name: bm25
+      kind: keyword
       weight: 1.0
       params:
-        ef_search: 256
+        k1: 1.3
   merge:
     method: "rrf"
     rrf_k: 60

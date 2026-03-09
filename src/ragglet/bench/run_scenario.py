@@ -12,6 +12,7 @@ from ragglet.bench.summarize import summarize_repeat, aggregate_over_repeats
 from ragglet.cache.manager import CacheManager
 from ragglet.config.scenario import ScenarioConfig
 from ragglet.modules.embedders.st_embedder import SentenceTransformerEmbedder
+from ragglet.retrieval.backends import BackendRegistry
 from ragglet.stores.qdrant_store_async import AsyncQdrantStore
 
 
@@ -26,6 +27,7 @@ async def run_scenario(cfg: ScenarioConfig) -> dict:
         raise NotImplementedError("Only qdrant backend is implemented in the first iteration")
 
     async_store = AsyncQdrantStore(cfg.storage.backend.endpoint, cfg.storage.backend.collection)
+    backends = await BackendRegistry.build(cfg, async_store)
     embedder = SentenceTransformerEmbedder(cfg.embedding.model, normalize=cfg.embedding.normalize)
     caches = CacheManager(cfg)
 
@@ -40,7 +42,7 @@ async def run_scenario(cfg: ScenarioConfig) -> dict:
                 random.Random(seed_r).shuffle(run_items)
 
             caches.reset_stats()
-            df = await run_queries_once(cfg, run_items, async_store, embedder, caches)
+            df = await run_queries_once(cfg, run_items, backends, embedder, caches)
 
             summary = summarize_repeat(cfg, df)
             summary["repeat_idx"] = r

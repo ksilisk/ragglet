@@ -5,19 +5,20 @@ from typing import Any
 
 import anyio
 import pandas as pd
+
 from ragglet.bench.metrics import recall_at_k, mrr_at_k
 from ragglet.cache.manager import CacheManager
 from ragglet.config.scenario import ScenarioConfig
 from ragglet.core.errors import StageTimeout
 from ragglet.modules.embedders.st_embedder import SentenceTransformerEmbedder
+from ragglet.retrieval.backends import BackendRegistry
 from ragglet.retrieval.engine import retrieve_ids
-from ragglet.stores.qdrant_store_async import AsyncQdrantStore
 
 
 async def run_queries_once(
         cfg: ScenarioConfig,
         items,
-        store: AsyncQdrantStore,
+        backends: BackendRegistry,
         embedder: SentenceTransformerEmbedder,
         caches: CacheManager,
 ) -> pd.DataFrame:
@@ -45,7 +46,7 @@ async def run_queries_once(
                 if cached is not None:
                     retrieved_ids = cached.retrieved_ids
                 else:
-                    retrieved_ids = await retrieve_ids(cfg, store, vec)
+                    retrieved_ids = await retrieve_ids(cfg, backends, it.query, vec)
                     caches.set_retrieval(key, retrieved_ids)
 
                 t3 = time.perf_counter()

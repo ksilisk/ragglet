@@ -4,8 +4,8 @@ import anyio
 
 from ragglet.config.scenario import ScenarioConfig
 from ragglet.core.errors import StageTimeout
+from ragglet.retrieval.backends import BackendRegistry
 from ragglet.retrieval.fanout_rrf import SourceSpec, RetrievedItem, rrf_merge, run_sources
-from ragglet.stores.qdrant_store_async import AsyncQdrantStore
 
 
 def _to_retrieved(candidate, source_name: str) -> RetrievedItem:
@@ -21,13 +21,12 @@ def _to_retrieved(candidate, source_name: str) -> RetrievedItem:
     )
 
 
-async def retrieve_ids(cfg: ScenarioConfig, store: AsyncQdrantStore, vec: list[float]) -> list[str]:
+async def retrieve_ids(cfg: ScenarioConfig, backends: BackendRegistry, query_text: str, vec: list[float]) -> list[str]:
     """
     Возвращает список retrieved external_ids (то, по чему считаем метрики).
     """
     strategy = cfg.retrieval.strategy
     top_k = cfg.retrieval.top_k
-
     try:
         with anyio.fail_after(cfg.timeouts.retrieval_ms / 1000.0):
             if strategy == "single":
@@ -40,7 +39,13 @@ async def retrieve_ids(cfg: ScenarioConfig, store: AsyncQdrantStore, vec: list[f
                 if src.kind != "vector":
                     raise NotImplementedError("Only vector source is implemented in baseline")
 
-                candidates = await store.search(vec, top_k=top_k, params=src.params)
+                if src.kind == "vector":
+                    candidates = await backends.vector.search(vec, top_k=top_k, params=src.params)
+                elif src.kind == "keyword":
+                    candidates = backends.keyword.search(query_text, top_k=top_k)
+                else:
+                    raise NotImplementedError("Only 'vector' or 'keyword' source is implemented yet")
+
                 retrieved_items = [_to_retrieved(c, src.name) for c in candidates]
                 return [it.external_id for it in retrieved_items]
 
@@ -50,12 +55,13 @@ async def retrieve_ids(cfg: ScenarioConfig, store: AsyncQdrantStore, vec: list[f
                     for s in cfg.retrieval.sources
                 ]
 
-                for s in sources:
-                    if s.kind != "vector":
-                        raise NotImplementedError(f"Source kind '{s.kind}' is not implemented yet")
-
                 async def _query_source(s: SourceSpec):
-                    return await store.search(vec, top_k=top_k, params=s.params)
+                    if s.kind == "vector":
+                        return await backends.vector.search(vec, top_k=top_k, params=s.params)
+                    elif s.kind == "keyword":
+                        return backends.keyword.search(query_text, top_k=top_k)
+                    else:
+                        raise NotImplementedError("Only 'vector' or 'keyword' source is implemented yet")
 
                 tasks = [(s.name, (lambda s=s: _query_source(s))) for s in sources]
 
@@ -79,7 +85,5 @@ async def retrieve_ids(cfg: ScenarioConfig, store: AsyncQdrantStore, vec: list[f
                 return [it.external_id for it in merged]
 
             raise NotImplementedError(f"retrieval.strategy='{strategy}' is not implemented")
-    # except anyio.exceptions.TimeoutError:
-    #     raise StageTimeout("retrieval")
     except TimeoutError:
         raise StageTimeout("retrieval")

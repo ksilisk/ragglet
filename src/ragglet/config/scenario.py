@@ -82,7 +82,7 @@ class RetrievalSourceConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str
-    kind: Literal["vector", "keyword", "hybrid"] = "vector"
+    kind: Literal["vector", "keyword"] = "vector"
     weight: float = 1.0
     params: dict[str, Any] = Field(default_factory=dict)
 
