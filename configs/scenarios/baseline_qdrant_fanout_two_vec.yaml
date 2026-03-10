@@ -46,7 +46,7 @@ retrieval:
       params:
         k1: 1.3
   merge:
-    method: "rrf"
+    method: "weighted_sum"
     rrf_k: 60
     deduplicate: true
 rerank:

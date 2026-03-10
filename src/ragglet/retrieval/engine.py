@@ -5,7 +5,8 @@ import anyio
 from ragglet.config.scenario import ScenarioConfig
 from ragglet.core.errors import StageTimeout
 from ragglet.retrieval.backends import BackendRegistry
-from ragglet.retrieval.fanout_rrf import SourceSpec, RetrievedItem, rrf_merge, run_sources
+from ragglet.retrieval.merge import SourceSpec, RetrievedItem, rrf_merge, run_sources, interleave_merge, \
+    weighted_sum_merge
 
 
 def _to_retrieved(candidate, source_name: str) -> RetrievedItem:
@@ -61,7 +62,7 @@ async def retrieve_ids(cfg: ScenarioConfig, backends: BackendRegistry, query_tex
                     elif s.kind == "keyword":
                         return backends.keyword.search(query_text, top_k=top_k)
                     else:
-                        raise NotImplementedError("Only 'vector' or 'keyword' source is implemented yet")
+                        raise NotImplementedError("Only 'vector' or 'keyword' sources are implemented yet")
 
                 tasks = [(s.name, (lambda s=s: _query_source(s))) for s in sources]
 
@@ -74,14 +75,22 @@ async def retrieve_ids(cfg: ScenarioConfig, backends: BackendRegistry, query_tex
                 for s in sources:
                     weights[s.name] = s.weight
                     per_source_ranked[s.name] = [_to_retrieved(c, s.name) for c in res_map.get(s.name, [])]
-
-                merged = rrf_merge(
-                    per_source_ranked=per_source_ranked,
-                    weights=weights,
-                    rrf_k=cfg.retrieval.merge.rrf_k,
-                    top_k=top_k,
-                    deduplicate=cfg.retrieval.merge.deduplicate,
-                )
+                if cfg.retrieval.merge.method == "rrf":
+                    merged = rrf_merge(
+                        per_source_ranked=per_source_ranked,
+                        weights=weights,
+                        rrf_k=cfg.retrieval.merge.rrf_k,
+                        top_k=top_k,
+                        deduplicate=cfg.retrieval.merge.deduplicate,
+                    )
+                elif cfg.retrieval.merge.method == "interleave":
+                    merged = interleave_merge(per_source_ranked, weights, top_k,
+                                              deduplicate=cfg.retrieval.merge.deduplicate)
+                elif cfg.retrieval.merge.method == "weighted_sum":
+                    merged = weighted_sum_merge(per_source_ranked, weights, top_k,
+                                                deduplicate=cfg.retrieval.merge.deduplicate)
+                else:
+                    raise NotImplementedError("Only 'rrf' or 'interleave' merge methods are implemented yet")
                 return [it.external_id for it in merged]
 
             raise NotImplementedError(f"retrieval.strategy='{strategy}' is not implemented")
