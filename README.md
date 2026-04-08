@@ -58,3 +58,44 @@ Ragglet можно использовать как компактную эксп
 - основной поддерживаемый backend для экспериментов — `Qdrant`;
 - генерация ответа LLM и сервисный API пока не являются завершенными модулями;
 - проект ориентирован на исследование retrieval-контура, а не на промышленный production-ready пайплайн.
+
+## Архитектура
+
+```mermaid
+flowchart LR
+    U["Пользователь / CLI"] --> CLI["Typer CLI: ragglet"]
+    CLI --> IDX["index build"]
+    CLI --> BENCH["bench run"]
+    CLI --> SERVE["serve (stub)"]
+
+    IDX --> IPROF["Index profile YAML"]
+    IPROF --> PARSE["Парсинг корпуса"]
+    PARSE --> CHUNK["Чанкинг документов"]
+    CHUNK --> EMB["SentenceTransformer Embedder"]
+    EMB --> QI["Qdrant Indexer"]
+    QI --> QDRANT[("Qdrant")]
+
+    BENCH --> SCN["Scenario YAML"]
+    SCN --> DATA["JSONL dataset"]
+    SCN --> CACHE["CacheManager"]
+    SCN --> RET["Retrieval Engine"]
+
+    CACHE --> REDIS[("Redis embedding cache")]
+    CACHE --> LRU["LRU retrieval cache"]
+
+    DATA --> LOOP["Query loop"]
+    LOOP --> EMBQ["Embedding запроса"]
+    EMBQ --> RET
+
+    RET --> BACK["BackendRegistry"]
+    BACK --> VEC["Vector search"]
+    BACK --> KW["BM25 keyword search"]
+
+    VEC --> QDRANT
+    QDRANT --> KW
+
+    RET --> MERGE["Merge: RRF / weighted_sum / interleave"]
+    MERGE --> METRICS["Recall@K / MRR / latency / timeout / cache hit rate"]
+    METRICS --> RES["results/ artifacts"]
+
+```
