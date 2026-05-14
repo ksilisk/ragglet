@@ -56,7 +56,6 @@ cache:
   enabled: false
 
 metrics:
-  results_path: "results/{name}_{timestamp}.parquet"
   latency_steps: ["embed", "retrieve", "total"]
   percentiles: [50, 95, 99]
   quality:

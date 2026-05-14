@@ -75,7 +75,6 @@ cache:
     type: "memory_lru"
     size: 10000
 metrics:
-  results_path: results/{name}_{timestamp}.parquet
   latency_steps:
   - embed
   - retrieve

@@ -1,0 +1,845 @@
+# Ragglet configuration reference.
+# This file is documentation, not an executable config.
+# It describes schema-level options, current runtime support, and known conflicts.
+
+version: 1
+generated_for_project_state: "May 2026"
+
+status_legend:
+  implemented: "Validated by schema and used by runtime."
+  partial: "Validated and partly used, but behavior is incomplete or has caveats."
+  reserved: "Accepted by schema or documented for future work, but not executed."
+  schema_only: "Accepted by schema, but currently ignored by runtime."
+  broken_or_mismatch: "Known to produce wrong results, crash, or conflict with current files."
+  documentation_only: "Documented here for operators; not parsed by Ragglet code."
+
+source_files:
+  index_profile_schema: "src/ragglet/config/index_profile.py"
+  scenario_schema: "src/ragglet/config/scenario.py"
+  index_runtime: "src/ragglet/indexing/build_index.py"
+  bench_runtime: "src/ragglet/bench/run_scenario.py"
+  retrieval_runtime: "src/ragglet/retrieval/engine.py"
+  merge_runtime: "src/ragglet/retrieval/merge.py"
+  cache_runtime: "src/ragglet/cache/manager.py"
+  docker_compose: "docker/docker-compose.yaml"
+
+config_files:
+  index_profiles:
+    pattern: "configs/indexes/*.yaml"
+    current_examples:
+      - "configs/indexes/demo.yaml"
+    cli: "ragglet index build <profile.yaml>"
+    schema_model: "IndexProfileConfig"
+  scenarios:
+    pattern: "configs/scenarios/*.yaml"
+    current_examples:
+      - "configs/scenarios/baseline_qdrant.yaml"
+      - "configs/scenarios/baseline_qdrant_fanout_two_vec.yaml"
+    cli: "ragglet bench run <scenario.yaml>"
+    schema_model: "ScenarioConfig"
+  docker:
+    path: "docker/docker-compose.yaml"
+    cli: "docker compose -f docker/docker-compose.yaml --profile qdrant up -d qdrant redis"
+
+index_profile:
+  purpose: "Build or rebuild an offline retrieval index from a local corpus."
+  root:
+    id:
+      type: "string"
+      required: true
+      default: null
+      status: implemented
+      docs: "Human-readable profile identifier. Currently used for config identity only, not for artifact paths."
+    corpus:
+      type: "string path"
+      required: true
+      default: null
+      status: implemented
+      docs: "Directory scanned recursively for files to index."
+      runtime_behavior: "Every file under this directory is read as UTF-8 text with errors ignored."
+    parser:
+      type: "enum"
+      required: false
+      default: "plain_text"
+      allowed_values:
+        - "plain_text"
+      status: implemented
+      docs: "Parser type. Only plain text/markdown-style file reading exists."
+    chunking:
+      type: "object"
+      required: false
+      status: implemented
+      fields:
+        method:
+          type: "enum"
+          default: "recursive"
+          allowed_values:
+            - "recursive"
+          status: implemented
+          docs: "Character-based chunking. Despite the name, it does not split by semantic structure."
+        chunk_size:
+          type: "integer"
+          default: 800
+          constraints:
+            recommended: "> 0"
+            schema_enforced: false
+          status: implemented
+          docs: "Maximum chunk length in characters."
+        chunk_overlap:
+          type: "integer"
+          default: 120
+          constraints:
+            recommended: "0 <= chunk_overlap < chunk_size"
+            schema_enforced: false
+          status: partial
+          docs: "Overlap between adjacent chunks in characters."
+          runtime_behavior: "Step is max(1, chunk_size - chunk_overlap). If overlap >= size, the corpus is sliced with step 1."
+          current_repo_warning: "configs/indexes/demo.yaml currently sets chunk_size=100 and chunk_overlap=120, producing about 29307 chunks on the demo corpus instead of about 51 with 800/120."
+    embedding:
+      type: "object"
+      required: true
+      status: implemented
+      fields:
+        model:
+          type: "string"
+          default: null
+          status: implemented
+          docs: "SentenceTransformers model name passed to SentenceTransformer."
+          runtime_behavior: "Used for index embeddings and vector size probing."
+        normalize:
+          type: "boolean"
+          default: true
+          status: implemented
+          docs: "Passed as normalize_embeddings to SentenceTransformer.encode."
+        batch_size:
+          type: "integer"
+          default: 64
+          status: partial
+          docs: "Flush size for upsert batches."
+          runtime_behavior: "Index build flushes when batch_ids >= batch_size. The embedder itself clamps encode batch_size to min(64, len(texts))."
+    storage:
+      type: "object"
+      required: true
+      status: partial
+      fields:
+        type:
+          type: "enum"
+          default: "qdrant"
+          allowed_values:
+            - "qdrant"
+            - "pgvector"
+            - "milvus"
+            - "weaviate"
+          status: partial
+          docs: "Backend type."
+          runtime_behavior: "Only qdrant is implemented. Other values validate but raise NotImplementedError during index build."
+        endpoint:
+          type: "string"
+          default: null
+          status: implemented
+          docs: "Backend endpoint URL."
+        collection:
+          type: "string"
+          default: null
+          status: implemented
+          docs: "Collection/index name in the backend."
+    index_params:
+      type: "object"
+      required: false
+      status: partial
+      fields:
+        distance:
+          type: "enum"
+          default: "cosine"
+          allowed_values:
+            - "cosine"
+            - "dot"
+            - "euclid"
+          status: implemented
+          docs: "Qdrant vector distance."
+        hnsw:
+          type: "object"
+          status: implemented
+          fields:
+            m:
+              type: "integer"
+              default: 16
+              status: implemented
+              docs: "Qdrant HNSW m parameter."
+            ef_construct:
+              type: "integer"
+              default: 128
+              status: implemented
+              docs: "Qdrant HNSW ef_construct parameter."
+
+scenario:
+  purpose: "Run retrieval benchmarks over a JSONL query dataset."
+  root:
+    version:
+      type: "integer"
+      default: 1
+      status: implemented
+      docs: "Scenario schema version. No migration logic exists yet."
+    name:
+      type: "string"
+      required: true
+      status: implemented
+      docs: "Scenario name. Used in results/runs/<name>_<timestamp>/ and cache key signatures."
+    description:
+      type: "string|null"
+      default: null
+      status: documentation_only
+      docs: "Human-readable description. Not used by runtime."
+    tags:
+      type: "list[string]"
+      default: []
+      status: documentation_only
+      docs: "Human-readable tags. Not used by runtime."
+    seed:
+      type: "integer"
+      default: 42
+      status: implemented
+      docs: "Base seed for deterministic per-repeat shuffling."
+    timeouts:
+      type: "object"
+      status: partial
+      fields:
+        total_ms:
+          type: "integer"
+          default: 6000
+          status: partial
+          docs: "Per-query end-to-end timeout around embedding and retrieval."
+          caveat: "Embedding is synchronous SentenceTransformer work, so cancellation is not reliable until control returns to the event loop."
+        retrieval_ms:
+          type: "integer"
+          default: 1500
+          status: partial
+          docs: "Timeout around retrieval stage."
+          caveat: "Async Qdrant can be cancelled. Local BM25 is synchronous and may block cancellation."
+        rerank_ms:
+          type: "integer"
+          default: 800
+          status: reserved
+          docs: "Reserved; rerank stage is not implemented."
+        llm_ms:
+          type: "integer"
+          default: 3500
+          status: reserved
+          docs: "Reserved; generation stage is not implemented."
+    run:
+      type: "object"
+      status: implemented
+      fields:
+        repeats:
+          type: "integer"
+          default: 1
+          constraints:
+            schema_enforced: ">= 1"
+          status: implemented
+          docs: "Number of full dataset passes."
+        shuffle:
+          type: "boolean"
+          default: true
+          status: implemented
+          docs: "Shuffle query order for each repeat using seed-derived repeat seeds."
+        save_per_query:
+          type: "boolean"
+          default: true
+          status: implemented
+          docs: "Whether to save per-query files for each repeat."
+        artifacts_dir:
+          type: "string path"
+          default: "results/runs"
+          status: implemented
+          docs: "Base directory for run folders. Runtime writes to <artifacts_dir>/<scenario.name>_<utc_timestamp>/"
+    output:
+      type: "object"
+      status: partial
+      fields:
+        format:
+          type: "enum"
+          default: "parquet"
+          allowed_values:
+            - "parquet"
+            - "csv"
+            - "both"
+          status: implemented
+          docs: "Controls per-query output format only."
+          caveat: "summary.csv/json and summary.aggregate.csv/json are always written."
+        include_debug_fields:
+          type: "boolean"
+          default: false
+          status: schema_only
+          docs: "Accepted but currently ignored."
+    dataset:
+      type: "object"
+      status: implemented
+      fields:
+        id:
+          type: "string path"
+          required: true
+          status: implemented
+          docs: "JSONL dataset path."
+          caveat: "Docs mention registry keys, but runtime treats this as a filesystem path only."
+        limit:
+          type: "integer"
+          default: 2000
+          constraints:
+            schema_enforced: ">= 1"
+          status: implemented
+          docs: "Maximum number of non-empty JSONL rows to load."
+        query_field:
+          type: "string"
+          default: "question"
+          status: implemented
+          docs: "JSON field containing the query text."
+        truth_field:
+          type: "string"
+          default: "relevant"
+          status: implemented
+          docs: "JSON field containing relevant external_id values. String and list are supported."
+    storage:
+      type: "object"
+      status: partial
+      fields:
+        mode:
+          type: "enum"
+          default: "single"
+          allowed_values:
+            - "single"
+            - "sharded"
+            - "replicated"
+          status: schema_only
+          docs: "Accepted by schema, but routing/sharding/replication behavior is not implemented."
+        backend:
+          type: "object"
+          status: partial
+          fields:
+            type:
+              type: "enum"
+              allowed_values:
+                - "qdrant"
+                - "pgvector"
+                - "milvus"
+                - "weaviate"
+              status: partial
+              docs: "Retrieval backend type."
+              runtime_behavior: "Only qdrant is implemented. Other values validate but raise NotImplementedError."
+            endpoint:
+              type: "string"
+              status: implemented
+              docs: "Backend endpoint URL."
+            collection:
+              type: "string"
+              status: implemented
+              docs: "Backend collection name."
+    embedding:
+      type: "object"
+      status: implemented
+      fields:
+        model:
+          type: "string"
+          default: "all-MiniLM-L6-v2"
+          status: implemented
+          docs: "SentenceTransformers model for query embeddings."
+          conflict: "Must match the model used to build the index, otherwise vector quality is invalid. This is not enforced."
+        normalize:
+          type: "boolean"
+          default: true
+          status: implemented
+          docs: "Passed to SentenceTransformer.encode for query embeddings."
+          conflict: "Must match index_profile.embedding.normalize for comparable vector semantics. This is not enforced."
+    retrieval:
+      type: "object"
+      status: partial
+      fields:
+        strategy:
+          type: "enum"
+          default: "single"
+          allowed_values:
+            - "single"
+            - "fanout_merge"
+            - "cascade"
+          status: partial
+          docs: "Retrieval strategy."
+          runtime_behavior:
+            single: "Implemented for vector source only."
+            fanout_merge: "Implemented for vector and keyword sources."
+            cascade: "Accepted by schema but not implemented at runtime."
+        top_k:
+          type: "integer"
+          default: 30
+          constraints:
+            schema_enforced: ">= 1"
+          status: implemented
+          docs: "Number of retrieved ids returned after source query or merge."
+        async:
+          type: "boolean"
+          default: true
+          status: partial
+          docs: "Controls parallel vs sequential source execution for fanout_merge."
+          caveat: "Has no meaningful effect for single. Keyword BM25 is synchronous even in async fanout."
+        sources:
+          type: "list[object]"
+          default: []
+          status: partial
+          docs: "Source list. Required by schema when strategy is not single."
+          item_fields:
+            name:
+              type: "string"
+              required: true
+              status: implemented
+              docs: "Source name used in merge maps and cache signatures."
+            kind:
+              type: "enum"
+              default: "vector"
+              allowed_values:
+                - "vector"
+                - "keyword"
+              status: partial
+              docs: "Source kind."
+              runtime_behavior:
+                vector: "Uses AsyncQdrantStore.search."
+                keyword: "Uses in-memory BM25 built by exporting Qdrant payloads."
+              conflict: "keyword is not usable with strategy=single due to a runtime guard."
+            weight:
+              type: "float"
+              default: 1.0
+              status: implemented
+              docs: "Source weight used by rrf and weighted_sum. Interleave currently ignores weights unless called with weighted=true, which config cannot set."
+            params:
+              type: "map"
+              default: {}
+              status: partial
+              docs: "Source-specific parameters."
+              known_params:
+                vector:
+                  ef_search:
+                    type: "integer"
+                    status: implemented
+                    docs: "Mapped to Qdrant SearchParams.hnsw_ef."
+                keyword:
+                  k1:
+                    type: "float"
+                    default: 1.2
+                    status: implemented
+                    docs: "BM25 k1 parameter used when building the in-memory index."
+                  b:
+                    type: "float"
+                    default: 0.75
+                    status: implemented
+                    docs: "BM25 b parameter used when building the in-memory index."
+        merge:
+          type: "object"
+          status: partial
+          fields:
+            method:
+              type: "enum"
+              default: "rrf"
+              allowed_values:
+                - "rrf"
+                - "weighted_sum"
+                - "interleave"
+              status: implemented
+              docs: "Merge method for fanout_merge."
+              runtime_behavior:
+                rrf: "Implemented with rrf_k and weights."
+                weighted_sum: "Implemented with hardcoded minmax normalization per source."
+                interleave: "Implemented as simple round-robin; configured weights are ignored."
+            rrf_k:
+              type: "integer"
+              default: 60
+              status: implemented
+              docs: "RRF rank constant. Only used when method=rrf."
+            deduplicate:
+              type: "boolean"
+              default: true
+              status: partial
+              docs: "Deduplicate by external_id where applicable."
+              caveat: "weighted_sum already aggregates by external_id; deduplicate flag has no practical effect there."
+    rerank:
+      type: "object"
+      status: reserved
+      fields:
+        enabled:
+          type: "boolean"
+          default: false
+          status: schema_only
+          docs: "Accepted and validates model when true, but no rerank stage runs."
+        model:
+          type: "string|null"
+          default: null
+          status: schema_only
+          docs: "Required by schema when rerank.enabled=true."
+        input_top_k:
+          type: "integer"
+          default: 30
+          status: schema_only
+          docs: "Reserved."
+        output_top_n:
+          type: "integer"
+          default: 10
+          status: schema_only
+          docs: "Reserved."
+    context:
+      type: "object"
+      status: reserved
+      fields:
+        max_tokens:
+          type: "integer"
+          default: 1200
+          status: schema_only
+          docs: "Reserved for future context assembly."
+        policy:
+          type: "enum"
+          default: "top_n"
+          allowed_values:
+            - "top_n"
+            - "adaptive"
+            - "threshold"
+          status: schema_only
+          docs: "Reserved for future context assembly."
+        threshold:
+          type: "float"
+          default: 0.0
+          status: schema_only
+          docs: "Reserved for future context assembly."
+        include_metadata:
+          type: "boolean"
+          default: true
+          status: schema_only
+          docs: "Reserved for future context assembly."
+    generation:
+      type: "object"
+      status: reserved
+      fields:
+        enabled:
+          type: "boolean"
+          default: false
+          status: schema_only
+          docs: "Accepted and validates model when true, but no generation stage runs."
+        provider:
+          type: "string"
+          default: "openai_compatible"
+          status: schema_only
+          docs: "Reserved."
+        model:
+          type: "string|null"
+          default: null
+          status: schema_only
+          docs: "Required by schema when generation.enabled=true."
+        temperature:
+          type: "float"
+          default: 0.2
+          status: schema_only
+          docs: "Reserved."
+        max_output_tokens:
+          type: "integer"
+          default: 300
+          status: schema_only
+          docs: "Reserved."
+    cache:
+      type: "object"
+      status: partial
+      fields:
+        enabled:
+          type: "boolean"
+          default: false
+          status: implemented
+          docs: "Master switch for cache layer construction."
+        embedding:
+          type: "object|null"
+          default: null
+          status: partial
+          docs: "Redis embedding cache. Required by current validator when cache.enabled=true."
+          fields:
+            type:
+              type: "enum"
+              default: "redis"
+              allowed_values:
+                - "redis"
+              status: implemented
+            endpoint:
+              type: "string"
+              status: implemented
+              docs: "Redis URL."
+            ttl_seconds:
+              type: "integer"
+              default: 86400
+              status: implemented
+              docs: "Redis TTL for embedding vectors."
+        retrieval:
+          type: "object|null"
+          default: null
+          status: implemented
+          docs: "In-process LRU cache for retrieved id lists."
+          caveat: "Not persisted across CLI processes. It can hit across repeats inside the same scenario run."
+          fields:
+            type:
+              type: "enum"
+              default: "memory_lru"
+              allowed_values:
+                - "memory_lru"
+              status: implemented
+            size:
+              type: "integer"
+              default: 10000
+              status: implemented
+              docs: "Maximum number of retrieval entries."
+    metrics:
+      type: "object"
+      status: partial
+      fields:
+        latency_steps:
+          type: "list[string]"
+          default:
+            - "embed"
+            - "retrieve"
+            - "total"
+          status: schema_only
+          docs: "Accepted but ignored for summary selection."
+        percentiles:
+          type: "list[integer]"
+          default:
+            - 50
+            - 95
+            - 99
+          status: partial
+          docs: "Accepted, but runtime currently hardcodes lat_total_p50 and lat_total_p95."
+        quality:
+          type: "object"
+          status: implemented
+          fields:
+            recall_at_k:
+              type: "list[integer]"
+              default:
+                - 1
+                - 3
+                - 5
+                - 10
+                - 30
+              status: implemented
+              docs: "Recall@K columns to compute."
+            mrr_at_k:
+              type: "integer"
+              default: 30
+              status: implemented
+              docs: "Cutoff for MRR."
+
+runtime_support_matrix:
+  storage_backends:
+    qdrant:
+      index_build: implemented
+      bench_retrieval: implemented
+    pgvector:
+      index_build: reserved
+      bench_retrieval: reserved
+      note: "Schema accepts it, runtime raises NotImplementedError."
+    milvus:
+      index_build: reserved
+      bench_retrieval: reserved
+      note: "Schema accepts it, runtime raises NotImplementedError."
+    weaviate:
+      index_build: reserved
+      bench_retrieval: reserved
+      note: "Schema accepts it, runtime raises NotImplementedError."
+  retrieval_strategies:
+    single:
+      vector: implemented
+      keyword: broken_or_mismatch
+      note: "Docs imply keyword is allowed, but runtime rejects non-vector single source."
+    fanout_merge:
+      vector_vector: implemented
+      vector_keyword: implemented
+      keyword_only: partial
+      note: "Keyword backend is built from Qdrant payload export, so Qdrant is still required."
+    cascade:
+      status: reserved
+      note: "Accepted by schema, not implemented."
+  merge_methods:
+    rrf:
+      status: implemented
+      uses_weights: true
+      configurable_params:
+        - "rrf_k"
+        - "deduplicate"
+    weighted_sum:
+      status: partial
+      uses_weights: true
+      normalization: "hardcoded minmax"
+      note: "No scenario field exists to choose normalization."
+    interleave:
+      status: partial
+      uses_weights: false
+      note: "Code supports a weighted argument internally, but scenario config cannot enable it."
+  stages:
+    retrieval: implemented
+    rerank: reserved
+    context_assembly: reserved
+    generation: reserved
+    serve_api: reserved
+
+known_conflicts_and_gotchas:
+  - id: "chunk_overlap_must_be_less_than_chunk_size"
+    severity: high
+    applies_to:
+      - "index_profile.chunking.chunk_size"
+      - "index_profile.chunking.chunk_overlap"
+    condition: "chunk_overlap >= chunk_size"
+    current_repo_example: "configs/indexes/demo.yaml has chunk_size=100 and chunk_overlap=120."
+    effect: "Chunking advances by 1 character, causing huge indexes, unstable chunk ids, slow indexing, and noisy retrieval."
+    recommended_rule: "Require 0 <= chunk_overlap < chunk_size at schema validation time."
+  - id: "dataset_truth_must_match_payload_external_id"
+    severity: high
+    applies_to:
+      - "data/queries/*.jsonl"
+      - "index payload external_id"
+    current_repo_example: "q001 and q002 reference rag_overview_definition_and_pipeline.md#0, but the corpus file is rag_overview_definition_andipeline.md."
+    effect: "Recall/MRR are forced to 0 for those queries even when semantic retrieval is correct."
+    recommended_rule: "Validate every relevant[] external_id against the indexed corpus or a precomputed manifest."
+  - id: "single_keyword_validates_but_fails"
+    severity: medium
+    applies_to:
+      - "scenario.retrieval.strategy"
+      - "scenario.retrieval.sources[].kind"
+    condition: "strategy=single and first source kind=keyword"
+    effect: "Runtime raises NotImplementedError before calling keyword search."
+    recommended_rule: "Either implement keyword single retrieval or reject it in schema."
+  - id: "non_qdrant_backends_validate_but_fail"
+    severity: medium
+    applies_to:
+      - "index_profile.storage.type"
+      - "scenario.storage.backend.type"
+    condition: "type is pgvector, milvus, or weaviate"
+    effect: "Config validation passes, runtime raises NotImplementedError."
+    recommended_rule: "Mark as reserved in user docs or reject until implemented."
+  - id: "storage_mode_is_not_runtime_behavior"
+    severity: medium
+    applies_to:
+      - "scenario.storage.mode"
+    condition: "mode is sharded or replicated"
+    effect: "Validation passes, but no routing/replication behavior changes."
+    recommended_rule: "Reject non-single modes until routing policies are implemented."
+  - id: "rerank_and_generation_flags_do_not_execute_stages"
+    severity: medium
+    applies_to:
+      - "scenario.rerank.enabled"
+      - "scenario.generation.enabled"
+    condition: "enabled=true"
+    effect: "Schema requires model, but runtime still only performs retrieval benchmark."
+    recommended_rule: "Reject enabled=true or implement the stages."
+  - id: "cache_retrieval_only_not_allowed"
+    severity: low
+    applies_to:
+      - "scenario.cache.enabled"
+      - "scenario.cache.embedding"
+      - "scenario.cache.retrieval"
+    condition: "cache.enabled=true and cache.embedding is missing"
+    effect: "Schema rejects config, even if only retrieval LRU cache is desired."
+    recommended_rule: "Require at least one cache layer, not specifically embedding."
+  - id: "query_embedding_must_match_index_embedding"
+    severity: high
+    applies_to:
+      - "index_profile.embedding"
+      - "scenario.embedding"
+    effect: "A scenario can query with a different model or normalization than the index was built with, producing invalid benchmark results."
+    recommended_rule: "Store embedding model metadata in index payload/collection and verify before bench run."
+  - id: "qdrant_client_not_closed_after_bench"
+    severity: low
+    applies_to:
+      - "scenario.storage.backend"
+    effect: "AsyncQdrantStore.close exists but run_scenario only closes caches."
+    recommended_rule: "Close the async store in run_scenario finally block."
+  - id: "docker_app_profile_references_missing_dockerfile"
+    severity: medium
+    applies_to:
+      - "docker/docker-compose.yaml"
+    condition: "docker compose --profile app build/run"
+    effect: "docker/Dockerfile is referenced but not present."
+    recommended_rule: "Add Dockerfile or remove/mark app profile as reserved."
+
+minimal_working_configs:
+  index_profile_qdrant:
+    id: "demo_chunks_v1"
+    corpus: "datasets/demo/corpus"
+    parser: "plain_text"
+    chunking:
+      method: "recursive"
+      chunk_size: 800
+      chunk_overlap: 120
+    embedding:
+      model: "all-MiniLM-L6-v2"
+      normalize: true
+      batch_size: 64
+    storage:
+      type: "qdrant"
+      endpoint: "http://localhost:6333"
+      collection: "chunks_v1"
+    index_params:
+      distance: "cosine"
+      hnsw:
+        m: 16
+        ef_construct: 128
+  scenario_single_vector_qdrant:
+    version: 1
+    name: "baseline_qdrant"
+    seed: 42
+    run:
+      repeats: 2
+      shuffle: true
+      save_per_query: true
+      artifacts_dir: "results/runs"
+    output:
+      format: "csv"
+      include_debug_fields: false
+    timeouts:
+      total_ms: 6000
+      retrieval_ms: 1500
+      rerank_ms: 800
+      llm_ms: 3500
+    dataset:
+      id: "data/queries/baseline_qdrant.jsonl"
+      limit: 2000
+      query_field: "question"
+      truth_field: "relevant"
+    storage:
+      mode: "single"
+      backend:
+        type: "qdrant"
+        endpoint: "http://localhost:6333"
+        collection: "chunks_v1"
+    embedding:
+      model: "all-MiniLM-L6-v2"
+      normalize: true
+    retrieval:
+      strategy: "single"
+      top_k: 30
+      async: true
+      sources: []
+      merge:
+        method: "rrf"
+        rrf_k: 60
+        deduplicate: true
+    rerank:
+      enabled: false
+    generation:
+      enabled: false
+    cache:
+      enabled: false
+    metrics:
+      latency_steps:
+        - "embed"
+        - "retrieve"
+        - "total"
+      percentiles:
+        - 50
+        - 95
+        - 99
+      quality:
+        recall_at_k:
+          - 1
+          - 3
+          - 5
+          - 10
+          - 30
+        mrr_at_k: 30

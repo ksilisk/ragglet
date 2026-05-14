@@ -202,7 +202,6 @@ class MetricsQualityConfig(BaseModel):
 class MetricsConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    results_path: str = "results/{name}_{timestamp}.parquet"
     latency_steps: list[str] = Field(default_factory=lambda: ["embed", "retrieve", "total"])
     percentiles: list[int] = Field(default_factory=lambda: [50, 95, 99])
     quality: MetricsQualityConfig = Field(default_factory=MetricsQualityConfig)
