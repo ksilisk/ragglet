@@ -203,6 +203,16 @@ class MetricsConfig(BaseModel):
     percentiles: list[int] = Field(default_factory=lambda: [50, 95, 99])
     quality: MetricsQualityConfig = Field(default_factory=MetricsQualityConfig)
 
+    @field_validator("percentiles")
+    @classmethod
+    def _percentiles_in_range(cls, v: list[int]) -> list[int]:
+        if not v:
+            raise ValueError("metrics.percentiles must contain at least one value")
+        invalid = [p for p in v if p < 0 or p > 100]
+        if invalid:
+            raise ValueError("metrics.percentiles values must be between 0 and 100")
+        return v
+
 
 # -----------------------
 # Root config

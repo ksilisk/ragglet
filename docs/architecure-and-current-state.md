@@ -93,7 +93,7 @@ Key sections:
   - retrieval LRU is per-process; hit rate across separate CLI runs is expected to be 0 unless repeats>1 or queries repeat.
 - `metrics`:
   - `quality.recall_at_k`, `quality.mrr_at_k`
-  - `percentiles` (partially integrated depending on current code)
+  - `percentiles` from YAML for emitted latency fields
   - step latency fields measured in per-query table (embed/retrieve/total)
   - `timed_out`, `timeout_stage` fields are recorded per-query; summary stores timeout rates/cnts.
 ### index_profile.yaml
@@ -211,7 +211,7 @@ What is implemented today (core)
 
 * Recall@k, MRR@k
 * latency step times (lat_embed_ms, lat_retrieve_ms, lat_total_ms)
-* percentiles and breakdown are partly implemented / being improved
+* configurable latency percentiles from YAML for emitted latency steps (embed/retrieve/total)
 
 ⸻
 
@@ -250,5 +250,5 @@ Notes from recent debugging
 Desired next tasks (high priority)
 
 * Implement merge.method=interleave and merge.method=weighted_sum with normalization.
-* Improve metrics export: configurable percentiles per step from YAML.
+* Add a separate merge latency timer if merge-level percentiles are needed.
 * Implement storage.mode=sharded using fanout across shard backends + merge.

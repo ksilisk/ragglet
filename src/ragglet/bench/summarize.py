@@ -5,6 +5,27 @@ import pandas as pd
 from ragglet.config.scenario import ScenarioConfig
 
 
+_LATENCY_COLUMNS = {
+    "embed": "lat_embed_ms",
+    "retrieve": "lat_retrieve_ms",
+    "total": "lat_total_ms",
+    "merge": "lat_merge_ms",
+}
+
+
+def _latency_percentiles(cfg: ScenarioConfig, df: pd.DataFrame) -> dict[str, float]:
+    out: dict[str, float] = {}
+    for step in cfg.metrics.latency_steps:
+        col = _LATENCY_COLUMNS.get(step)
+        if col is None or col not in df.columns:
+            continue
+
+        for percentile in cfg.metrics.percentiles:
+            key = f"lat_{step}_p{percentile}"
+            out[key] = float(df[col].quantile(percentile / 100.0)) if len(df) else 0.0
+    return out
+
+
 def summarize_repeat(cfg: ScenarioConfig, df: pd.DataFrame) -> dict[str, Any]:
     n = int(len(df))
 
@@ -29,8 +50,7 @@ def summarize_repeat(cfg: ScenarioConfig, df: pd.DataFrame) -> dict[str, Any]:
         "scenario": cfg.name,
         "n": int(len(df)),
         "mrr_mean": float(df["mrr"].mean()) if len(df) else 0.0,
-        "lat_total_p50": float(df["lat_total_ms"].quantile(0.50)) if len(df) else 0.0,
-        "lat_total_p95": float(df["lat_total_ms"].quantile(0.95)) if len(df) else 0.0,
+        **_latency_percentiles(cfg, df),
         "emb_hit_rate": float(df["emb_hit_rate"].mean()) if len(df) else 0.0,
         "ret_hit_rate": float(df["ret_hit_rate"].mean()) if len(df) else 0.0,
         "timeout_count": timed_out_count,

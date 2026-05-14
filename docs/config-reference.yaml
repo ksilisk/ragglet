@@ -585,7 +585,7 @@ scenario:
               docs: "Maximum number of retrieval entries."
     metrics:
       type: "object"
-      status: partial
+      status: implemented
       fields:
         latency_steps:
           type: "list[string]"
@@ -593,16 +593,18 @@ scenario:
             - "embed"
             - "retrieve"
             - "total"
-          status: schema_only
-          docs: "Accepted but ignored for summary selection."
+          status: implemented
+          docs: "Latency steps to summarize. Runtime currently emits lat_embed_ms, lat_retrieve_ms, and lat_total_ms; merge is reserved until a separate merge timer exists."
         percentiles:
           type: "list[integer]"
           default:
             - 50
             - 95
             - 99
-          status: partial
-          docs: "Accepted, but runtime currently hardcodes lat_total_p50 and lat_total_p95."
+          constraints:
+            schema_enforced: "non-empty list, each value between 0 and 100"
+          status: implemented
+          docs: "Percentiles computed for each configured latency step with an existing lat_<step>_ms column. Output keys use lat_<step>_p<percentile>, for example lat_total_p99."
         quality:
           type: "object"
           status: implemented
