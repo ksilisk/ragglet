@@ -543,12 +543,12 @@ scenario:
           type: "boolean"
           default: false
           status: implemented
-          docs: "Master switch for cache layer construction."
+          docs: "Master switch for cache layer construction. When true, at least one layer must be configured: embedding or retrieval."
         embedding:
           type: "object|null"
           default: null
           status: partial
-          docs: "Redis embedding cache. Required by current validator when cache.enabled=true."
+          docs: "Redis embedding cache. Optional when cache.enabled=true if another cache layer is configured."
           fields:
             type:
               type: "enum"
@@ -724,15 +724,6 @@ known_conflicts_and_gotchas:
     condition: "enabled=true"
     effect: "Schema requires model, but runtime still only performs retrieval benchmark."
     recommended_rule: "Reject enabled=true or implement the stages."
-  - id: "cache_retrieval_only_not_allowed"
-    severity: low
-    applies_to:
-      - "scenario.cache.enabled"
-      - "scenario.cache.embedding"
-      - "scenario.cache.retrieval"
-    condition: "cache.enabled=true and cache.embedding is missing"
-    effect: "Schema rejects config, even if only retrieval LRU cache is desired."
-    recommended_rule: "Require at least one cache layer, not specifically embedding."
   - id: "query_embedding_must_match_index_embedding"
     severity: high
     applies_to:

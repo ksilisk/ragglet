@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field, ConfigDict, field_validator
+from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator
 
 
 # -----------------------
@@ -182,14 +182,11 @@ class CacheConfig(BaseModel):
     embedding: CacheEmbeddingConfig | None = None
     retrieval: CacheRetrievalConfig | None = None
 
-    @field_validator("embedding")
-    @classmethod
-    def _embedding_required_if_enabled(cls, v: CacheEmbeddingConfig | None, info):
-        # Optional: enforce if cache enabled
-        if info.data.get("enabled") and v is None:
-            # Not strictly required, but helps keep configs meaningful
-            raise ValueError("cache.embedding must be set when cache.enabled=true (at least one layer)")
-        return v
+    @model_validator(mode="after")
+    def _at_least_one_layer_if_enabled(self) -> "CacheConfig":
+        if self.enabled and self.embedding is None and self.retrieval is None:
+            raise ValueError("At least one cache layer must be set when cache.enabled=true")
+        return self
 
 
 class MetricsQualityConfig(BaseModel):
