@@ -69,3 +69,4 @@ async def run_scenario(cfg: ScenarioConfig) -> dict:
 
     finally:
         await caches.close()
+        await async_store.close()
