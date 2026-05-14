@@ -182,7 +182,7 @@ What is implemented today (core)
 
 ✅ Retrieval strategies:
 
-* single: one source (vector or keyword)
+* single: one vector source (keyword single retrieval is rejected by schema as not implemented yet)
 * fanout_merge: multi-source, async or sequential based on retrieval.async
     * sources can be mixed vector + keyword => hybrid retrieval
 * merge: rrf with weights + deduplicate by external_id

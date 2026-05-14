@@ -360,7 +360,7 @@ scenario:
           status: partial
           docs: "Retrieval strategy."
           runtime_behavior:
-            single: "Implemented for vector source only."
+            single: "Implemented for vector source only. Keyword single retrieval is rejected by schema as not implemented yet."
             fanout_merge: "Implemented for vector and keyword sources."
             cascade: "Accepted by schema but not implemented at runtime."
         top_k:
@@ -398,7 +398,7 @@ scenario:
               runtime_behavior:
                 vector: "Uses AsyncQdrantStore.search."
                 keyword: "Uses in-memory BM25 built by exporting Qdrant payloads."
-              conflict: "keyword is not usable with strategy=single due to a runtime guard."
+              conflict: "keyword with strategy=single is rejected by schema; keyword is currently supported only in fanout_merge."
             weight:
               type: "float"
               default: 1.0
@@ -645,8 +645,8 @@ runtime_support_matrix:
   retrieval_strategies:
     single:
       vector: implemented
-      keyword: broken_or_mismatch
-      note: "Docs imply keyword is allowed, but runtime rejects non-vector single source."
+      keyword: reserved
+      note: "Keyword single retrieval is rejected by schema as not implemented yet."
     fanout_merge:
       vector_vector: implemented
       vector_keyword: implemented
@@ -695,14 +695,6 @@ known_conflicts_and_gotchas:
     current_repo_example: "q001 and q002 reference rag_overview_definition_and_pipeline.md#0, but the corpus file is rag_overview_definition_andipeline.md."
     effect: "Recall/MRR are forced to 0 for those queries even when semantic retrieval is correct."
     recommended_rule: "Validate every relevant[] external_id against the indexed corpus or a precomputed manifest."
-  - id: "single_keyword_validates_but_fails"
-    severity: medium
-    applies_to:
-      - "scenario.retrieval.strategy"
-      - "scenario.retrieval.sources[].kind"
-    condition: "strategy=single and first source kind=keyword"
-    effect: "Runtime raises NotImplementedError before calling keyword search."
-    recommended_rule: "Either implement keyword single retrieval or reject it in schema."
   - id: "non_qdrant_backends_validate_but_fail"
     severity: medium
     applies_to:

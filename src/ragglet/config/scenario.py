@@ -117,6 +117,15 @@ class RetrievalConfig(BaseModel):
             raise ValueError("retrieval.sources must be provided when strategy != 'single'")
         return v
 
+    @model_validator(mode="after")
+    def _single_keyword_not_supported(self) -> "RetrievalConfig":
+        if self.strategy == "single" and any(s.kind == "keyword" for s in self.sources):
+            raise ValueError(
+                "retrieval.strategy='single' supports only vector sources; "
+                "keyword single retrieval is not implemented yet"
+            )
+        return self
+
 
 class RerankConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
