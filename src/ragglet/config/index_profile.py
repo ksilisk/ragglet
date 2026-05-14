@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
@@ -18,8 +18,14 @@ class ChunkingConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     method: Literal["recursive"] = "recursive"
-    chunk_size: int = 800
-    chunk_overlap: int = 120
+    chunk_size: int = Field(800, gt=0)
+    chunk_overlap: int = Field(120, ge=0)
+
+    @model_validator(mode="after")
+    def _validate_overlap(self) -> "ChunkingConfig":
+        if self.chunk_overlap >= self.chunk_size:
+            raise ValueError("chunk_overlap must be less than chunk_size")
+        return self
 
 
 class EmbeddingConfig(BaseModel):

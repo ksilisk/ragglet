@@ -81,20 +81,17 @@ index_profile:
           type: "integer"
           default: 800
           constraints:
-            recommended: "> 0"
-            schema_enforced: false
+            schema_enforced: "> 0"
           status: implemented
           docs: "Maximum chunk length in characters."
         chunk_overlap:
           type: "integer"
           default: 120
           constraints:
-            recommended: "0 <= chunk_overlap < chunk_size"
-            schema_enforced: false
-          status: partial
+            schema_enforced: "0 <= chunk_overlap < chunk_size"
+          status: implemented
           docs: "Overlap between adjacent chunks in characters."
-          runtime_behavior: "Step is max(1, chunk_size - chunk_overlap). If overlap >= size, the corpus is sliced with step 1."
-          current_repo_warning: "configs/indexes/demo.yaml currently sets chunk_size=100 and chunk_overlap=120, producing about 29307 chunks on the demo corpus instead of about 51 with 800/120."
+          runtime_behavior: "Runtime step is chunk_size - chunk_overlap; invalid overlap values are rejected by schema."
     embedding:
       type: "object"
       required: true
@@ -686,9 +683,8 @@ known_conflicts_and_gotchas:
       - "index_profile.chunking.chunk_size"
       - "index_profile.chunking.chunk_overlap"
     condition: "chunk_overlap >= chunk_size"
-    current_repo_example: "configs/indexes/demo.yaml has chunk_size=100 and chunk_overlap=120."
-    effect: "Chunking advances by 1 character, causing huge indexes, unstable chunk ids, slow indexing, and noisy retrieval."
-    recommended_rule: "Require 0 <= chunk_overlap < chunk_size at schema validation time."
+    effect: "Schema rejects the profile before indexing to prevent step=1 chunking, huge indexes, unstable chunk ids, slow indexing, and noisy retrieval."
+    recommended_rule: "Implemented in IndexProfileConfig."
   - id: "dataset_truth_must_match_payload_external_id"
     severity: high
     applies_to:

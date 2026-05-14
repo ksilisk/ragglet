@@ -3,7 +3,7 @@ corpus: "datasets/demo/corpus"
 parser: "plain_text"
 chunking:
   method: "recursive"
-  chunk_size: 100
+  chunk_size: 800
   chunk_overlap: 120
 embedding:
   model: "all-MiniLM-L6-v2"
