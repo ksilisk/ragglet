@@ -26,6 +26,7 @@ Suggested / partially implemented modular split:
   - chunk text (simple recursive chunker by chars)
   - embed chunks
   - create Qdrant collection + upsert points
+  - store Ragglet index metadata on the Qdrant collection
   Important: Qdrant point IDs must be UUID or uint64. We use deterministic UUIDv5 for point_id and store a human-readable `external_id` in payload.
 - `src/ragglet/stores/`
   - `AsyncQdrantStore` (async client) for vector search + scrolling payloads
@@ -180,6 +181,7 @@ What is implemented today (core)
 * embedding
 * collection recreate + upsert (UUID point IDs)
 * payload includes external_id
+* collection metadata includes index_profile_id, embedding model/normalize, and chunking params
 
 ✅ Retrieval strategies:
 

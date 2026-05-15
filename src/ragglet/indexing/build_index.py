@@ -9,6 +9,7 @@ from rich.progress import track
 from ragglet.config.index_profile import IndexProfileConfig
 from ragglet.indexing.parsers import parse_plain_text
 from ragglet.indexing.chunking import recursive_chunk
+from ragglet.indexing.metadata import build_index_metadata
 from ragglet.modules.embedders.st_embedder import SentenceTransformerEmbedder
 from ragglet.indexing.qdrant_indexer import QdrantIndexSpec, QdrantIndexer
 
@@ -55,6 +56,7 @@ def build_index(cfg: IndexProfileConfig) -> None:
         distance=cfg.index_params.distance,
         hnsw_m=cfg.index_params.hnsw.m,
         hnsw_ef_construct=cfg.index_params.hnsw.ef_construct,
+        metadata=build_index_metadata(cfg),
     )
     q = QdrantIndexer(spec)
     q.recreate_collection()

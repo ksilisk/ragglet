@@ -79,7 +79,7 @@ docker compose -f docker/docker-compose.yaml ps
 uv run ragglet index build configs/indexes/demo.yaml
 ```
 
-Важно: `embedding.model` и `embedding.normalize` в index profile должны совпадать с настройками scenario, которым потом запускается benchmark. Сейчас это не проверяется автоматически.
+Важно: `embedding.model` и `embedding.normalize` в index profile должны совпадать с настройками scenario, которым потом запускается benchmark. `index build` сохраняет эти параметры в metadata Qdrant collection, а `bench run` проверяет их перед запуском и падает с понятной ошибкой при несовпадении.
 
 ### 4. Запустить benchmark
 

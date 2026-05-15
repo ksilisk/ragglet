@@ -40,6 +40,10 @@ class AsyncQdrantStore:
     async def close(self) -> None:
         await self.client.close()
 
+    async def collection_metadata(self) -> dict[str, Any] | None:
+        info = await self.client.get_collection(self.collection)
+        return info.config.metadata
+
     async def scroll_payloads(self, limit: int = 256, offset=None, with_payload: Any = True):
         res = await self.client.scroll(
             collection_name=self.collection,

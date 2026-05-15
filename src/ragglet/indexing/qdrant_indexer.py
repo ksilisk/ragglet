@@ -22,6 +22,7 @@ class QdrantIndexSpec:
     distance: str
     hnsw_m: int
     hnsw_ef_construct: int
+    metadata: dict[str, Any] | None = None
 
 
 class QdrantIndexer:
@@ -45,6 +46,7 @@ class QdrantIndexer:
                 m=self.spec.hnsw_m,
                 ef_construct=self.spec.hnsw_ef_construct,
             ),
+            metadata=self.spec.metadata,
         )
 
     def upsert(self, ids: list[str], vectors: list[list[float]], payloads: list[dict[str, Any]]) -> None:

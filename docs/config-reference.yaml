@@ -340,13 +340,13 @@ scenario:
           default: "all-MiniLM-L6-v2"
           status: implemented
           docs: "SentenceTransformers model for query embeddings."
-          conflict: "Must match the model used to build the index, otherwise vector quality is invalid. This is not enforced."
+          conflict: "Must match the model used to build the index. For Qdrant, bench run validates this against collection metadata."
         normalize:
           type: "boolean"
           default: true
           status: implemented
           docs: "Passed to SentenceTransformer.encode for query embeddings."
-          conflict: "Must match index_profile.embedding.normalize for comparable vector semantics. This is not enforced."
+          conflict: "Must match index_profile.embedding.normalize. For Qdrant, bench run validates this against collection metadata."
     retrieval:
       type: "object"
       status: partial
@@ -703,13 +703,6 @@ known_conflicts_and_gotchas:
     condition: "enabled=true"
     effect: "Schema requires model, but runtime still only performs retrieval benchmark."
     recommended_rule: "Reject enabled=true or implement the stages."
-  - id: "query_embedding_must_match_index_embedding"
-    severity: high
-    applies_to:
-      - "index_profile.embedding"
-      - "scenario.embedding"
-    effect: "A scenario can query with a different model or normalization than the index was built with, producing invalid benchmark results."
-    recommended_rule: "Store embedding model metadata in index payload/collection and verify before bench run."
   - id: "docker_app_profile_references_missing_dockerfile"
     severity: medium
     applies_to:

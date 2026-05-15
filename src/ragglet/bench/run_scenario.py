@@ -11,30 +11,35 @@ from ragglet.bench.query_loop import run_queries_once
 from ragglet.bench.summarize import summarize_repeat, aggregate_over_repeats
 from ragglet.cache.manager import CacheManager
 from ragglet.config.scenario import ScenarioConfig
+from ragglet.indexing.metadata import validate_index_metadata_for_scenario
 from ragglet.modules.embedders.st_embedder import SentenceTransformerEmbedder
 from ragglet.retrieval.backends import BackendRegistry
 from ragglet.stores.qdrant_store_async import AsyncQdrantStore
 
 
 async def run_scenario(cfg: ScenarioConfig) -> dict:
-    paths = make_artifact_paths(cfg.run.artifacts_dir, cfg.name)
-    save_config_snapshot(paths.run_dir, cfg)
-
-    items = load_jsonl_dataset(Path(cfg.dataset.id), cfg.dataset.query_field, cfg.dataset.truth_field,
-                               cfg.dataset.limit)
-
     if cfg.storage.backend.type != "qdrant":
         raise NotImplementedError("Only qdrant backend is implemented in the first iteration")
 
     async_store = AsyncQdrantStore(cfg.storage.backend.endpoint, cfg.storage.backend.collection)
-    backends = await BackendRegistry.build(cfg, async_store)
-    embedder = SentenceTransformerEmbedder(cfg.embedding.model, normalize=cfg.embedding.normalize)
-    caches = CacheManager(cfg)
-
-    all_summaries: list[dict] = []
-    base_rng = random.Random(cfg.seed)
+    caches: CacheManager | None = None
 
     try:
+        validate_index_metadata_for_scenario(await async_store.collection_metadata(), cfg)
+
+        paths = make_artifact_paths(cfg.run.artifacts_dir, cfg.name)
+        save_config_snapshot(paths.run_dir, cfg)
+
+        items = load_jsonl_dataset(Path(cfg.dataset.id), cfg.dataset.query_field, cfg.dataset.truth_field,
+                                   cfg.dataset.limit)
+
+        backends = await BackendRegistry.build(cfg, async_store)
+        embedder = SentenceTransformerEmbedder(cfg.embedding.model, normalize=cfg.embedding.normalize)
+        caches = CacheManager(cfg)
+
+        all_summaries: list[dict] = []
+        base_rng = random.Random(cfg.seed)
+
         for r in range(cfg.run.repeats):
             run_items = list(items)
             if cfg.run.shuffle:
@@ -68,5 +73,6 @@ async def run_scenario(cfg: ScenarioConfig) -> dict:
         return {"summary": agg, "run_dir": str(paths.run_dir), "repeats": all_summaries}
 
     finally:
-        await caches.close()
+        if caches is not None:
+            await caches.close()
         await async_store.close()

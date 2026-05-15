@@ -7,6 +7,7 @@ import anyio
 from ragglet.config.scenario import load_scenario
 from ragglet.bench.run_scenario import run_scenario
 from ragglet.bench.validate_dataset import validate_scenario_dataset
+from ragglet.indexing.metadata import IndexMetadataError
 
 bench_app = typer.Typer(help="Run benchmarks and evaluate scenarios.")
 
@@ -14,7 +15,11 @@ bench_app = typer.Typer(help="Run benchmarks and evaluate scenarios.")
 @bench_app.command("run")
 def run(scenario: Path = typer.Argument(..., exists=True, dir_okay=False)) -> None:
     cfg = load_scenario(scenario)
-    res = anyio.run(run_scenario, cfg)
+    try:
+        res = anyio.run(run_scenario, cfg)
+    except IndexMetadataError as e:
+        rprint(f"[bold red]Index metadata check failed[/bold red]: {e}")
+        raise typer.Exit(2) from e
     rprint("[bold green]Done[/bold green]")
     rprint(res["summary"])
     rprint(f"Artifacts: {res['run_dir']}")
