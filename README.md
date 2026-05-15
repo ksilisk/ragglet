@@ -83,6 +83,14 @@ uv run ragglet index build configs/indexes/demo.yaml
 
 ### 4. Запустить benchmark
 
+Перед запуском эксперимента можно проверить, что `relevant[]` из dataset действительно существуют в payload уже собранного индекса:
+
+```bash
+uv run ragglet bench validate configs/scenarios/baseline_qdrant.yaml
+```
+
+Команда делает легкий preflight: читает JSONL, забирает из Qdrant только payload-поле `external_id` и сравнивает строки. Embeddings и retrieval при этом не запускаются.
+
 Базовый сценарий: один vector source, без кэша.
 
 ```bash
@@ -143,6 +151,7 @@ docs/config-reference.yaml
 uv run ragglet --help
 uv run ragglet index --help
 uv run ragglet bench --help
+uv run ragglet bench validate configs/scenarios/baseline_qdrant.yaml
 ```
 
 Остановить сервисы:

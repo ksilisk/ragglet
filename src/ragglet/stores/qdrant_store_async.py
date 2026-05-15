@@ -40,12 +40,12 @@ class AsyncQdrantStore:
     async def close(self) -> None:
         await self.client.close()
 
-    async def scroll_payloads(self, limit: int = 256, offset=None):
+    async def scroll_payloads(self, limit: int = 256, offset=None, with_payload: Any = True):
         res = await self.client.scroll(
             collection_name=self.collection,
             limit=limit,
             offset=offset,
-            with_payload=True,
+            with_payload=with_payload,
             with_vectors=False,
         )
         points, next_offset = res

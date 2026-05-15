@@ -40,6 +40,7 @@ Suggested / partially implemented modular split:
   - cache manager (optional) to unify stats + get/set
 - `src/ragglet/bench/`
   - dataset loader: JSONL (`load_jsonl_dataset`)
+  - dataset/index validation: compare JSONL relevant[] ids with indexed payload external_id values
   - metrics: Recall@k / MRR@k
   - query loop: run per-query (embed -> retrieval -> metrics) and collect per-query rows
   - summarize: per-repeat summary + aggregate over repeats

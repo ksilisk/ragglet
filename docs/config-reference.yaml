@@ -36,6 +36,7 @@ config_files:
       - "configs/scenarios/baseline_qdrant.yaml"
       - "configs/scenarios/baseline_qdrant_fanout_two_vec.yaml"
     cli: "ragglet bench run <scenario.yaml>"
+    validation_cli: "ragglet bench validate <scenario.yaml>"
     schema_model: "ScenarioConfig"
   docker:
     path: "docker/docker-compose.yaml"
@@ -679,22 +680,6 @@ runtime_support_matrix:
     serve_api: reserved
 
 known_conflicts_and_gotchas:
-  - id: "chunk_overlap_must_be_less_than_chunk_size"
-    severity: high
-    applies_to:
-      - "index_profile.chunking.chunk_size"
-      - "index_profile.chunking.chunk_overlap"
-    condition: "chunk_overlap >= chunk_size"
-    effect: "Schema rejects the profile before indexing to prevent step=1 chunking, huge indexes, unstable chunk ids, slow indexing, and noisy retrieval."
-    recommended_rule: "Implemented in IndexProfileConfig."
-  - id: "dataset_truth_must_match_payload_external_id"
-    severity: high
-    applies_to:
-      - "data/queries/*.jsonl"
-      - "index payload external_id"
-    current_repo_example: "q001 and q002 reference rag_overview_definition_and_pipeline.md#0, but the corpus file is rag_overview_definition_andipeline.md."
-    effect: "Recall/MRR are forced to 0 for those queries even when semantic retrieval is correct."
-    recommended_rule: "Validate every relevant[] external_id against the indexed corpus or a precomputed manifest."
   - id: "non_qdrant_backends_validate_but_fail"
     severity: medium
     applies_to:
@@ -725,12 +710,6 @@ known_conflicts_and_gotchas:
       - "scenario.embedding"
     effect: "A scenario can query with a different model or normalization than the index was built with, producing invalid benchmark results."
     recommended_rule: "Store embedding model metadata in index payload/collection and verify before bench run."
-  - id: "qdrant_client_not_closed_after_bench"
-    severity: low
-    applies_to:
-      - "scenario.storage.backend"
-    effect: "AsyncQdrantStore.close exists but run_scenario only closes caches."
-    recommended_rule: "Close the async store in run_scenario finally block."
   - id: "docker_app_profile_references_missing_dockerfile"
     severity: medium
     applies_to:
