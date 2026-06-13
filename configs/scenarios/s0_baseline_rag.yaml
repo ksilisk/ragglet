@@ -1,0 +1,85 @@
+# S0 — Baseline RAG / retrieval baseline.
+# Текущая схема поддерживает retrieval benchmark, без полноценной generation stage.
+
+version: 1
+name: "s0_baseline_rag"
+description: "S0: sequential single-source vector retrieval baseline; no rerank, no adaptive context, no cache."
+tags: ["s0", "baseline", "single-vector"]
+seed: 42
+
+run:
+  repeats: 5
+  shuffle: true
+  save_per_query: true
+  artifacts_dir: "results/runs"
+
+output:
+  format: "both"
+  include_debug_fields: true
+
+dataset:
+  id: "data/queries/truth_manifest.jsonl"
+  limit: 2000
+  query_field: "question"
+  truth_field: "relevant"
+
+storage:
+  mode: "single"
+  backend:
+    type: "qdrant"
+    endpoint: "http://localhost:6333"
+    collection: "chunks_v1"
+
+embedding:
+  model: "all-MiniLM-L6-v2"
+  normalize: true
+
+retrieval:
+  strategy: "single"
+  top_k: 30
+  async: false
+  sources:
+    - name: "qdrant_vector"
+      kind: "vector"
+      weight: 1.0
+      params:
+        ef_search: 64
+  merge:
+    method: "rrf"
+    rrf_k: 60
+    deduplicate: true
+
+rerank:
+  enabled: false
+  model: null
+  input_top_k: 30
+  output_top_n: 10
+
+context:
+  max_tokens: 1200
+  policy: "top_n"
+  threshold: 0.0
+  include_metadata: true
+
+generation:
+  enabled: false
+  provider: "openai_compatible"
+  model: null
+  temperature: 0.2
+  max_output_tokens: 300
+
+cache:
+  enabled: false
+
+metrics:
+  latency_steps: ["embed", "retrieve", "total"]
+  percentiles: [50, 95, 99]
+  quality:
+    recall_at_k: [5, 10]
+    mrr_at_k: 30
+
+timeouts:
+  total_ms: 6000
+  retrieval_ms: 1500
+  rerank_ms: 800
+  llm_ms: 3500
