@@ -53,7 +53,7 @@ Key sections:
 - `timeouts`:
   - `total_ms`: end-to-end per-query deadline (embed + retrieval + rerank + llm)
   - `retrieval_ms`: retrieval stage deadline (single or fanout_merge incl. merge)
-  - `rerank_ms`: reserved (rerank stage not implemented yet)
+  - `rerank_ms`: rerank stage deadline when rerank is enabled
   - `llm_ms`: reserved (generation not implemented yet)
 - `run`:
   - `repeats`: how many full dataset runs
@@ -90,7 +90,7 @@ Key sections:
     - `rrf_k`, `deduplicate`
 - `cache`:
   - `embedding`: Redis cache for query embeddings
-  - `retrieval`: in-memory LRU cache for retrieval results
+  - `retrieval`: in-memory LRU cache for retrieval results, including retrieved ids and candidate payloads
   Notes:
   - retrieval LRU is per-process; hit rate across separate CLI runs is expected to be 0 unless repeats>1 or queries repeat.
 - `metrics`:
@@ -198,8 +198,17 @@ What is implemented today (core)
 ✅ Caches:
 
 * Redis embedding cache: query text -> embedding vector
-* LRU retrieval cache: query+scenario signature -> retrieved_ids (in-process only)
+* LRU retrieval cache: query+scenario signature -> retrieved ids + retrieved item payloads (in-process only)
 * Cache stats are summarized as rates (per repeat), not as per-row arrays.
+
+✅ Rerank:
+
+* Optional rerank stage after retrieval when `rerank.enabled=true`
+* Providers:
+    * `cross_encoder`: local `sentence-transformers` CrossEncoder
+    * `noop`: pass-through provider for testing and compatibility
+* Uses `rerank.input_top_k` and `rerank.output_top_n`
+* Emits `reranked_ids`, `final_ids`, `rerank_scores`, and `lat_rerank_ms`
 
 ✅ Timeouts:
 
@@ -213,7 +222,7 @@ What is implemented today (core)
 ✅ Evaluation:
 
 * Recall@k, MRR@k
-* latency step times (lat_embed_ms, lat_retrieve_ms, lat_total_ms)
+* latency step times (lat_embed_ms, lat_retrieve_ms, lat_rerank_ms, lat_total_ms)
 * configurable latency percentiles from YAML for emitted latency steps (embed/retrieve/total)
 
 ⸻
@@ -225,7 +234,7 @@ Current limitations / TODO
     * add interleave (round-robin + dedup)
     * keep RRF as default baseline
 2. Robust timeout handling:
-    * ensure total_ms wraps embed+retrieval (+ future rerank/llm)
+    * ensure total_ms wraps embed+retrieval+rerank (+ future llm)
     * stage-level timeout errors should not abort run; record them per-query
 3. Retrieval “cascade”:
     * postponed because with pure vector sources and no early-stop policy it collapses to single or sequential fanout.
@@ -233,8 +242,7 @@ Current limitations / TODO
 4. Distributed storage modes:
     * implement storage.mode=sharded|replicated and routing policies
     * use existing fanout+merge on shards/replicas
-5. Rerank and generation:
-    * rerank stage (cross-encoder / local model) with timeout
+5. Generation:
     * generation stage (LLM) with timeout, context selection policies
 6. Dataset and corpus formats:
     * current indexing parser is plain_text on files.

@@ -8,6 +8,7 @@ from ragglet.config.scenario import ScenarioConfig
 _LATENCY_COLUMNS = {
     "embed": "lat_embed_ms",
     "retrieve": "lat_retrieve_ms",
+    "rerank": "lat_rerank_ms",
     "total": "lat_total_ms",
     "merge": "lat_merge_ms",
 }

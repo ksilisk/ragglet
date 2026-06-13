@@ -6,6 +6,7 @@ from typing import Any
 from ragglet.config.scenario import ScenarioConfig
 from ragglet.cache.embedding_redis import RedisEmbeddingCache
 from ragglet.cache.retrieval_lru import LRURetrievalCache, RetrievalCacheEntry
+from ragglet.retrieval.merge import RetrievedItem
 
 
 @dataclass
@@ -105,10 +106,18 @@ class CacheManager:
             self.stats.ret_misses += 1
         return entry
 
-    def set_retrieval(self, key: str | None, retrieved_ids: list[str]) -> None:
+    def set_retrieval(
+        self,
+        key: str | None,
+        retrieved_ids: list[str],
+        retrieved_items: list[RetrievedItem] | None = None,
+    ) -> None:
         if self.ret_cache is None or key is None:
             return
-        self.ret_cache.set(key, RetrievalCacheEntry(retrieved_ids=retrieved_ids))
+        self.ret_cache.set(
+            key,
+            RetrievalCacheEntry(retrieved_ids=retrieved_ids, retrieved_items=retrieved_items),
+        )
 
     def reset_stats(self) -> None:
         self.stats = CacheStats()

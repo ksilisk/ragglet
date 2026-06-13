@@ -3,15 +3,18 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from cachetools import LRUCache
+
+if TYPE_CHECKING:
+    from ragglet.retrieval.merge import RetrievedItem
 
 
 @dataclass(frozen=True)
 class RetrievalCacheEntry:
     retrieved_ids: list[str]
-    # при желании можно хранить ещё score/source, но для метрик достаточно ids
+    retrieved_items: list[RetrievedItem] | None = None
 
 
 class LRURetrievalCache:

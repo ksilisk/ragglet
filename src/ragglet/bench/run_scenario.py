@@ -13,6 +13,7 @@ from ragglet.cache.manager import CacheManager
 from ragglet.config.scenario import ScenarioConfig
 from ragglet.indexing.metadata import validate_index_metadata_for_scenario
 from ragglet.modules.embedders.st_embedder import SentenceTransformerEmbedder
+from ragglet.rerank.engine import build_reranker
 from ragglet.retrieval.backends import BackendRegistry
 from ragglet.stores.qdrant_store_async import AsyncQdrantStore
 
@@ -35,6 +36,7 @@ async def run_scenario(cfg: ScenarioConfig) -> dict:
 
         backends = await BackendRegistry.build(cfg, async_store)
         embedder = SentenceTransformerEmbedder(cfg.embedding.model, normalize=cfg.embedding.normalize)
+        reranker = build_reranker(cfg)
         caches = CacheManager(cfg)
 
         all_summaries: list[dict] = []
@@ -47,7 +49,7 @@ async def run_scenario(cfg: ScenarioConfig) -> dict:
                 random.Random(seed_r).shuffle(run_items)
 
             caches.reset_stats()
-            df = await run_queries_once(cfg, run_items, backends, embedder, caches)
+            df = await run_queries_once(cfg, run_items, backends, embedder, caches, reranker)
 
             summary = summarize_repeat(cfg, df)
             summary["repeat_idx"] = r

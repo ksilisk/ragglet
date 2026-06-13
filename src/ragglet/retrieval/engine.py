@@ -22,9 +22,14 @@ def _to_retrieved(candidate, source_name: str) -> RetrievedItem:
     )
 
 
-async def retrieve_ids(cfg: ScenarioConfig, backends: BackendRegistry, query_text: str, vec: list[float]) -> list[str]:
+async def retrieve_items(
+    cfg: ScenarioConfig,
+    backends: BackendRegistry,
+    query_text: str,
+    vec: list[float],
+) -> list[RetrievedItem]:
     """
-    Возвращает список retrieved external_ids (то, по чему считаем метрики).
+    Возвращает retrieved items with payloads.
     """
     strategy = cfg.retrieval.strategy
     top_k = cfg.retrieval.top_k
@@ -47,8 +52,7 @@ async def retrieve_ids(cfg: ScenarioConfig, backends: BackendRegistry, query_tex
                 else:
                     raise NotImplementedError("Only 'vector' or 'keyword' source is implemented yet")
 
-                retrieved_items = [_to_retrieved(c, src.name) for c in candidates]
-                return [it.external_id for it in retrieved_items]
+                return [_to_retrieved(c, src.name) for c in candidates]
 
             if strategy == "fanout_merge":
                 sources: list[SourceSpec] = [
@@ -91,8 +95,16 @@ async def retrieve_ids(cfg: ScenarioConfig, backends: BackendRegistry, query_tex
                                                 deduplicate=cfg.retrieval.merge.deduplicate)
                 else:
                     raise NotImplementedError("Only 'rrf' or 'interleave' merge methods are implemented yet")
-                return [it.external_id for it in merged]
+                return merged
 
             raise NotImplementedError(f"retrieval.strategy='{strategy}' is not implemented")
     except TimeoutError:
         raise StageTimeout("retrieval")
+
+
+async def retrieve_ids(cfg: ScenarioConfig, backends: BackendRegistry, query_text: str, vec: list[float]) -> list[str]:
+    """
+    Возвращает список retrieved external_ids (то, по чему считаем метрики).
+    """
+    retrieved_items = await retrieve_items(cfg, backends, query_text, vec)
+    return [it.external_id for it in retrieved_items]

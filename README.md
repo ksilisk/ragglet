@@ -141,7 +141,8 @@ docs/config-reference.yaml
 - `chunk_overlap` должен быть меньше `chunk_size`; иначе профиль не пройдет валидацию;
 - `data/queries/*.jsonl[].relevant` должен ссылаться на `external_id` чанков в формате `<relative_doc_path>#<chunk_index>`;
 - `storage.backend.type` реально поддерживает только `qdrant`;
-- `rerank` и `generation` пока являются reserved-секциями и не выполняются.
+- `rerank` поддерживает локальный `cross_encoder` provider из `sentence-transformers`;
+- `generation` пока является reserved-секцией и не выполняется.
 
 ## Полезные команды
 

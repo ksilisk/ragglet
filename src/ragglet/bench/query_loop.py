@@ -12,7 +12,9 @@ from ragglet.config.scenario import ScenarioConfig
 from ragglet.core.errors import StageTimeout
 from ragglet.modules.embedders.st_embedder import SentenceTransformerEmbedder
 from ragglet.retrieval.backends import BackendRegistry
-from ragglet.retrieval.engine import retrieve_ids
+from ragglet.rerank.base import Reranker
+from ragglet.rerank.engine import rerank_items
+from ragglet.retrieval.engine import retrieve_items
 
 
 async def run_queries_once(
@@ -21,6 +23,7 @@ async def run_queries_once(
         backends: BackendRegistry,
         embedder: SentenceTransformerEmbedder,
         caches: CacheManager,
+        reranker: Reranker,
 ) -> pd.DataFrame:
     rows: list[dict[str, Any]] = []
 
@@ -32,7 +35,10 @@ async def run_queries_once(
         timed_out = False
         timeout_stage = None
         retrieved_ids = []
-        lat_embed_ms = lat_retrieve_ms = lat_total_ms = 0.0
+        reranked_ids = []
+        final_ids = []
+        rerank_scores = []
+        lat_embed_ms = lat_retrieve_ms = lat_rerank_ms = lat_total_ms = 0.0
 
         try:
             with anyio.fail_after(cfg.timeouts.total_ms / 1000.0):
@@ -43,16 +49,32 @@ async def run_queries_once(
                 # retrieval cache
                 key = caches.make_retrieval_key(it.query)
                 cached = caches.get_retrieval(key)
-                if cached is not None:
+                if cached is not None and cached.retrieved_items is not None:
+                    retrieved_items = cached.retrieved_items
                     retrieved_ids = cached.retrieved_ids
+                elif cached is not None and not cfg.rerank.enabled:
+                    retrieved_ids = cached.retrieved_ids
+                    retrieved_items = []
                 else:
-                    retrieved_ids = await retrieve_ids(cfg, backends, it.query, vec)
-                    caches.set_retrieval(key, retrieved_ids)
+                    retrieved_items = await retrieve_items(cfg, backends, it.query, vec)
+                    retrieved_ids = [item.external_id for item in retrieved_items]
+                    caches.set_retrieval(key, retrieved_ids, retrieved_items)
 
                 t3 = time.perf_counter()
 
+                if cfg.rerank.enabled:
+                    reranked = await rerank_items(cfg, reranker, it.query, retrieved_items)
+                    reranked_ids = [result.item.external_id for result in reranked]
+                    rerank_scores = [result.score for result in reranked]
+                    final_ids = reranked_ids
+                else:
+                    final_ids = retrieved_ids
+
+                t4 = time.perf_counter()
+
                 lat_embed_ms = (t2 - t1) * 1000.0
                 lat_retrieve_ms = (t3 - t2) * 1000.0
+                lat_rerank_ms = (t4 - t3) * 1000.0
         except StageTimeout as e:
             timed_out = True
             timeout_stage = e.stage
@@ -63,8 +85,8 @@ async def run_queries_once(
             lat_total_ms = (time.perf_counter() - t0) * 1000.0
 
         truth = set(it.truth_ids)
-        rec = {f"recall@{k}": recall_at_k(retrieved_ids, truth, k) for k in cfg.metrics.quality.recall_at_k}
-        rr = mrr_at_k(retrieved_ids, truth, cfg.metrics.quality.mrr_at_k)
+        rec = {f"recall@{k}": recall_at_k(final_ids, truth, k) for k in cfg.metrics.quality.recall_at_k}
+        rr = mrr_at_k(final_ids, truth, cfg.metrics.quality.mrr_at_k)
 
         rows.append(
             {
@@ -72,10 +94,14 @@ async def run_queries_once(
                 "query": it.query,
                 "truth_ids": it.truth_ids,
                 "retrieved_ids": retrieved_ids,
+                "reranked_ids": reranked_ids,
+                "final_ids": final_ids,
+                "rerank_scores": rerank_scores,
                 "mrr": rr,
                 **rec,
                 "lat_embed_ms": lat_embed_ms,
                 "lat_retrieve_ms": lat_retrieve_ms,
+                "lat_rerank_ms": lat_rerank_ms,
                 "lat_total_ms": lat_total_ms,
                 "emb_hit_rate": caches.stats.emb_hit_rate,
                 "ret_hit_rate": caches.stats.ret_hit_rate,

@@ -131,16 +131,16 @@ class RerankConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     enabled: bool = False
+    provider: Literal["cross_encoder", "noop"] = "cross_encoder"
     model: str | None = None
     input_top_k: int = 30
     output_top_n: int = 10
 
-    @field_validator("model")
-    @classmethod
-    def _model_required_if_enabled(cls, v: str | None, info):
-        if info.data.get("enabled") and not v:
-            raise ValueError("rerank.model is required when rerank.enabled=true")
-        return v
+    @model_validator(mode="after")
+    def _model_required_if_enabled(self) -> "RerankConfig":
+        if self.enabled and self.provider == "cross_encoder" and not self.model:
+            raise ValueError("rerank.model is required when rerank.enabled=true and provider='cross_encoder'")
+        return self
 
 
 class ContextConfig(BaseModel):

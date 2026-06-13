@@ -217,8 +217,8 @@ scenario:
         rerank_ms:
           type: "integer"
           default: 800
-          status: reserved
-          docs: "Reserved; rerank stage is not implemented."
+          status: implemented
+          docs: "Timeout around rerank stage when scenario.rerank.enabled=true."
         llm_ms:
           type: "integer"
           default: 3500
@@ -457,28 +457,36 @@ scenario:
               caveat: "weighted_sum already aggregates by external_id; deduplicate flag has no practical effect there."
     rerank:
       type: "object"
-      status: reserved
+      status: implemented
       fields:
         enabled:
           type: "boolean"
           default: false
-          status: schema_only
-          docs: "Accepted and validates model when true, but no rerank stage runs."
+          status: implemented
+          docs: "When true, runs rerank after retrieval and evaluates metrics over reranked ids."
+        provider:
+          type: "enum"
+          default: "cross_encoder"
+          allowed_values:
+            - "cross_encoder"
+            - "noop"
+          status: implemented
+          docs: "Reranker implementation. cross_encoder uses sentence-transformers CrossEncoder; noop preserves retrieval order."
         model:
           type: "string|null"
           default: null
-          status: schema_only
-          docs: "Required by schema when rerank.enabled=true."
+          status: implemented
+          docs: "Required when rerank.enabled=true and provider=cross_encoder."
         input_top_k:
           type: "integer"
           default: 30
-          status: schema_only
-          docs: "Reserved."
+          status: implemented
+          docs: "Number of retrieved candidates passed into rerank."
         output_top_n:
           type: "integer"
           default: 10
-          status: schema_only
-          docs: "Reserved."
+          status: implemented
+          docs: "Number of reranked candidates kept for final metrics."
     context:
       type: "object"
       status: reserved
@@ -595,7 +603,7 @@ scenario:
             - "retrieve"
             - "total"
           status: implemented
-          docs: "Latency steps to summarize. Runtime currently emits lat_embed_ms, lat_retrieve_ms, and lat_total_ms; merge is reserved until a separate merge timer exists."
+          docs: "Latency steps to summarize. Runtime currently emits lat_embed_ms, lat_retrieve_ms, lat_rerank_ms, and lat_total_ms; merge is reserved until a separate merge timer exists."
         percentiles:
           type: "list[integer]"
           default:
@@ -674,7 +682,7 @@ runtime_support_matrix:
       note: "Code supports a weighted argument internally, but scenario config cannot enable it."
   stages:
     retrieval: implemented
-    rerank: reserved
+    rerank: implemented
     context_assembly: reserved
     generation: reserved
     serve_api: reserved
@@ -695,14 +703,13 @@ known_conflicts_and_gotchas:
     condition: "mode is sharded or replicated"
     effect: "Validation passes, but no routing/replication behavior changes."
     recommended_rule: "Reject non-single modes until routing policies are implemented."
-  - id: "rerank_and_generation_flags_do_not_execute_stages"
+  - id: "generation_flag_does_not_execute_stage"
     severity: medium
     applies_to:
-      - "scenario.rerank.enabled"
       - "scenario.generation.enabled"
     condition: "enabled=true"
-    effect: "Schema requires model, but runtime still only performs retrieval benchmark."
-    recommended_rule: "Reject enabled=true or implement the stages."
+    effect: "Schema requires model, but runtime still only performs retrieval/rerank benchmark."
+    recommended_rule: "Reject generation.enabled=true or implement the stage."
   - id: "docker_app_profile_references_missing_dockerfile"
     severity: medium
     applies_to:
