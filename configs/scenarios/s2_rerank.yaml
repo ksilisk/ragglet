@@ -65,7 +65,7 @@ context:
 
 generation:
   enabled: false
-  provider: "openai_compatible"
+  provider: "noop"
   model: null
   temperature: 0.2
   max_output_tokens: 300

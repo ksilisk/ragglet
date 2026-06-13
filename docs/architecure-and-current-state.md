@@ -10,7 +10,7 @@ Focus: quality–performance tradeoffs in distributed / multi-source retrieval:
 - timeouts: per-query `total_ms` + per-stage (retrieval/rerank/llm) using AnyIO cancel scopes
 - evaluation: Recall@k, MRR@k, latency percentiles, timeout rate
 - indexing: build vector DB index (Qdrant) from a directory corpus; payload carries `external_id` for ground truth
-RAG generation (LLM) is not implemented yet; the platform currently benchmarks retrieval.
+RAG generation can be enabled as an optional post-context stage; retrieval-only benchmarks remain the default.
 ---
 ## Repo layout (current direction)
 Suggested / partially implemented modular split:
@@ -54,7 +54,7 @@ Key sections:
   - `total_ms`: end-to-end per-query deadline (embed + retrieval + rerank + llm)
   - `retrieval_ms`: retrieval stage deadline (single or fanout_merge incl. merge)
   - `rerank_ms`: rerank stage deadline when rerank is enabled
-  - `llm_ms`: reserved (generation not implemented yet)
+  - `llm_ms`: generation stage deadline when generation is enabled
 - `run`:
   - `repeats`: how many full dataset runs
   - `shuffle`: shuffle dataset between repeats (deterministic using `seed`)
@@ -220,6 +220,17 @@ What is implemented today (core)
 * Uses `context.max_tokens`, `context.threshold`, and `context.include_metadata`
 * Emits `context_ids`, `context_tokens`, `context_chunks`, optional `context_text`, and `lat_context_ms`
 
+✅ Generation:
+
+* Optional generation stage after context assembly when `generation.enabled=true`
+* Requires `context.enabled=true`
+* Providers:
+    * `noop`: no external call; useful for smoke tests and artifact contract checks
+    * `openai_compatible`: chat-completions-compatible HTTP provider
+* Uses `generation.model`, `generation.temperature`, and `generation.max_output_tokens`
+* `generation.save` controls prompt, answer, and raw response persistence
+* Emits `answer`, `prompt_text`, token fields, `generation_error`, and `lat_generation_ms`
+
 ✅ Timeouts:
 
 * Async Qdrant store enables correct AnyIO timeouts.
@@ -232,7 +243,7 @@ What is implemented today (core)
 ✅ Evaluation:
 
 * Recall@k, MRR@k
-* latency step times (lat_embed_ms, lat_retrieve_ms, lat_rerank_ms, lat_context_ms, lat_total_ms)
+* latency step times (lat_embed_ms, lat_retrieve_ms, lat_rerank_ms, lat_context_ms, lat_generation_ms, lat_total_ms)
 * configurable latency percentiles from YAML for emitted latency steps (embed/retrieve/total)
 
 ⸻
@@ -244,7 +255,7 @@ Current limitations / TODO
     * add interleave (round-robin + dedup)
     * keep RRF as default baseline
 2. Robust timeout handling:
-    * ensure total_ms wraps embed+retrieval+rerank+context (+ future llm)
+    * ensure total_ms wraps embed+retrieval+rerank+context+generation
     * stage-level timeout errors should not abort run; record them per-query
 3. Retrieval “cascade”:
     * postponed because with pure vector sources and no early-stop policy it collapses to single or sequential fanout.
@@ -252,8 +263,9 @@ Current limitations / TODO
 4. Distributed storage modes:
     * implement storage.mode=sharded|replicated and routing policies
     * use existing fanout+merge on shards/replicas
-5. Generation:
-    * generation stage (LLM) with timeout, context selection policies
+5. Generation providers:
+    * add provider-specific token/cost accounting beyond usage fields
+    * add more providers if experiments require them
 6. Dataset and corpus formats:
     * current indexing parser is plain_text on files.
     * later: add corpus ingestion from jsonl/tsv and proper html/pdf cleaning.

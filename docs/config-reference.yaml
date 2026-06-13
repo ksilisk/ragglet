@@ -522,33 +522,65 @@ scenario:
           docs: "When true, context_text includes external_id labels before chunk text."
     generation:
       type: "object"
-      status: reserved
+      status: implemented
       fields:
         enabled:
           type: "boolean"
           default: false
-          status: schema_only
-          docs: "Accepted and validates model when true, but no generation stage runs."
+          status: implemented
+          docs: "When true, runs generation after context assembly. Requires context.enabled=true."
         provider:
+          type: "enum"
+          default: "noop"
+          allowed_values:
+            - "noop"
+            - "openai_compatible"
+          status: implemented
+          docs: "Generation provider. openai_compatible sends question/context to an external chat-completions-compatible endpoint."
+        base_url:
           type: "string"
-          default: "openai_compatible"
-          status: schema_only
-          docs: "Reserved."
+          default: "https://api.openai.com/v1"
+          status: implemented
+          docs: "Base URL for openai_compatible provider."
+        api_key_env:
+          type: "string"
+          default: "OPENAI_API_KEY"
+          status: implemented
+          docs: "Environment variable containing the API key for openai_compatible provider."
         model:
           type: "string|null"
           default: null
-          status: schema_only
+          status: implemented
           docs: "Required by schema when generation.enabled=true."
         temperature:
           type: "float"
           default: 0.2
-          status: schema_only
-          docs: "Reserved."
+          status: implemented
+          docs: "Provider sampling temperature."
         max_output_tokens:
           type: "integer"
           default: 300
-          status: schema_only
-          docs: "Reserved."
+          status: implemented
+          docs: "Maximum generated output tokens; used to bound latency and cost."
+        save:
+          type: "object"
+          status: implemented
+          fields:
+            prompt:
+              type: "boolean"
+              default: false
+              status: implemented
+              docs: "When true, saves prompt_text in per-query artifacts."
+            answer:
+              type: "boolean"
+              default: true
+              status: implemented
+              docs: "When true, saves generated answer in per-query artifacts."
+            raw_response:
+              type: "boolean"
+              default: false
+              status: implemented
+              docs: "When true, saves raw provider response in per-query artifacts."
     cache:
       type: "object"
       status: partial
@@ -608,7 +640,7 @@ scenario:
             - "retrieve"
             - "total"
           status: implemented
-          docs: "Latency steps to summarize. Runtime currently emits lat_embed_ms, lat_retrieve_ms, lat_rerank_ms, lat_context_ms, and lat_total_ms; merge is reserved until a separate merge timer exists."
+          docs: "Latency steps to summarize. Runtime currently emits lat_embed_ms, lat_retrieve_ms, lat_rerank_ms, lat_context_ms, lat_generation_ms, and lat_total_ms; merge is reserved until a separate merge timer exists."
         percentiles:
           type: "list[integer]"
           default:
@@ -689,7 +721,7 @@ runtime_support_matrix:
     retrieval: implemented
     rerank: implemented
     context_assembly: implemented
-    generation: reserved
+    generation: implemented
     serve_api: reserved
 
 known_conflicts_and_gotchas:
@@ -708,13 +740,13 @@ known_conflicts_and_gotchas:
     condition: "mode is sharded or replicated"
     effect: "Validation passes, but no routing/replication behavior changes."
     recommended_rule: "Reject non-single modes until routing policies are implemented."
-  - id: "generation_flag_does_not_execute_stage"
+  - id: "generation_requires_context"
     severity: medium
     applies_to:
       - "scenario.generation.enabled"
-    condition: "enabled=true"
-    effect: "Schema requires model, but runtime still only performs retrieval/rerank benchmark."
-    recommended_rule: "Reject generation.enabled=true or implement the stage."
+    condition: "enabled=true and scenario.context.enabled=false"
+    effect: "Config validation fails because generation consumes explicit assembled context."
+    recommended_rule: "Set context.enabled=true before enabling generation."
   - id: "docker_app_profile_references_missing_dockerfile"
     severity: medium
     applies_to:

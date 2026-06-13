@@ -143,7 +143,7 @@ docs/config-reference.yaml
 - `storage.backend.type` реально поддерживает только `qdrant`;
 - `rerank` поддерживает локальный `cross_encoder` provider из `sentence-transformers`;
 - `context` поддерживает сбор retrieved/reranked чанков по политикам `top_n`, `threshold` и `adaptive`;
-- `generation` пока является reserved-секцией и не выполняется.
+- `generation` поддерживает `noop` и `openai_compatible`; при `enabled: true` question/context могут быть отправлены во внешний provider.
 
 ## Полезные команды
 

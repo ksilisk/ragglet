@@ -153,21 +153,31 @@ class ContextConfig(BaseModel):
     include_metadata: bool = True
 
 
+class GenerationSaveConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    prompt: bool = False
+    answer: bool = True
+    raw_response: bool = False
+
+
 class GenerationConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     enabled: bool = False
-    provider: str = "openai_compatible"
+    provider: Literal["noop", "openai_compatible"] = "noop"
+    base_url: str = "https://api.openai.com/v1"
+    api_key_env: str = "OPENAI_API_KEY"
     model: str | None = None
     temperature: float = 0.2
     max_output_tokens: int = 300
+    save: GenerationSaveConfig = Field(default_factory=GenerationSaveConfig)
 
-    @field_validator("model")
-    @classmethod
-    def _model_required_if_enabled(cls, v: str | None, info):
-        if info.data.get("enabled") and not v:
+    @model_validator(mode="after")
+    def _model_required_if_enabled(self) -> "GenerationConfig":
+        if self.enabled and not self.model:
             raise ValueError("generation.model is required when generation.enabled=true")
-        return v
+        return self
 
 
 class CacheEmbeddingConfig(BaseModel):
@@ -256,6 +266,12 @@ class ScenarioConfig(BaseModel):
     cache: CacheConfig = Field(default_factory=CacheConfig)
 
     metrics: MetricsConfig = Field(default_factory=MetricsConfig)
+
+    @model_validator(mode="after")
+    def _generation_requires_context(self) -> "ScenarioConfig":
+        if self.generation.enabled and not self.context.enabled:
+            raise ValueError("context.enabled must be true when generation.enabled=true")
+        return self
 
 
 def load_scenario(path: Path) -> ScenarioConfig:

@@ -9,8 +9,11 @@ import pandas as pd
 from ragglet.bench.metrics import recall_at_k, mrr_at_k
 from ragglet.cache.manager import CacheManager
 from ragglet.config.scenario import ScenarioConfig
+from ragglet.context.base import ContextResult
 from ragglet.context.engine import assemble_context
 from ragglet.core.errors import StageTimeout
+from ragglet.generation.base import Generator
+from ragglet.generation.engine import generate_answer
 from ragglet.modules.embedders.st_embedder import SentenceTransformerEmbedder
 from ragglet.retrieval.backends import BackendRegistry
 from ragglet.rerank.base import Reranker
@@ -25,6 +28,7 @@ async def run_queries_once(
         embedder: SentenceTransformerEmbedder,
         caches: CacheManager,
         reranker: Reranker,
+        generator: Generator,
 ) -> pd.DataFrame:
     rows: list[dict[str, Any]] = []
 
@@ -43,7 +47,15 @@ async def run_queries_once(
         context_text = ""
         context_tokens = 0
         context_chunks = 0
-        lat_embed_ms = lat_retrieve_ms = lat_rerank_ms = lat_context_ms = lat_total_ms = 0.0
+        answer = ""
+        prompt_text = ""
+        raw_generation_response = None
+        generation_error = None
+        gen_input_tokens = 0
+        gen_output_tokens = 0
+        gen_total_tokens = 0
+        gen_cost_estimated = None
+        lat_embed_ms = lat_retrieve_ms = lat_rerank_ms = lat_context_ms = lat_generation_ms = lat_total_ms = 0.0
 
         try:
             with anyio.fail_after(cfg.timeouts.total_ms / 1000.0):
@@ -79,20 +91,42 @@ async def run_queries_once(
 
                 t4 = time.perf_counter()
 
+                context = assemble_context(cfg, context_candidates)
                 if cfg.context.enabled:
-                    context = assemble_context(cfg, context_candidates)
                     context_ids = context.ids
                     context_text = context.text if cfg.output.include_debug_fields else ""
                     context_tokens = context.token_count
                     context_chunks = len(context.chunks)
                     final_ids = context_ids
+                else:
+                    context = ContextResult(chunks=[], text="", token_count=0)
 
                 t5 = time.perf_counter()
+
+                if cfg.generation.enabled:
+                    try:
+                        generation, prompt = await generate_answer(cfg, generator, it.query, context)
+                        answer = generation.answer if cfg.generation.save.answer else ""
+                        prompt_text = prompt if cfg.generation.save.prompt else ""
+                        raw_generation_response = (
+                            generation.raw_response if cfg.generation.save.raw_response else None
+                        )
+                        gen_input_tokens = generation.input_tokens
+                        gen_output_tokens = generation.output_tokens
+                        gen_total_tokens = generation.total_tokens
+                        gen_cost_estimated = generation.cost_estimated
+                    except StageTimeout:
+                        raise
+                    except Exception as e:
+                        generation_error = str(e)
+
+                t6 = time.perf_counter()
 
                 lat_embed_ms = (t2 - t1) * 1000.0
                 lat_retrieve_ms = (t3 - t2) * 1000.0
                 lat_rerank_ms = (t4 - t3) * 1000.0
                 lat_context_ms = (t5 - t4) * 1000.0
+                lat_generation_ms = (t6 - t5) * 1000.0
         except StageTimeout as e:
             timed_out = True
             timeout_stage = e.stage
@@ -117,6 +151,14 @@ async def run_queries_once(
                 "context_text": context_text,
                 "context_tokens": context_tokens,
                 "context_chunks": context_chunks,
+                "answer": answer,
+                "prompt_text": prompt_text,
+                "raw_generation_response": raw_generation_response,
+                "generation_error": generation_error,
+                "gen_input_tokens": gen_input_tokens,
+                "gen_output_tokens": gen_output_tokens,
+                "gen_total_tokens": gen_total_tokens,
+                "gen_cost_estimated": gen_cost_estimated,
                 "final_ids": final_ids,
                 "rerank_scores": rerank_scores,
                 "mrr": rr,
@@ -125,6 +167,7 @@ async def run_queries_once(
                 "lat_retrieve_ms": lat_retrieve_ms,
                 "lat_rerank_ms": lat_rerank_ms,
                 "lat_context_ms": lat_context_ms,
+                "lat_generation_ms": lat_generation_ms,
                 "lat_total_ms": lat_total_ms,
                 "emb_hit_rate": caches.stats.emb_hit_rate,
                 "ret_hit_rate": caches.stats.ret_hit_rate,
