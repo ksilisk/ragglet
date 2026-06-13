@@ -146,6 +146,7 @@ class RerankConfig(BaseModel):
 class ContextConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    enabled: bool = False
     max_tokens: int = 1200
     policy: Literal["top_n", "adaptive", "threshold"] = "top_n"
     threshold: float = 0.0

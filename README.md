@@ -142,6 +142,7 @@ docs/config-reference.yaml
 - `data/queries/*.jsonl[].relevant` должен ссылаться на `external_id` чанков в формате `<relative_doc_path>#<chunk_index>`;
 - `storage.backend.type` реально поддерживает только `qdrant`;
 - `rerank` поддерживает локальный `cross_encoder` provider из `sentence-transformers`;
+- `context` поддерживает сбор retrieved/reranked чанков по политикам `top_n`, `threshold` и `adaptive`;
 - `generation` пока является reserved-секцией и не выполняется.
 
 ## Полезные команды

@@ -96,7 +96,7 @@ Key sections:
 - `metrics`:
   - `quality.recall_at_k`, `quality.mrr_at_k`
   - `percentiles` from YAML for emitted latency fields
-  - step latency fields measured in per-query table (embed/retrieve/total)
+  - step latency fields measured in per-query table (embed/retrieve/rerank/context/total)
   - `timed_out`, `timeout_stage` fields are recorded per-query; summary stores timeout rates/cnts.
 ### index_profile.yaml
 Current “scenario 1” indexing (directory corpus):
@@ -210,6 +210,16 @@ What is implemented today (core)
 * Uses `rerank.input_top_k` and `rerank.output_top_n`
 * Emits `reranked_ids`, `final_ids`, `rerank_scores`, and `lat_rerank_ms`
 
+✅ Context assembly:
+
+* Optional context stage after retrieval/rerank when `context.enabled=true`
+* Policies:
+    * `top_n`: fill the token budget in candidate rank order
+    * `threshold`: filter by raw candidate score, then fill budget
+    * `adaptive`: filter by normalized candidate score, then fill budget
+* Uses `context.max_tokens`, `context.threshold`, and `context.include_metadata`
+* Emits `context_ids`, `context_tokens`, `context_chunks`, optional `context_text`, and `lat_context_ms`
+
 ✅ Timeouts:
 
 * Async Qdrant store enables correct AnyIO timeouts.
@@ -222,7 +232,7 @@ What is implemented today (core)
 ✅ Evaluation:
 
 * Recall@k, MRR@k
-* latency step times (lat_embed_ms, lat_retrieve_ms, lat_rerank_ms, lat_total_ms)
+* latency step times (lat_embed_ms, lat_retrieve_ms, lat_rerank_ms, lat_context_ms, lat_total_ms)
 * configurable latency percentiles from YAML for emitted latency steps (embed/retrieve/total)
 
 ⸻
@@ -234,7 +244,7 @@ Current limitations / TODO
     * add interleave (round-robin + dedup)
     * keep RRF as default baseline
 2. Robust timeout handling:
-    * ensure total_ms wraps embed+retrieval+rerank (+ future llm)
+    * ensure total_ms wraps embed+retrieval+rerank+context (+ future llm)
     * stage-level timeout errors should not abort run; record them per-query
 3. Retrieval “cascade”:
     * postponed because with pure vector sources and no early-stop policy it collapses to single or sequential fanout.

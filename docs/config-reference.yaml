@@ -489,13 +489,18 @@ scenario:
           docs: "Number of reranked candidates kept for final metrics."
     context:
       type: "object"
-      status: reserved
+      status: implemented
       fields:
+        enabled:
+          type: "boolean"
+          default: false
+          status: implemented
+          docs: "When true, assembles context after retrieval/rerank and evaluates metrics over context ids."
         max_tokens:
           type: "integer"
           default: 1200
-          status: schema_only
-          docs: "Reserved for future context assembly."
+          status: implemented
+          docs: "Approximate token budget for selected context chunks. Current token count uses whitespace estimation."
         policy:
           type: "enum"
           default: "top_n"
@@ -503,18 +508,18 @@ scenario:
             - "top_n"
             - "adaptive"
             - "threshold"
-          status: schema_only
-          docs: "Reserved for future context assembly."
+          status: implemented
+          docs: "Context selection policy. top_n fills budget in rank order; threshold filters by score; adaptive filters by normalized score then fills budget."
         threshold:
           type: "float"
           default: 0.0
-          status: schema_only
-          docs: "Reserved for future context assembly."
+          status: implemented
+          docs: "Minimum raw score for threshold policy or normalized score for adaptive policy."
         include_metadata:
           type: "boolean"
           default: true
-          status: schema_only
-          docs: "Reserved for future context assembly."
+          status: implemented
+          docs: "When true, context_text includes external_id labels before chunk text."
     generation:
       type: "object"
       status: reserved
@@ -603,7 +608,7 @@ scenario:
             - "retrieve"
             - "total"
           status: implemented
-          docs: "Latency steps to summarize. Runtime currently emits lat_embed_ms, lat_retrieve_ms, lat_rerank_ms, and lat_total_ms; merge is reserved until a separate merge timer exists."
+          docs: "Latency steps to summarize. Runtime currently emits lat_embed_ms, lat_retrieve_ms, lat_rerank_ms, lat_context_ms, and lat_total_ms; merge is reserved until a separate merge timer exists."
         percentiles:
           type: "list[integer]"
           default:
@@ -683,7 +688,7 @@ runtime_support_matrix:
   stages:
     retrieval: implemented
     rerank: implemented
-    context_assembly: reserved
+    context_assembly: implemented
     generation: reserved
     serve_api: reserved
 

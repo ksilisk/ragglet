@@ -1,6 +1,5 @@
 # S3 — Adaptive Context.
-# Текущая схема принимает context.policy=adaptive, но runtime пока не собирает context.
-# После доработки context.max_tokens/threshold должны управлять pruning retrieved chunks.
+# Pipeline: retrieve top_k -> assemble adaptive context -> evaluate context_ids.
 
 version: 1
 name: "s3_adaptive_context"
@@ -57,6 +56,7 @@ rerank:
   output_top_n: 10
 
 context:
+  enabled: true
   max_tokens: 1200
   policy: "adaptive"
   threshold: 0.15
@@ -73,7 +73,7 @@ cache:
   enabled: false
 
 metrics:
-  latency_steps: ["embed", "retrieve", "total"]  # Add "context" after runtime emits lat_context_ms.
+  latency_steps: ["embed", "retrieve", "context", "total"]
   percentiles: [50, 95, 99]
   quality:
     recall_at_k: [1, 3, 5, 10, 30]

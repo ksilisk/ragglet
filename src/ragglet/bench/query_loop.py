@@ -9,6 +9,7 @@ import pandas as pd
 from ragglet.bench.metrics import recall_at_k, mrr_at_k
 from ragglet.cache.manager import CacheManager
 from ragglet.config.scenario import ScenarioConfig
+from ragglet.context.engine import assemble_context
 from ragglet.core.errors import StageTimeout
 from ragglet.modules.embedders.st_embedder import SentenceTransformerEmbedder
 from ragglet.retrieval.backends import BackendRegistry
@@ -36,9 +37,13 @@ async def run_queries_once(
         timeout_stage = None
         retrieved_ids = []
         reranked_ids = []
+        context_ids = []
         final_ids = []
         rerank_scores = []
-        lat_embed_ms = lat_retrieve_ms = lat_rerank_ms = lat_total_ms = 0.0
+        context_text = ""
+        context_tokens = 0
+        context_chunks = 0
+        lat_embed_ms = lat_retrieve_ms = lat_rerank_ms = lat_context_ms = lat_total_ms = 0.0
 
         try:
             with anyio.fail_after(cfg.timeouts.total_ms / 1000.0):
@@ -52,7 +57,7 @@ async def run_queries_once(
                 if cached is not None and cached.retrieved_items is not None:
                     retrieved_items = cached.retrieved_items
                     retrieved_ids = cached.retrieved_ids
-                elif cached is not None and not cfg.rerank.enabled:
+                elif cached is not None and not cfg.rerank.enabled and not cfg.context.enabled:
                     retrieved_ids = cached.retrieved_ids
                     retrieved_items = []
                 else:
@@ -66,15 +71,28 @@ async def run_queries_once(
                     reranked = await rerank_items(cfg, reranker, it.query, retrieved_items)
                     reranked_ids = [result.item.external_id for result in reranked]
                     rerank_scores = [result.score for result in reranked]
+                    context_candidates = reranked
                     final_ids = reranked_ids
                 else:
+                    context_candidates = retrieved_items
                     final_ids = retrieved_ids
 
                 t4 = time.perf_counter()
 
+                if cfg.context.enabled:
+                    context = assemble_context(cfg, context_candidates)
+                    context_ids = context.ids
+                    context_text = context.text if cfg.output.include_debug_fields else ""
+                    context_tokens = context.token_count
+                    context_chunks = len(context.chunks)
+                    final_ids = context_ids
+
+                t5 = time.perf_counter()
+
                 lat_embed_ms = (t2 - t1) * 1000.0
                 lat_retrieve_ms = (t3 - t2) * 1000.0
                 lat_rerank_ms = (t4 - t3) * 1000.0
+                lat_context_ms = (t5 - t4) * 1000.0
         except StageTimeout as e:
             timed_out = True
             timeout_stage = e.stage
@@ -95,6 +113,10 @@ async def run_queries_once(
                 "truth_ids": it.truth_ids,
                 "retrieved_ids": retrieved_ids,
                 "reranked_ids": reranked_ids,
+                "context_ids": context_ids,
+                "context_text": context_text,
+                "context_tokens": context_tokens,
+                "context_chunks": context_chunks,
                 "final_ids": final_ids,
                 "rerank_scores": rerank_scores,
                 "mrr": rr,
@@ -102,6 +124,7 @@ async def run_queries_once(
                 "lat_embed_ms": lat_embed_ms,
                 "lat_retrieve_ms": lat_retrieve_ms,
                 "lat_rerank_ms": lat_rerank_ms,
+                "lat_context_ms": lat_context_ms,
                 "lat_total_ms": lat_total_ms,
                 "emb_hit_rate": caches.stats.emb_hit_rate,
                 "ret_hit_rate": caches.stats.ret_hit_rate,

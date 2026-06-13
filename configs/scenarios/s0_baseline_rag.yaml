@@ -56,6 +56,7 @@ rerank:
   output_top_n: 10
 
 context:
+  enabled: false
   max_tokens: 1200
   policy: "top_n"
   threshold: 0.0

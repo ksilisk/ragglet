@@ -9,6 +9,7 @@ _LATENCY_COLUMNS = {
     "embed": "lat_embed_ms",
     "retrieve": "lat_retrieve_ms",
     "rerank": "lat_rerank_ms",
+    "context": "lat_context_ms",
     "total": "lat_total_ms",
     "merge": "lat_merge_ms",
 }
@@ -54,6 +55,8 @@ def summarize_repeat(cfg: ScenarioConfig, df: pd.DataFrame) -> dict[str, Any]:
         **_latency_percentiles(cfg, df),
         "emb_hit_rate": float(df["emb_hit_rate"].mean()) if len(df) else 0.0,
         "ret_hit_rate": float(df["ret_hit_rate"].mean()) if len(df) else 0.0,
+        "context_tokens_mean": float(df["context_tokens"].mean()) if "context_tokens" in df.columns and len(df) else 0.0,
+        "context_chunks_mean": float(df["context_chunks"].mean()) if "context_chunks" in df.columns and len(df) else 0.0,
         "timeout_count": timed_out_count,
         "timeout_rate": timeout_rate,
         "timeout_stage_counts": stage_counts,
