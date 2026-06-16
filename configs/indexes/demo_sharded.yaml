@@ -1,0 +1,32 @@
+id: "demo_sharded"
+corpus: "datasets/demo/corpus"
+parser: "plain_text"
+chunking:
+  method: "recursive"
+  chunk_size: 800
+  chunk_overlap: 120
+embedding:
+  model: "all-MiniLM-L6-v2"
+  normalize: true
+  batch_size: 64
+storage:
+  mode: "sharded"
+  type: "qdrant"
+  endpoint: "http://localhost:6333"
+  collection: "chunks_v1"
+  backends:
+    - id: "shard_0"
+      type: "qdrant"
+      endpoint: "http://localhost:6333"
+      collection: "chunks_v1_shard0"
+    - id: "shard_1"
+      type: "qdrant"
+      endpoint: "http://localhost:6334"
+      collection: "chunks_v1_shard1"
+  routing:
+    key: "external_id"
+index_params:
+  distance: "cosine"
+  hnsw:
+    m: 16
+    ef_construct: 128

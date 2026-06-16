@@ -50,12 +50,39 @@ class IndexParamsConfig(BaseModel):
     hnsw: HNSWConfig = Field(default_factory=HNSWConfig)
 
 
-class StorageConfig(BaseModel):
+class StorageBackendConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    id: str | None = None
     type: Literal["qdrant", "pgvector", "milvus", "weaviate"] = "qdrant"
     endpoint: str
     collection: str
+
+
+class StorageRoutingConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    key: Literal["external_id", "doc_path"] = "external_id"
+
+
+class StorageConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["single", "sharded", "replicated"] = "single"
+    type: Literal["qdrant", "pgvector", "milvus", "weaviate"] = "qdrant"
+    endpoint: str | None = None
+    collection: str | None = None
+    backend: StorageBackendConfig | None = None
+    backends: list[StorageBackendConfig] = Field(default_factory=list)
+    routing: StorageRoutingConfig = Field(default_factory=StorageRoutingConfig)
+
+    @model_validator(mode="after")
+    def _validate_storage_shape(self) -> "StorageConfig":
+        if self.backend is None and (self.endpoint is None or self.collection is None):
+            raise ValueError("storage.endpoint and storage.collection are required when storage.backend is not set")
+        if self.mode != "single" and not self.backends:
+            raise ValueError("storage.backends must be provided when storage.mode is not 'single'")
+        return self
 
 
 class IndexProfileConfig(BaseModel):

@@ -45,10 +45,13 @@ def validate(
     rprint(f"scenario: {report.scenario}")
     rprint(f"dataset: {report.dataset_path}")
     rprint(f"backend: {report.backend_type}")
+    rprint(f"storage mode: {report.storage_mode}")
     rprint(f"collection: {report.collection}")
+    rprint(f"backend counts: {report.backend_counts}")
     rprint(f"queries checked: {report.queries_checked}")
     rprint(f"truth ids checked: {report.truth_ids_checked}")
     rprint(f"indexed external ids: {report.indexed_external_ids}")
+    rprint(f"duplicate external ids: {report.duplicate_external_ids}")
     rprint(f"missing truth ids: {report.missing_count}")
 
     if report.missing:

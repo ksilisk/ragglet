@@ -1,7 +1,5 @@
 # S5 — Distributed-like.
-# Текущая схема принимает storage.mode=sharded, но runtime пока использует один backend.
-# Пока это schema-safe заготовка: fanout sources помечены backend_ref в params.
-# После доработки BackendRegistry должен маршрутизировать source.params.backend_ref на shard collections.
+# Distributed-like режим использует два независимых Qdrant инстанса из profile qdrant-multi.
 
 version: 1
 name: "s5_distributed_like"
@@ -20,7 +18,7 @@ output:
   include_debug_fields: true
 
 dataset:
-  id: "data/queries/baseline_qdrant.jsonl"
+  id: "data/queries/truth_manifest.jsonl"
   limit: 2000
   query_field: "question"
   truth_field: "relevant"
@@ -31,6 +29,17 @@ storage:
     type: "qdrant"
     endpoint: "http://localhost:6333"
     collection: "chunks_v1"
+  backends:
+    - id: "shard_0"
+      type: "qdrant"
+      endpoint: "http://localhost:6333"
+      collection: "chunks_v1_shard0"
+    - id: "shard_1"
+      type: "qdrant"
+      endpoint: "http://localhost:6334"
+      collection: "chunks_v1_shard1"
+  routing:
+    key: "external_id"
 
 embedding:
   model: "all-MiniLM-L6-v2"
@@ -45,13 +54,13 @@ retrieval:
       kind: "vector"
       weight: 1.0
       params:
-        backend_ref: "shard_0"      # TODO(runtime): map to chunks_v1_shard0 or endpoint/collection registry.
+        backend_ref: "shard_0"
         ef_search: 64
     - name: "shard_1_vector"
       kind: "vector"
       weight: 1.0
       params:
-        backend_ref: "shard_1"      # TODO(runtime): map to chunks_v1_shard1 or endpoint/collection registry.
+        backend_ref: "shard_1"
         ef_search: 64
   merge:
     method: "rrf"

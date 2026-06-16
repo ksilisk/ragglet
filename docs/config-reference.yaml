@@ -141,6 +141,34 @@ index_profile:
           default: null
           status: implemented
           docs: "Collection/index name in the backend."
+        mode:
+          type: "enum"
+          default: "single"
+          allowed_values:
+            - "single"
+            - "sharded"
+            - "replicated"
+          status: partial
+          docs: "Optional distributed-like index layout. Single preserves the historical endpoint/collection behavior."
+          runtime_behavior: "For qdrant, sharded writes each chunk to one backend using hash_mod routing; replicated writes each chunk to all configured backends."
+        backends:
+          type: "list[object]"
+          default: []
+          status: partial
+          docs: "Named storage targets used when mode is sharded or replicated."
+        routing:
+          type: "object"
+          status: partial
+          docs: "Routing key for distributed-like index build."
+          fields:
+            key:
+              type: "enum"
+              default: "external_id"
+              allowed_values:
+                - "external_id"
+                - "doc_path"
+              status: implemented
+              docs: "For mode=sharded, write target is selected as sha1(payload[key]) % backend_count. If key is missing, external_id is used. For mode=replicated, every chunk is written to every backend."
     index_params:
       type: "object"
       required: false
@@ -307,8 +335,9 @@ scenario:
             - "single"
             - "sharded"
             - "replicated"
-          status: schema_only
-          docs: "Accepted by schema, but routing/sharding/replication behavior is not implemented."
+          status: partial
+          docs: "Controls distributed-like retrieval layout. Single uses backend; sharded/replicated use named backends."
+          runtime_behavior: "Qdrant sharded retrieval uses source.params.backend_ref to route vector sources to configured backends; validate checks all configured backends."
         backend:
           type: "object"
           status: partial
@@ -331,6 +360,24 @@ scenario:
               type: "string"
               status: implemented
               docs: "Backend collection name."
+        backends:
+          type: "list[object]"
+          default: []
+          status: partial
+          docs: "Named qdrant backends. Required when mode is sharded or replicated."
+        routing:
+          type: "object"
+          status: partial
+          docs: "Routing key metadata shared with index profiles. This does not create retrieval fanout."
+          fields:
+            key:
+              type: "enum"
+              default: "external_id"
+              allowed_values:
+                - "external_id"
+                - "doc_path"
+              status: implemented
+              docs: "Documents the sharding key expected by the matching index profile. Retrieval fanout must be configured explicitly through retrieval.sources[].params.backend_ref."
     embedding:
       type: "object"
       status: implemented
@@ -733,13 +780,15 @@ known_conflicts_and_gotchas:
     condition: "type is pgvector, milvus, or weaviate"
     effect: "Config validation passes, runtime raises NotImplementedError."
     recommended_rule: "Mark as reserved in user docs or reject until implemented."
-  - id: "storage_mode_is_not_runtime_behavior"
+  - id: "storage_routing_is_write_layout_only"
     severity: medium
     applies_to:
       - "scenario.storage.mode"
+      - "scenario.storage.routing"
+      - "index_profile.storage.routing"
     condition: "mode is sharded or replicated"
-    effect: "Validation passes, but no routing/replication behavior changes."
-    recommended_rule: "Reject non-single modes until routing policies are implemented."
+    effect: "storage.mode controls index write layout. For sharded indexes, writes use sha1(routing.key) modulo backend count. Retrieval routing is not inferred from storage.routing; vector sources must name params.backend_ref explicitly."
+    recommended_rule: "Use qdrant-multi compose profile, a matching sharded/replicated index profile, and explicit retrieval.sources with backend_ref values before running distributed-like scenarios."
   - id: "generation_requires_context"
     severity: medium
     applies_to:

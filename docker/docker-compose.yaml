@@ -22,7 +22,7 @@ services:
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - redis_data:/data
-    profiles: ["qdrant", "milvus", "weaviate", "pgvector", "app"]
+    profiles: ["qdrant", "qdrant-multi", "milvus", "weaviate", "pgvector", "app"]
 
   # ---- Qdrant ----
   qdrant:
@@ -33,6 +33,24 @@ services:
     volumes:
       - qdrant_data:/qdrant/storage
     profiles: ["qdrant"]
+
+  qdrant-shard-0:
+    image: qdrant/qdrant:v1.17.0
+    container_name: ragglet-qdrant-shard-0
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_shard0_data:/qdrant/storage
+    profiles: ["qdrant-multi"]
+
+  qdrant-shard-1:
+    image: qdrant/qdrant:v1.17.0
+    container_name: ragglet-qdrant-shard-1
+    ports:
+      - "6334:6333"
+    volumes:
+      - qdrant_shard1_data:/qdrant/storage
+    profiles: ["qdrant-multi"]
 
   # ---- Postgres + pgvector ----
   pgvector:
@@ -57,4 +75,6 @@ services:
 volumes:
   redis_data:
   qdrant_data:
+  qdrant_shard0_data:
+  qdrant_shard1_data:
   pg_data:

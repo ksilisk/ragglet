@@ -16,18 +16,25 @@ from ragglet.indexing.metadata import validate_index_metadata_for_scenario
 from ragglet.modules.embedders.st_embedder import SentenceTransformerEmbedder
 from ragglet.rerank.engine import build_reranker
 from ragglet.retrieval.backends import BackendRegistry
+from ragglet.storage.layout import build_storage_layout
 from ragglet.stores.qdrant_store_async import AsyncQdrantStore
 
 
 async def run_scenario(cfg: ScenarioConfig) -> dict:
-    if cfg.storage.backend.type != "qdrant":
+    layout = build_storage_layout(cfg.storage)
+    if any(target.type != "qdrant" for target in layout.targets):
         raise NotImplementedError("Only qdrant backend is implemented in the first iteration")
 
-    async_store = AsyncQdrantStore(cfg.storage.backend.endpoint, cfg.storage.backend.collection)
+    stores = {
+        target.id: AsyncQdrantStore(target.endpoint, target.collection)
+        for target in layout.targets
+    }
+    async_store = stores[layout.primary.id]
     caches: CacheManager | None = None
 
     try:
-        validate_index_metadata_for_scenario(await async_store.collection_metadata(), cfg)
+        for store in stores.values():
+            validate_index_metadata_for_scenario(await store.collection_metadata(), cfg)
 
         paths = make_artifact_paths(cfg.run.artifacts_dir, cfg.name)
         save_config_snapshot(paths.run_dir, cfg)
@@ -35,7 +42,7 @@ async def run_scenario(cfg: ScenarioConfig) -> dict:
         items = load_jsonl_dataset(Path(cfg.dataset.id), cfg.dataset.query_field, cfg.dataset.truth_field,
                                    cfg.dataset.limit)
 
-        backends = await BackendRegistry.build(cfg, async_store)
+        backends = await BackendRegistry.build(cfg, async_store, stores)
         embedder = SentenceTransformerEmbedder(cfg.embedding.model, normalize=cfg.embedding.normalize)
         reranker = build_reranker(cfg)
         generator = build_generator(cfg)
@@ -79,4 +86,5 @@ async def run_scenario(cfg: ScenarioConfig) -> dict:
     finally:
         if caches is not None:
             await caches.close()
-        await async_store.close()
+        for store in stores.values():
+            await store.close()

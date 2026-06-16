@@ -9,6 +9,15 @@ from ragglet.retrieval.merge import SourceSpec, RetrievedItem, rrf_merge, run_so
     weighted_sum_merge
 
 
+def _search_params(params: dict) -> dict:
+    return {k: v for k, v in (params or {}).items() if k != "backend_ref"}
+
+
+def _backend_ref(params: dict) -> str | None:
+    value = (params or {}).get("backend_ref")
+    return str(value) if value is not None else None
+
+
 def _to_retrieved(candidate, source_name: str) -> RetrievedItem:
     payload = candidate.payload or {}
     ext = payload.get("external_id")
@@ -46,7 +55,8 @@ async def retrieve_items(
                     raise NotImplementedError("Only vector source is implemented in baseline")
 
                 if src.kind == "vector":
-                    candidates = await backends.vector.search(vec, top_k=top_k, params=src.params)
+                    store = backends.vector_for(_backend_ref(src.params))
+                    candidates = await store.search(vec, top_k=top_k, params=_search_params(src.params))
                 elif src.kind == "keyword":
                     candidates = backends.keyword.search(query_text, top_k=top_k)
                 else:
@@ -62,7 +72,8 @@ async def retrieve_items(
 
                 async def _query_source(s: SourceSpec):
                     if s.kind == "vector":
-                        return await backends.vector.search(vec, top_k=top_k, params=s.params)
+                        store = backends.vector_for(_backend_ref(s.params))
+                        return await store.search(vec, top_k=top_k, params=_search_params(s.params))
                     elif s.kind == "keyword":
                         return backends.keyword.search(query_text, top_k=top_k)
                     else:

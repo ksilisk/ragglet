@@ -59,9 +59,16 @@ class DatasetConfig(BaseModel):
 class StorageBackendConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    id: str | None = None
     type: Literal["qdrant", "pgvector", "milvus", "weaviate"]
     endpoint: str
     collection: str
+
+
+class StorageRoutingConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    key: Literal["external_id", "doc_path"] = "external_id"
 
 
 class StorageConfig(BaseModel):
@@ -69,6 +76,14 @@ class StorageConfig(BaseModel):
 
     mode: Literal["single", "sharded", "replicated"] = "single"
     backend: StorageBackendConfig
+    backends: list[StorageBackendConfig] = Field(default_factory=list)
+    routing: StorageRoutingConfig = Field(default_factory=StorageRoutingConfig)
+
+    @model_validator(mode="after")
+    def _validate_storage_shape(self) -> "StorageConfig":
+        if self.mode != "single" and not self.backends:
+            raise ValueError("storage.backends must be provided when storage.mode is not 'single'")
+        return self
 
 
 class EmbeddingConfig(BaseModel):

@@ -5,6 +5,7 @@ from pathlib import Path
 
 from ragglet.bench.dataset import QueryItem, load_jsonl_dataset
 from ragglet.config.scenario import ScenarioConfig
+from ragglet.storage.layout import StorageTarget, build_storage_layout
 from ragglet.stores.qdrant_store_async import AsyncQdrantStore
 
 
@@ -20,14 +21,18 @@ class DatasetValidationReport:
     dataset_path: str
     backend_type: str
     collection: str
+    storage_mode: str
+    backend_counts: dict[str, int]
     queries_checked: int
     truth_ids_checked: int
     indexed_external_ids: int
     missing: list[MissingTruthId]
+    missing_by_backend: dict[str, list[MissingTruthId]]
+    duplicate_external_ids: int
 
     @property
     def ok(self) -> bool:
-        return not self.missing
+        return not self.missing and not self.missing_by_backend
 
     @property
     def missing_count(self) -> int:
@@ -46,8 +51,8 @@ def find_missing_truth_ids(
     return missing
 
 
-async def _qdrant_external_ids(cfg: ScenarioConfig, batch_size: int = 1024) -> set[str]:
-    store = AsyncQdrantStore(cfg.storage.backend.endpoint, cfg.storage.backend.collection)
+async def _qdrant_external_ids(target: StorageTarget, batch_size: int = 1024) -> set[str]:
+    store = AsyncQdrantStore(target.endpoint, target.collection)
     external_ids: set[str] = set()
     offset = None
 
@@ -70,12 +75,16 @@ async def _qdrant_external_ids(cfg: ScenarioConfig, batch_size: int = 1024) -> s
     return external_ids
 
 
+async def load_index_external_ids_by_backend(cfg: ScenarioConfig) -> dict[str, set[str]]:
+    layout = build_storage_layout(cfg.storage)
+    if any(target.type != "qdrant" for target in layout.targets):
+        raise NotImplementedError("Dataset validation is implemented only for qdrant backends")
+    return {target.id: await _qdrant_external_ids(target) for target in layout.targets}
+
+
 async def load_index_external_ids(cfg: ScenarioConfig) -> set[str]:
-    if cfg.storage.backend.type == "qdrant":
-        return await _qdrant_external_ids(cfg)
-    raise NotImplementedError(
-        f"Dataset validation is not implemented yet for backend '{cfg.storage.backend.type}'"
-    )
+    by_backend = await load_index_external_ids_by_backend(cfg)
+    return set().union(*by_backend.values()) if by_backend else set()
 
 
 async def validate_scenario_dataset(cfg: ScenarioConfig) -> DatasetValidationReport:
@@ -85,17 +94,32 @@ async def validate_scenario_dataset(cfg: ScenarioConfig) -> DatasetValidationRep
         cfg.dataset.truth_field,
         cfg.dataset.limit,
     )
-    indexed_external_ids = await load_index_external_ids(cfg)
+    layout = build_storage_layout(cfg.storage)
+    by_backend = await load_index_external_ids_by_backend(cfg)
+    indexed_external_ids = set().union(*by_backend.values()) if by_backend else set()
     missing = find_missing_truth_ids(items, indexed_external_ids)
     truth_ids_checked = sum(len(item.truth_ids) for item in items)
+    backend_counts = {backend_id: len(ids) for backend_id, ids in by_backend.items()}
+    duplicate_external_ids = sum(len(ids) for ids in by_backend.values()) - len(indexed_external_ids)
+
+    missing_by_backend: dict[str, list[MissingTruthId]] = {}
+    if layout.mode == "replicated":
+        for backend_id, ids in by_backend.items():
+            backend_missing = find_missing_truth_ids(items, ids)
+            if backend_missing:
+                missing_by_backend[backend_id] = backend_missing
 
     return DatasetValidationReport(
         scenario=cfg.name,
         dataset_path=cfg.dataset.id,
         backend_type=cfg.storage.backend.type,
-        collection=cfg.storage.backend.collection,
+        collection=", ".join(f"{target.id}:{target.collection}" for target in layout.targets),
+        storage_mode=layout.mode,
+        backend_counts=backend_counts,
         queries_checked=len(items),
         truth_ids_checked=truth_ids_checked,
         indexed_external_ids=len(indexed_external_ids),
         missing=missing,
+        missing_by_backend=missing_by_backend,
+        duplicate_external_ids=duplicate_external_ids,
     )

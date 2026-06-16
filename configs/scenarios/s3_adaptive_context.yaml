@@ -18,7 +18,7 @@ output:
   include_debug_fields: true
 
 dataset:
-  id: "data/queries/baseline_qdrant.jsonl"
+  id: "data/queries/truth_manifest.jsonl"
   limit: 2000
   query_field: "question"
   truth_field: "relevant"
