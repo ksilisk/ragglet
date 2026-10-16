@@ -1,6 +1,7 @@
 id: "demo_sharded"
-corpus: "datasets/demo/corpus"
-parser: "plain_text"
+dataset:
+  source: "local"
+  id: "datasets/demo"
 chunking:
   method: "recursive"
   chunk_size: 800
@@ -24,7 +25,7 @@ storage:
       endpoint: "http://localhost:6334"
       collection: "chunks_v1_shard1"
   routing:
-    key: "external_id"
+    key: "chunk_id"
 index_params:
   distance: "cosine"
   hnsw:

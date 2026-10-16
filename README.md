@@ -14,24 +14,40 @@
 
 ## Что реализовано
 
-- офлайн-индексация текстового корпуса в Qdrant;
+- поддержка готовых датасетов в индустриальном формате **BEIR** (локально или с HuggingFace Hub);
+- офлайн-индексация корпуса в Qdrant;
 - разбиение документов на чанки и построение эмбеддингов через `sentence-transformers`;
 - запуск экспериментальных сценариев из YAML-конфигураций;
 - поддержка single-source retrieval и fanout/hybrid retrieval;
-- подсчет метрик `Recall@K`, `MRR@K`, latency и cache hit rate;
+- document-level подсчет метрик `Recall@K`, `MRR@K`, latency и cache hit rate;
 - сохранение покомпонентных и агрегированных результатов в `results/`.
 
-## Структура входных данных
+## Формат датасета (BEIR)
 
-- `datasets/demo/corpus/` — текстовый корпус для индексации;
-- `data/queries/*.jsonl` — набор запросов и ground truth;
+Канонический формат — [BEIR](https://github.com/beir-cellar/beir): так раздаются MS MARCO,
+NQ, HotpotQA, SciFact, FiQA, TREC-COVID и другие. Один формат — один адаптер. Датасет это
+директория (или HF-репозиторий) из трёх частей:
+
+```text
+<dataset>/
+  corpus.jsonl      {"_id": "d12", "title": "...", "text": "..."}
+  queries.jsonl     {"_id": "q3",  "text": "..."}
+  qrels/<split>.tsv query-id <TAB> corpus-id <TAB> score   # TREC-style, с заголовком
+```
+
+Ground truth (`qrels`) ссылается на **id документа** (`corpus._id`), поэтому метрики
+считаются на document-level: retrieved-чанки проецируются в свой `doc_id` с дедупом.
+
+Структура проекта:
+
+- `datasets/demo/` — демо-датасет в формате BEIR;
 - `configs/indexes/*.yaml` — профили построения индекса;
 - `configs/scenarios/*.yaml` — сценарии экспериментальных прогонов.
 
-Пример строки в наборе запросов:
+Свой корпус из `.md`/`.txt` можно сконвертировать в BEIR:
 
-```json
-{"id":"q003","question":"What are common failure modes in RAG systems?","relevant":["rag_retrieval_vs_generation_failure_modes.md#0"]}
+```bash
+uv run ragglet dataset import <corpus_dir> <out_dir> --queries <legacy.jsonl> --split test
 ```
 
 ## Как запустить
@@ -73,23 +89,27 @@ docker compose -f docker/docker-compose.yaml ps
 
 ### 3. Собрать индекс
 
-Индекс строится по профилю `configs/indexes/demo.yaml` из корпуса `datasets/demo/corpus/` в Qdrant collection `chunks_v1`:
+Индекс строится по профилю `configs/indexes/demo.yaml` из BEIR-корпуса `datasets/demo/` в Qdrant collection `chunks_v1`:
 
 ```bash
 uv run ragglet index build configs/indexes/demo.yaml
 ```
 
+Датасет в профиле задаётся блоком `dataset: {source: local|hf, id: ...}`. Для готового
+датасета с HuggingFace Hub достаточно указать `source: hf` и `id` репозитория (например
+`BeIR/scifact`) — файлы BEIR скачаются в кэш автоматически.
+
 Важно: `embedding.model` и `embedding.normalize` в index profile должны совпадать с настройками scenario, которым потом запускается benchmark. `index build` сохраняет эти параметры в metadata Qdrant collection, а `bench run` проверяет их перед запуском и падает с понятной ошибкой при несовпадении.
 
 ### 4. Запустить benchmark
 
-Перед запуском эксперимента можно проверить, что `relevant[]` из dataset действительно существуют в payload уже собранного индекса:
+Перед запуском эксперимента можно проверить, что relevant-документы из qrels действительно существуют в уже собранном индексе:
 
 ```bash
 uv run ragglet bench validate configs/scenarios/baseline_qdrant.yaml
 ```
 
-Команда делает легкий preflight: читает JSONL, забирает из Qdrant только payload-поле `external_id` и сравнивает строки. Embeddings и retrieval при этом не запускаются.
+Команда делает легкий preflight: читает queries+qrels, забирает из Qdrant только payload-поле `doc_id` и сравнивает множества. Embeddings и retrieval при этом не запускаются.
 
 Базовый сценарий: один vector source, без кэша.
 
@@ -139,7 +159,7 @@ docs/config-reference.yaml
 Ключевые правила:
 
 - `chunk_overlap` должен быть меньше `chunk_size`; иначе профиль не пройдет валидацию;
-- `data/queries/*.jsonl[].relevant` должен ссылаться на `external_id` чанков в формате `<relative_doc_path>#<chunk_index>`;
+- `qrels` ссылается на `corpus._id` (document-level); при индексации chunk получает `doc_id` и внутренний `chunk_id`, метрики считаются по `doc_id`;
 - `storage.backend.type` реально поддерживает только `qdrant`;
 - `rerank` поддерживает локальный `cross_encoder` provider из `sentence-transformers`;
 - `context` поддерживает сбор retrieved/reranked чанков по политикам `top_n`, `threshold` и `adaptive`;
@@ -170,7 +190,7 @@ docker compose -f docker/docker-compose.yaml --profile qdrant down -v
 
 ## Частые проблемы
 
-Если benchmark возвращает нулевые `Recall@K` и `MRR`, сначала проверьте, что значения `relevant` в JSONL совпадают с `external_id` в Qdrant payload. Самая частая причина — переименование файла корпуса или изменение чанкинга после подготовки ground truth.
+Если benchmark возвращает нулевые `Recall@K` и `MRR`, сначала запустите `bench validate`: чаще всего `qrels` ссылается на `corpus._id`, которого нет в индексе (рассинхрон датасета и собранного индекса). Пересоберите индекс после смены датасета.
 
 Если индекс строится слишком долго или создается неожиданно много чанков, проверьте `chunk_size` и `chunk_overlap` в index profile. Схема уже запрещает `chunk_overlap >= chunk_size`, но слишком маленький `chunk_size` все равно может сделать эксперимент нерепрезентативным.
 
@@ -202,14 +222,14 @@ flowchart LR
     CLI --> SERVE["serve (stub)"]
 
     IDX --> IPROF["Index profile YAML"]
-    IPROF --> PARSE["Парсинг корпуса"]
+    IPROF --> PARSE["BEIR corpus (local / HF)"]
     PARSE --> CHUNK["Чанкинг документов"]
     CHUNK --> EMB["SentenceTransformer Embedder"]
     EMB --> QI["Qdrant Indexer"]
     QI --> QDRANT[("Qdrant")]
 
     BENCH --> SCN["Scenario YAML"]
-    SCN --> DATA["JSONL dataset"]
+    SCN --> DATA["BEIR queries + qrels"]
     SCN --> CACHE["CacheManager"]
     SCN --> RET["Retrieval Engine"]
 
