@@ -3,185 +3,209 @@
 ## Проблема
 
 Готовые (open-source, индустриальные) retrieval-датасеты сейчас напрямую не
-поддерживаются. Чтобы прогнать такой датасет, его приходится вручную приводить к
-нашему внутреннему формату:
+поддерживаются. Чтобы прогнать такой датасет, его приходится вручную приводить к нашему
+кастомному формату:
 
 - документы разложить файлами в `datasets/<name>/corpus/*.md|txt`;
 - запросы положить в `data/queries/*.jsonl`;
 - `relevant[]` руками/скриптом свести к нашим chunk-level `external_id` вида
   `doc_path#chunk_idx`.
 
-Барьеров на самом деле два, и их полезно разделять:
+Этот кастомный формат — легаси, и он создаёт два барьера:
 
 1. **Формат ввода.** Индексатор умеет только «корпус = директория файлов»
    (`build_index._iter_files` → `parse_plain_text`), а запросы — только наш JSONL.
-   Индустриальные датасеты раздаются иначе (JSONL-корпус + отдельные qrels).
-2. **Гранулярность ground truth (ядро задачи).** qrels в готовых датасетах
-   ссылается на **id документа**, а мы режем документ на чанки и считаем метрики по
-   **chunk-level** `external_id`. Прямого соответствия нет.
+   Индустриальные датасеты раздаются иначе.
+2. **Гранулярность ground truth.** qrels в готовых датасетах ссылается на **id
+   документа**, а мы режем документ на чанки и считаем метрики по chunk-level
+   `external_id`. Симптом: весь `truth_manifest.jsonl` размечен на `...#0` — «релевантен
+   нулевой чанк» фактически зашито в демо-разметку.
 
-Симптом второй проблемы уже виден в наших данных: весь
-`data/queries/truth_manifest.jsonl` размечен на `...#0`. То есть «простая v1»-эвристика
-(релевантен нулевой чанк) фактически зашита в демо-разметку.
+**Решение — не надстройка над легаси, а cutoff: переходим на единый индустриальный
+формат (BEIR) целиком**, включая наш собственный демо-датасет. Один формат везде —
+снаружи и внутри.
 
 ## Индустриальный стандарт формата
 
-Де-факто стандарт для retrieval/RAG-оценки — триада **BEIR** (её же использует MTEB;
-в ней раздаются MS MARCO, NQ, HotpotQA, SciFact, FiQA, TREC-COVID и ещё ~15 датасетов):
+Де-факто стандарт для retrieval/RAG-оценки — **BEIR**. Важно: это **унифицирующий
+формат**, а не список разных схем. MS MARCO, NQ, HotpotQA, SciFact, FiQA, TREC-COVID и
+ещё ~15 датасетов раздаются **в одном и том же виде** — триадой файлов:
 
 ```
 corpus.jsonl      {"_id": "d12", "title": "...", "text": "..."}
 queries.jsonl     {"_id": "q3",  "text": "..."}
-qrels/<split>.tsv query-id <TAB> corpus-id <TAB> score     # TREC-style, с заголовком
+qrels/<split>.tsv query-id <TAB> corpus-id <TAB> score   # TREC-style, с заголовком
 ```
 
-Рядом — «голый» TREC qrels (`qid 0 docid rel`) и HuggingFace Hub (`BeIR/*`, `mteb/*` —
-та же триада). Все они сходятся к одной модели: **corpus / queries / qrels**, где
-корпус — это JSONL, а qrels ссылается на **document id**.
+Поэтому **адаптер нужен один** (BEIR-ридер), а не по адаптеру на датасет. Остальное — это
+способы *доставки* того же формата:
 
-**Scope этой задачи:** `directory` (текущий native) + `beir` (из локальной директории).
-HuggingFace Hub — вне скоупа (тянет зависимость `datasets`); закладываем его как
-отдельный будущий адаптер в том же реестре, но не реализуем сейчас.
+- **MTEB** — агрегированный бенчмарк, для retrieval переиспользует ту же BEIR-загрузку.
+- **TREC qrels** — тот же qrels-файл (`qid 0 docid rel`); отличается только числом
+  колонок, ридер это автоопределяет.
+- **HuggingFace Hub** (`BeIR/*`, `mteb/*`) — те же BEIR-файлы, просто хостятся на Hub.
+
+Ключевой факт для нашего дизайна: **qrels ссылается на `corpus-id` (документ)**, не на
+чанк. Это и диктует, как мы считаем метрики.
 
 ## Решение
 
-Механизм общий, **load-native** — читаем внешний датасет напрямую через адаптер, без
-конвертации/материализации на диск. Нет дублирования данных и рассинхрона
-«папка ↔ jsonl».
+### Принцип: BEIR — единственный канонический формат
 
-### 1. Абстракция corpus-провайдера и query-loader
+Нет параллельных форматов и нет конвертеров «на лету». Канонический формат датасета на
+диске — BEIR-триада. Из этого следует:
 
-Индексатор перестаёт ходить по файлам напрямую и итерируется по провайдеру. Директория
-— лишь один из провайдеров.
+- **Внешние датасеты** (BEIR/HF) читаются как есть — они уже в нужном формате.
+- **Наш демо-датасет** конвертируется в BEIR один раз (cutoff) и коммитится в этом виде;
+  старый directory-корпус и `truth_manifest.jsonl` удаляются.
+- Индексатор и bench читают **только** BEIR.
 
-```python
-@dataclass(frozen=True)
-class Document:
-    doc_id: str
-    text: str
-    meta: dict[str, Any]       # title и т.п.
+### 1. Источник датасета: `local` | `hf` (ссылкой)
 
-class CorpusSource(Protocol):
-    def documents(self) -> Iterator[Document]: ...
-```
-
-Реестр форматов — точка расширения; новый формат = новый адаптер, а не правки в ядре:
-
-| format      | corpus                         | doc_id          |
-|-------------|--------------------------------|-----------------|
-| `directory` | обход `path/**`, plain_text    | относительный путь файла |
-| `beir`      | `path/corpus.jsonl`            | поле `_id`      |
-
-Для запросов — симметричный loader, возвращающий `QueryItem` (текущая структура). Для
-`beir` он читает `queries.jsonl` + `qrels/<split>.tsv`, собирая `truth_ids` как **список
-doc_id с score > 0** (бинарная релевантность; graded-score сохраняем на будущее для nDCG,
-см. «Вне скоупа»).
-
-### 2. Канонический payload: `source_doc_id`
-
-При индексации в payload каждого чанка добавляем id документа. `external_id` остаётся
-chunk-level без изменений.
-
-```python
-payload = {
-    "external_id": f"{doc.doc_id}#{idx}",   # как сейчас
-    "source_doc_id": doc.doc_id,            # НОВОЕ
-    "chunk_index": idx,
-    "text": chunk_text,
-    # doc_path оставляем для directory (== doc_id); для beir тоже = doc_id
-}
-```
-
-Это и есть «лучшая v1» из задачи — наличие `source_doc_id` позволяет метрикам считать
-document-level match, не теряя chunk-level.
-
-### 3. `truth_granularity: doc | chunk`
-
-Гранулярность — это свойство оценки, поэтому живёт на стороне scenario (`dataset`):
+Датасет адресуется единообразно — либо локальной директорией, либо id на HuggingFace Hub.
+«Показать ссылкой» — рабочий сценарий:
 
 ```yaml
 dataset:
-  id: "datasets/scifact"
-  format: "beir"            # directory | beir
-  split: "test"             # для beir: какой qrels-файл
-  truth_granularity: "doc"  # doc | chunk
+  source: "hf"            # local | hf
+  id: "BeIR/scifact"      # hf repo id  (для local — path к BEIR-директории)
+  split: "test"           # какой qrels-файл
+  limit: 2000
 ```
 
-- `chunk` — текущее поведение: `truth_ids` это chunk-`external_id`, точное совпадение строк.
-- `doc` — `truth_ids` это doc_id. На этапе метрик каждый retrieved-чанк **проецируется**
-  в свой `source_doc_id`, последовательность **дедуплицируется с сохранением лучшего
-  (первого) ранга**, и Recall@k / MRR@k считаются уже по doc-последовательности.
+Один **BEIR-ридер** читает `corpus.jsonl` / `queries.jsonl` / `qrels/<split>.tsv`. Источник
+— это тонкий слой *резолва локации перед ридером*:
+
+| source  | что делает                                                        |
+|---------|-------------------------------------------------------------------|
+| `local` | берёт BEIR-директорию по `path`                                   |
+| `hf`    | скачивает snapshot репозитория с Hub в кэш → та же BEIR-директория |
+
+**Стоимость HF — низкая** (ответ на вопрос в ревью): HF-датасеты лежат в BEIR-формате, так
+что `hf` не добавляет парсер, а только резолв+кэш (`huggingface_hub` snapshot) перед тем же
+ридером. Это одна зависимость и небольшая функция загрузки. Точку расширения (новые
+резолверы: URL, S3) оставляем в реестре источников, но сверх `local`/`hf` сейчас ничего не
+пишем.
+
+### 2. Индексация: `doc_id` first-class, chunk — внутренний
+
+Чанкинг остаётся деталью индексации (`chunk_size`/`overlap`), но identity переосмысляем —
+старый `external_id` как носитель ground-truth убираем:
+
+```python
+payload = {
+    "doc_id": doc["_id"],              # id документа из BEIR corpus — ПО НЕМУ считаем метрики
+    "chunk_index": idx,
+    "chunk_id": f"{doc['_id']}#{idx}", # внутренний ключ: дедуп в merge, debug
+    "title": doc.get("title", ""),
+    "text": chunk_text,
+}
+# point_id = uuid5(chunk_id) — детерминированный, как и раньше
+```
+
+- `doc_id` = `corpus._id` — первичный идентификатор для оценки и валидации.
+- `chunk_id` — чисто внутренний (нужен merge-дедупу, чтобы один чанк не попал дважды), не
+  фигурирует в разметке и не авторится пользователем.
+- Пользователь **больше нигде не пишет `doc#chunk` строки** — ground truth приходит из
+  qrels на уровне документа.
+
+### 3. Оценка: всегда document-level (без ручки `truth_granularity`)
+
+Раз qrels в BEIR всегда doc-level, делаем единый понятный режим вместо `doc | chunk`:
+
+- retrieval возвращает чанки → каждый **проецируется в свой `doc_id`**;
+- последовательность **дедуплицируется с сохранением лучшего (первого) ранга**;
+- `Recall@k` / `MRR@k` считаются по doc-последовательности против множества relevant
+  `doc_id` из qrels (score > 0).
+
+Passage-level оценку при необходимости даёт **сам датасет** (в passage-датасетах один
+BEIR-«документ» = один пассаж), а не отдельная ручка в конфиге. Так конфиг остаётся
+дружелюбным: никакого выбора гранулярности, одно поведение.
 
 ### 4. Метрики и проекция
 
-`metrics.py` остаётся granularity-agnostic — он принимает список id и set truth. Вся логика
-проекции локализована в `query_loop`:
+`metrics.py` остаётся granularity-agnostic (список id + set truth). Вся проекция
+локализована в `query_loop`:
 
 - `RetrievedItem` уже несёт полный `payload` (`retrieval/engine.py:_to_retrieved`), а
-  `final_ids ⊆ retrieved_ids` (rerank/context только фильтруют и переупорядочивают). Значит
-  карту `{external_id → source_doc_id}` можно собрать один раз из `retrieved_items` и спроецировать
-  любой из `final_ids`/`context_ids`/`reranked_ids`. Правки rerank/context-стадий не нужны.
-- Для `doc` granularity: `eval_ids = dedup([map[x] for x in final_ids])`, затем те же
-  `recall_at_k` / `mrr_at_k` против set doc-truth.
-- **Дедуп обязателен**: без него два чанка одного документа занимают два ранга и завышают
+  `final_ids ⊆ retrieved_ids` (rerank/context только фильтруют/переупорядочивают). Значит
+  карту `{chunk_id → doc_id}` собираем один раз из `retrieved_items` и проецируем любой из
+  `final_ids`/`context_ids`/`reranked_ids`. Правки rerank/context не нужны.
+- `eval_ids = dedup([map[x] for x in final_ids])`, затем те же `recall_at_k` / `mrr_at_k`
+  против set relevant `doc_id`.
+- **Дедуп обязателен**: иначе два чанка одного документа занимают два ранга и завышают
   MRR / искажают recall@k.
 
-Per-query строки получают `final_doc_ids` рядом с `final_ids`, чтобы в артефактах были видны
-обе гранулярности.
+Per-query строки получают `retrieved_doc_ids` рядом с chunk-уровнем — для отладки.
 
 ### 5. Валидация датасета
 
-`bench validate` при `truth_granularity: doc` сверяет relevant-doc_id со множеством
-проиндексированных `source_doc_id` (а не chunk-`external_id`). При `chunk` — поведение
-как сейчас. Множество `source_doc_id` берём тем же scroll'ом по payload, что и
-`external_id`.
+`bench validate` сверяет relevant `doc_id` из qrels со множеством проиндексированных
+`doc_id` (scroll по payload, как сейчас для `external_id`). Ловит классическую ошибку
+«qrels ссылается на документ, которого нет в индексе» ещё до прогона.
 
-### 6. Демо-датасет — оставляем и добавляем
+### 6. Демо-датасет: конвертируем в BEIR (cutoff)
 
-Не переписываем существующую разметку, а держим оба режима как first-class (не shim):
+Текущие 38 markdown-файлов и `truth_manifest.jsonl` **переводим в BEIR и удаляем старое**:
 
-- `data/queries/truth_manifest.jsonl` остаётся как есть — fixture для `truth_granularity: chunk`.
-- Добавляем doc-level манифест (`relevant: ["rag_overview_...md"]`) + scenario с
-  `truth_granularity: doc` — догфудит основной путь и даёт покрытие `doc`.
+```
+datasets/demo/
+  corpus.jsonl        # один файл = один документ (_id = имя файла без расширения)
+  queries.jsonl       # из question'ов манифеста
+  qrels/test.tsv      # doc-level: query-id -> relevant doc _id  (из старого ...#0 -> doc)
+```
 
-Так оба режима реальны и покрыты тестами, существующие baseline-прогоны в `results/`
-сохраняют смысл, а `#0`-хак перестаёт быть единственным вариантом разметки.
+Конверсию делаем одноразовым скриптом-хелпером `ragglet dataset import` (directory →
+BEIR), прогоняем на демо и коммитим результат. Этот хелпер — отдельный authoring-инструмент
+(удобно собрать корпус из своих markdown), он **не** является runtime-форматом: индекс и
+bench всегда читают BEIR. Старый directory-путь из индексатора удаляется.
 
 ## Затрагиваемые модули
 
 | Модуль | Изменение |
 |--------|-----------|
-| `indexing/corpus.py` (новый) | `Document`, `CorpusSource`, `DirectoryCorpus`, `BeirCorpus`, реестр форматов |
-| `indexing/build_index.py` | итерация по `CorpusSource`; `source_doc_id` в payload |
-| `config/index_profile.py` | блок `source: {format, path, ...}` вместо `corpus`/`parser` |
-| `bench/dataset.py` | query-loader с форматами; beir qrels-ридер |
-| `config/scenario.py` | `dataset.format`, `dataset.split`, `dataset.truth_granularity` |
-| `bench/query_loop.py` | карта chunk→doc, проекция+дедуп для `doc`, `final_doc_ids` |
-| `bench/validate_dataset.py` | сверка по `source_doc_id` при `doc` |
-| `configs/`, `data/queries/` | beir-пример + doc-level демо-манифест/scenario |
+| `datasets/beir.py` (новый) | BEIR-ридер: corpus/queries/qrels; авто-детект TREC qrels |
+| `datasets/sources.py` (новый) | резолв источника `local`/`hf` → локальная BEIR-директория (реестр) |
+| `datasets/import_dir.py` (новый) | authoring-хелпер directory → BEIR (для демо и своих корпусов) |
+| `indexing/build_index.py` | индекс из BEIR corpus; `doc_id`/`chunk_id` в payload; удалить directory-обход |
+| `config/index_profile.py` | блок `dataset: {source, id, ...}` вместо `corpus`/`parser` |
+| `config/scenario.py` | `dataset.source`/`id`/`split`; убрать кастомные `query_field`/`truth_field` |
+| `bench/dataset.py` | загрузка queries+qrels через BEIR-ридер; `QueryItem.truth_ids` = relevant doc_id |
+| `bench/query_loop.py` | карта chunk→doc, проекция+дедуп, `retrieved_doc_ids` |
+| `bench/validate_dataset.py` | сверка по `doc_id` |
+| `retrieval/engine.py`, `retrieval/merge.py` | переименование `external_id`→`chunk_id` (дедуп по `chunk_id`) |
+| `stores/bm25_store.py`, `stores/qdrant_export.py`, `retrieval/backends.py` | тот же рейнейминг |
+| `configs/`, `datasets/demo/`, CLI | BEIR-конфиги + сконвертированный демо-датасет + `dataset import` |
+| `pyproject.toml` | зависимость `huggingface_hub` для `source: hf` |
 
-`metrics.py`, `retrieval/*`, `rerank/*`, `context/*` — без изменений.
+`metrics.py` — без изменений.
 
 ## Фазы (отдельными коммитами в этот же PR)
 
-1. `CorpusSource` + `DirectoryCorpus`, `source_doc_id` в payload, `source`-блок в index profile
-   (directory работает через новую абстракцию; `source_doc_id` появляется в индексе).
-2. `truth_granularity: doc|chunk` + проекция/дедуп в `query_loop` + валидатор по `source_doc_id`;
-   doc-level демо-манифест/scenario.
-3. `BeirCorpus` + beir query/qrels-loader + пример конфигов + README.
+1. BEIR-ридер + `local` источник; `doc_id`/`chunk_id` в индексе; `external_id`→`chunk_id`
+   рейнейминг; `dataset`-блок в index profile/scenario.
+2. Document-level оценка: проекция/дедуп в `query_loop` + валидатор по `doc_id`.
+3. Конверсия демо в BEIR (`dataset import`) + удаление легаси (directory-обход,
+   `truth_manifest.jsonl`); обновить configs/README.
+4. `hf` источник (`huggingface_hub` snapshot) + пример конфига со ссылкой на `BeIR/*`.
 
-## Решения и развилки (зафиксировано)
+## Решения (обновлено по итогам ревью)
 
-- **load-native, без конвертации на диск** — единый источник правды, нет дублирования.
-- **HuggingFace Hub — вне скоупа**, заложен как будущий адаптер.
-- **index profile: cutoff-миграция** `corpus`/`parser` → `source`-блок (мигрируем `demo.yaml`
-  и `demo_sharded.yaml`, без compat-слоя).
-- **Демо-разметку не переписываем**: оставляем как `chunk`-fixture, добавляем `doc`-вариант.
-- **Требуется пересборка индекса** для `doc` granularity (нужен `source_doc_id` в payload) —
-  согласуется с существующим требованием пересборки при несовпадении метаданных.
+- **BEIR — единственный канонический формат**, cutoff без легаси (не надстройка).
+- **Один адаптер** на весь BEIR-саёт; MTEB/TREC/HF — способы доставки того же формата.
+- **HF — в скоупе**: тонкий resolver (snapshot в кэш) перед тем же ридером; адресация
+  датасета ссылкой (`source: hf`, `id: BeIR/scifact`).
+- **`external_id` как truth-ключ убираем**: оценка по `doc_id` (BEIR corpus id); `chunk_id`
+  — внутренний дедуп-ключ.
+- **Без ручки `truth_granularity`**: оценка всегда document-level (passage-level даёт сам
+  passage-датасет).
+- **Демо конвертируем в BEIR и коммитим**, старый формат удаляем.
+- **Требуется пересборка индекса** (новый payload-контракт) — согласуется с существующей
+  проверкой метаданных.
 
 ## Вне скоупа
 
-- HuggingFace Hub loader (`format: hf`).
-- Graded relevance / nDCG@k (score из qrels сохраняем, но метрики пока бинарные).
+- Graded relevance / **nDCG@k** — каноническая метрика BEIR; score из qrels сохраняем в
+  индексе/загрузке, но метрики пока бинарные (Recall@k, MRR@k как сейчас). Отдельная задача.
 - HTML/PDF-парсинг корпуса (ортогонально; отдельная задача про parsers).
+- Прочие источники (URL/S3) сверх `local`/`hf` — заложены точкой расширения, но не пишем.
