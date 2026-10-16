@@ -22,9 +22,9 @@ class KeywordBm25Store:
         """
         docs: список документов/чанков вида:
           {
-            "external_id": str,
+            "chunk_id": str,
             "text": str,
-            ... любые поля ...
+            ... любые поля (включая doc_id) ...
           }
         """
         self.docs = docs
@@ -36,9 +36,9 @@ class KeywordBm25Store:
         out: list[Candidate] = []
         for doc_idx, sc in pairs:
             d = self.docs[doc_idx]
-            ext = str(d.get("external_id"))
+            cid = str(d.get("chunk_id"))
             payload = dict(d)
-            # важно: external_id должен быть в payload, чтобы метрики совпали
-            payload["external_id"] = ext
-            out.append(Candidate(id=ext, score_raw=float(sc), payload=payload))
+            # chunk_id должен быть в payload (dedup); doc_id уже внутри d и переносится
+            payload["chunk_id"] = cid
+            out.append(Candidate(id=cid, score_raw=float(sc), payload=payload))
         return out

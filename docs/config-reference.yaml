@@ -43,7 +43,7 @@ config_files:
     cli: "docker compose -f docker/docker-compose.yaml --profile qdrant up -d qdrant redis"
 
 index_profile:
-  purpose: "Build or rebuild an offline retrieval index from a local corpus."
+  purpose: "Build or rebuild an offline retrieval index from a BEIR dataset."
   root:
     id:
       type: "string"
@@ -51,21 +51,25 @@ index_profile:
       default: null
       status: implemented
       docs: "Human-readable profile identifier. Currently used for config identity only, not for artifact paths."
-    corpus:
-      type: "string path"
+    dataset:
+      type: "object"
       required: true
-      default: null
       status: implemented
-      docs: "Directory scanned recursively for files to index."
-      runtime_behavior: "Every file under this directory is read as UTF-8 text with errors ignored."
-    parser:
-      type: "enum"
-      required: false
-      default: "plain_text"
-      allowed_values:
-        - "plain_text"
-      status: implemented
-      docs: "Parser type. Only plain text/markdown-style file reading exists."
+      docs: "BEIR dataset to index (its corpus.jsonl). Same (source, id) convention as scenario.dataset."
+      fields:
+        source:
+          type: "enum"
+          required: false
+          default: "local"
+          allowed_values:
+            - "local"
+            - "hf"
+          docs: "local = path to a BEIR directory; hf = HuggingFace Hub dataset repo id (snapshot downloaded to cache)."
+        id:
+          type: "string"
+          required: true
+          docs: "For local: path to the BEIR dataset directory. For hf: repo id, e.g. 'BeIR/scifact'."
+      runtime_behavior: "corpus.jsonl is read; each document is chunked; payload stores doc_id (ground truth), chunk_id, chunk_index, title, text."
     chunking:
       type: "object"
       required: false
@@ -163,12 +167,12 @@ index_profile:
           fields:
             key:
               type: "enum"
-              default: "external_id"
+              default: "chunk_id"
               allowed_values:
-                - "external_id"
-                - "doc_path"
+                - "chunk_id"
+                - "doc_id"
               status: implemented
-              docs: "For mode=sharded, write target is selected as sha1(payload[key]) % backend_count. If key is missing, external_id is used. For mode=replicated, every chunk is written to every backend."
+              docs: "For mode=sharded, write target is selected as sha1(payload[key]) % backend_count. If key is missing, chunk_id is used. For mode=replicated, every chunk is written to every backend. Route by doc_id to keep all chunks of a document on one shard."
     index_params:
       type: "object"
       required: false
@@ -300,30 +304,33 @@ scenario:
     dataset:
       type: "object"
       status: implemented
+      docs: "BEIR dataset for queries + qrels (document-level ground truth)."
       fields:
+        source:
+          type: "enum"
+          default: "local"
+          allowed_values:
+            - "local"
+            - "hf"
+          status: implemented
+          docs: "local = path to a BEIR directory; hf = HuggingFace Hub dataset repo id."
         id:
-          type: "string path"
+          type: "string"
           required: true
           status: implemented
-          docs: "JSONL dataset path."
-          caveat: "Docs mention registry keys, but runtime treats this as a filesystem path only."
+          docs: "For local: path to BEIR dataset directory. For hf: repo id, e.g. 'BeIR/scifact'."
+        split:
+          type: "string"
+          default: "test"
+          status: implemented
+          docs: "Which qrels/<split>.tsv to evaluate against."
         limit:
           type: "integer"
           default: 2000
           constraints:
             schema_enforced: ">= 1"
           status: implemented
-          docs: "Maximum number of non-empty JSONL rows to load."
-        query_field:
-          type: "string"
-          default: "question"
-          status: implemented
-          docs: "JSON field containing the query text."
-        truth_field:
-          type: "string"
-          default: "relevant"
-          status: implemented
-          docs: "JSON field containing relevant external_id values. String and list are supported."
+          docs: "Maximum number of queries to load (after joining with qrels)."
     storage:
       type: "object"
       status: partial
@@ -372,10 +379,10 @@ scenario:
           fields:
             key:
               type: "enum"
-              default: "external_id"
+              default: "chunk_id"
               allowed_values:
-                - "external_id"
-                - "doc_path"
+                - "chunk_id"
+                - "doc_id"
               status: implemented
               docs: "Documents the sharding key expected by the matching index profile. Retrieval fanout must be configured explicitly through retrieval.sources[].params.backend_ref."
     embedding:
@@ -500,8 +507,8 @@ scenario:
               type: "boolean"
               default: true
               status: partial
-              docs: "Deduplicate by external_id where applicable."
-              caveat: "weighted_sum already aggregates by external_id; deduplicate flag has no practical effect there."
+              docs: "Deduplicate by chunk_id where applicable."
+              caveat: "weighted_sum already aggregates by chunk_id; deduplicate flag has no practical effect there."
     rerank:
       type: "object"
       status: implemented
@@ -566,7 +573,7 @@ scenario:
           type: "boolean"
           default: true
           status: implemented
-          docs: "When true, context_text includes external_id labels before chunk text."
+          docs: "When true, context_text includes chunk_id labels before chunk text."
     generation:
       type: "object"
       status: implemented
@@ -807,8 +814,9 @@ known_conflicts_and_gotchas:
 minimal_working_configs:
   index_profile_qdrant:
     id: "demo_chunks_v1"
-    corpus: "datasets/demo/corpus"
-    parser: "plain_text"
+    dataset:
+      source: "local"
+      id: "datasets/demo"
     chunking:
       method: "recursive"
       chunk_size: 800
@@ -844,10 +852,10 @@ minimal_working_configs:
       rerank_ms: 800
       llm_ms: 3500
     dataset:
-      id: "data/queries/baseline_qdrant.jsonl"
+      source: "local"
+      id: "datasets/demo"
+      split: "test"
       limit: 2000
-      query_field: "question"
-      truth_field: "relevant"
     storage:
       mode: "single"
       backend:

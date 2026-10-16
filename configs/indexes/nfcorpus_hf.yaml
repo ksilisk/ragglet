@@ -1,0 +1,22 @@
+# Пример индексации готового датасета с HuggingFace Hub (BEIR).
+# Датасет скачивается и материализуется в локальный BEIR-кэш автоматически.
+id: "nfcorpus_hf"
+dataset:
+  source: "hf"
+  id: "BeIR/nfcorpus"
+chunking:
+  method: "recursive"
+  chunk_size: 800
+  chunk_overlap: 120
+embedding:
+  model: "all-MiniLM-L6-v2"
+  normalize: true
+storage:
+  type: "qdrant"
+  endpoint: "http://localhost:6333"
+  collection: "nfcorpus_v1"
+index_params:
+  distance: "cosine"
+  hnsw:
+    m: 16
+    ef_construct: 128

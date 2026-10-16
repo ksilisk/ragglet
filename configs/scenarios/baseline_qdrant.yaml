@@ -20,10 +20,10 @@ timeouts:
   llm_ms: 3500
 
 dataset:
-  id: "data/queries/baseline_qdrant.jsonl"
+  source: "local"
+  id: "datasets/demo"
+  split: "test"
   limit: 2000
-  query_field: "question"
-  truth_field: "relevant"
 
 storage:
   mode: "single"

@@ -7,7 +7,7 @@ from typing import Any
 async def export_all_payloads(store, batch_size: int = 256) -> list[dict[str, Any]]:
     """
     Возвращает список payload для всех points в коллекции.
-    Требуются payload поля: external_id, text (и любые другие полезные).
+    Требуются payload поля: chunk_id, doc_id, text (и любые другие полезные).
     """
     out: list[dict[str, Any]] = []
     offset = None

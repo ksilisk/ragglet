@@ -6,7 +6,7 @@ from typing import Any
 import anyio
 import pandas as pd
 
-from ragglet.bench.metrics import recall_at_k, mrr_at_k
+from ragglet.bench.metrics import mrr_at_k, project_to_docs, recall_at_k
 from ragglet.cache.manager import CacheManager
 from ragglet.config.scenario import ScenarioConfig
 from ragglet.context.base import ContextResult
@@ -15,10 +15,18 @@ from ragglet.core.errors import StageTimeout
 from ragglet.generation.base import Generator
 from ragglet.generation.engine import generate_answer
 from ragglet.modules.embedders.st_embedder import SentenceTransformerEmbedder
-from ragglet.retrieval.backends import BackendRegistry
 from ragglet.rerank.base import Reranker
 from ragglet.rerank.engine import rerank_items
+from ragglet.retrieval.backends import BackendRegistry
 from ragglet.retrieval.engine import retrieve_items
+
+
+def _chunk_to_doc_map(items) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for it in items:
+        payload = it.payload or {}
+        out[it.chunk_id] = str(payload.get("doc_id", it.chunk_id))
+    return out
 
 
 async def run_queries_once(
@@ -43,6 +51,9 @@ async def run_queries_once(
         reranked_ids = []
         context_ids = []
         final_ids = []
+        retrieved_doc_ids = []
+        final_doc_ids = []
+        chunk_to_doc: dict[str, str] = {}
         rerank_scores = []
         context_text = ""
         context_tokens = 0
@@ -69,19 +80,27 @@ async def run_queries_once(
                 if cached is not None and cached.retrieved_items is not None:
                     retrieved_items = cached.retrieved_items
                     retrieved_ids = cached.retrieved_ids
+                    chunk_to_doc = _chunk_to_doc_map(retrieved_items)
                 elif cached is not None and not cfg.rerank.enabled and not cfg.context.enabled:
                     retrieved_ids = cached.retrieved_ids
                     retrieved_items = []
+                    # items-less hit: восстанавливаем chunk->doc из параллельного списка
+                    chunk_to_doc = dict(zip(retrieved_ids, cached.chunk_doc_ids or [], strict=False))
                 else:
                     retrieved_items = await retrieve_items(cfg, backends, it.query, vec)
-                    retrieved_ids = [item.external_id for item in retrieved_items]
-                    caches.set_retrieval(key, retrieved_ids, retrieved_items)
+                    retrieved_ids = [item.chunk_id for item in retrieved_items]
+                    chunk_to_doc = _chunk_to_doc_map(retrieved_items)
+                    chunk_doc_ids = [chunk_to_doc[cid] for cid in retrieved_ids]
+                    caches.set_retrieval(key, retrieved_ids, retrieved_items, chunk_doc_ids)
+
+                # doc-level список retrieved (дедуп по лучшему рангу) — для отладки
+                retrieved_doc_ids = project_to_docs(retrieved_ids, chunk_to_doc)
 
                 t3 = time.perf_counter()
 
                 if cfg.rerank.enabled:
                     reranked = await rerank_items(cfg, reranker, it.query, retrieved_items)
-                    reranked_ids = [result.item.external_id for result in reranked]
+                    reranked_ids = [result.item.chunk_id for result in reranked]
                     rerank_scores = [result.score for result in reranked]
                     context_candidates = reranked
                     final_ids = reranked_ids
@@ -136,9 +155,11 @@ async def run_queries_once(
         finally:
             lat_total_ms = (time.perf_counter() - t0) * 1000.0
 
+        # метрики считаем на document-level: проецируем финальные chunk_id в doc_id с дедупом
         truth = set(it.truth_ids)
-        rec = {f"recall@{k}": recall_at_k(final_ids, truth, k) for k in cfg.metrics.quality.recall_at_k}
-        rr = mrr_at_k(final_ids, truth, cfg.metrics.quality.mrr_at_k)
+        final_doc_ids = project_to_docs(final_ids, chunk_to_doc)
+        rec = {f"recall@{k}": recall_at_k(final_doc_ids, truth, k) for k in cfg.metrics.quality.recall_at_k}
+        rr = mrr_at_k(final_doc_ids, truth, cfg.metrics.quality.mrr_at_k)
 
         rows.append(
             {
@@ -146,6 +167,7 @@ async def run_queries_once(
                 "query": it.query,
                 "truth_ids": it.truth_ids,
                 "retrieved_ids": retrieved_ids,
+                "retrieved_doc_ids": retrieved_doc_ids,
                 "reranked_ids": reranked_ids,
                 "context_ids": context_ids,
                 "context_text": context_text,
@@ -160,6 +182,7 @@ async def run_queries_once(
                 "gen_total_tokens": gen_total_tokens,
                 "gen_cost_estimated": gen_cost_estimated,
                 "final_ids": final_ids,
+                "final_doc_ids": final_doc_ids,
                 "rerank_scores": rerank_scores,
                 "mrr": rr,
                 **rec,

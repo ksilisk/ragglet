@@ -18,10 +18,10 @@ output:
   include_debug_fields: true
 
 dataset:
-  id: "data/queries/truth_manifest.jsonl"
+  source: "local"
+  id: "datasets/demo"
+  split: "test"
   limit: 2000
-  query_field: "question"
-  truth_field: "relevant"
 
 storage:
   mode: "sharded"
@@ -39,7 +39,7 @@ storage:
       endpoint: "http://localhost:6334"
       collection: "chunks_v1_shard1"
   routing:
-    key: "external_id"
+    key: "chunk_id"
 
 embedding:
   model: "all-MiniLM-L6-v2"

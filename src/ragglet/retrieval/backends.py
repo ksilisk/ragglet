@@ -42,19 +42,19 @@ class BackendRegistry:
             b = float(params.get("b", 0.75))
 
             payloads = []
-            seen_external_ids: set[str] = set()
+            seen_chunk_ids: set[str] = set()
             for store in vector_stores.values():
                 for payload in await export_all_payloads(store, batch_size=256):
-                    external_id = payload.get("external_id") if payload else None
-                    if external_id is not None and str(external_id) in seen_external_ids:
+                    chunk_id = payload.get("chunk_id") if payload else None
+                    if chunk_id is not None and str(chunk_id) in seen_chunk_ids:
                         continue
-                    if external_id is not None:
-                        seen_external_ids.add(str(external_id))
+                    if chunk_id is not None:
+                        seen_chunk_ids.add(str(chunk_id))
                     payloads.append(payload)
             docs = []
             for p in payloads:
-                if p and "external_id" in p and "text" in p:
-                    docs.append({"external_id": p["external_id"], "text": p["text"], **p})
+                if p and "chunk_id" in p and "text" in p:
+                    docs.append({"chunk_id": p["chunk_id"], "text": p["text"], **p})
 
             reg.keyword = KeywordBm25Store(docs, k1=k1, b=b)
 

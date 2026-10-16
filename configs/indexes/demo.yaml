@@ -1,6 +1,7 @@
 id: "demo"
-corpus: "datasets/demo/corpus"
-parser: "plain_text"
+dataset:
+  source: "local"
+  id: "datasets/demo"
 chunking:
   method: "recursive"
   chunk_size: 800

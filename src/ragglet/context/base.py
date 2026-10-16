@@ -22,4 +22,4 @@ class ContextResult:
 
     @property
     def ids(self) -> list[str]:
-        return [chunk.item.external_id for chunk in self.chunks]
+        return [chunk.item.chunk_id for chunk in self.chunks]

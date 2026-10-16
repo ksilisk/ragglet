@@ -3,6 +3,7 @@ from __future__ import annotations
 import typer
 
 from ragglet.cli.bench import bench_app
+from ragglet.cli.dataset import dataset_app
 from ragglet.cli.index import index_app
 from ragglet.cli.serve import serve_command
 
@@ -14,4 +15,5 @@ app = typer.Typer(
 
 app.add_typer(bench_app, name="bench")
 app.add_typer(index_app, name="index")
+app.add_typer(dataset_app, name="dataset")
 app.command("serve")(serve_command)

@@ -62,7 +62,7 @@ class StorageBackendConfig(BaseModel):
 class StorageRoutingConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    key: Literal["external_id", "doc_path"] = "external_id"
+    key: Literal["chunk_id", "doc_id"] = "chunk_id"
 
 
 class StorageConfig(BaseModel):
@@ -85,12 +85,18 @@ class StorageConfig(BaseModel):
         return self
 
 
+class DatasetSourceConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source: Literal["local", "hf"] = "local"
+    id: str
+
+
 class IndexProfileConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str
-    corpus: str
-    parser: Literal["plain_text"] = "plain_text"
+    dataset: DatasetSourceConfig
     chunking: ChunkingConfig = Field(default_factory=ChunkingConfig)
     embedding: EmbeddingConfig
     storage: StorageConfig

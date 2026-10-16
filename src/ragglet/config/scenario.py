@@ -50,10 +50,10 @@ class OutputConfig(BaseModel):
 class DatasetConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    source: Literal["local", "hf"] = "local"
     id: str
+    split: str = "test"
     limit: int = Field(2000, ge=1)
-    query_field: str = "question"
-    truth_field: str = "relevant"
 
 
 class StorageBackendConfig(BaseModel):
@@ -68,7 +68,7 @@ class StorageBackendConfig(BaseModel):
 class StorageRoutingConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    key: Literal["external_id", "doc_path"] = "external_id"
+    key: Literal["chunk_id", "doc_id"] = "chunk_id"
 
 
 class StorageConfig(BaseModel):

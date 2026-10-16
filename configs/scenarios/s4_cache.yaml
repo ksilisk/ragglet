@@ -19,10 +19,10 @@ output:
   include_debug_fields: true
 
 dataset:
-  id: "data/queries/truth_manifest.jsonl"
+  source: "local"
+  id: "datasets/demo"
+  split: "test"
   limit: 2000
-  query_field: "question"
-  truth_field: "relevant"
 
 storage:
   mode: "single"

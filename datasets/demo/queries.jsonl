@@ -1,0 +1,100 @@
+{"_id": "q001", "text": "What is Retrieval-Augmented Generation (RAG) and what are the main stages of its pipeline?"}
+{"_id": "q002", "text": "How does RAG differ from pure generation and pure retrieval systems?"}
+{"_id": "q003", "text": "What are common failure modes in RAG systems?"}
+{"_id": "q004", "text": "Why can RAG still hallucinate and what grounding techniques help reduce hallucinations?"}
+{"_id": "q005", "text": "How should you budget the context window when building prompts for RAG?"}
+{"_id": "q006", "text": "What is a standard evaluation protocol for RAG experiments?"}
+{"_id": "q007", "text": "What is Recall@k in information retrieval and how is it interpreted?"}
+{"_id": "q008", "text": "What is Mean Reciprocal Rank (MRR) and what does it measure?"}
+{"_id": "q009", "text": "What is nDCG and when is it more informative than Recall@k?"}
+{"_id": "q010", "text": "What is hybrid search and why combine vector search with BM25?"}
+{"_id": "q011", "text": "What is BM25 and why is it useful for keyword retrieval?"}
+{"_id": "q012", "text": "What is Reciprocal Rank Fusion (RRF) and how does it merge results?"}
+{"_id": "q013", "text": "How does the RRF parameter k influence fused rankings?"}
+{"_id": "q014", "text": "What is multi-query retrieval and how does query expansion help recall?"}
+{"_id": "q015", "text": "What is self-query retrieval and how do metadata filters improve precision?"}
+{"_id": "q016", "text": "What is recursive chunking and when is it preferable?"}
+{"_id": "q017", "text": "What is semantic chunking and what are its tradeoffs compared to recursive chunking?"}
+{"_id": "q018", "text": "How does chunk overlap affect retrieval quality and index size?"}
+{"_id": "q019", "text": "What overlap settings are commonly recommended for chunking?"}
+{"_id": "q020", "text": "What are typical issues when parsing HTML and PDF documents for RAG?"}
+{"_id": "q021", "text": "How can you handle duplicates and near-duplicates in a retrieval corpus?"}
+{"_id": "q022", "text": "How do you format context with citations so the model can reference sources?"}
+{"_id": "q023", "text": "Why does embedding normalization matter for cosine similarity search?"}
+{"_id": "q024", "text": "How do cosine, dot product, and Euclidean distance differ for vector search?"}
+{"_id": "q025", "text": "How do embedding dimensions affect storage and latency?"}
+{"_id": "q026", "text": "What batching strategies improve embedding throughput?"}
+{"_id": "q027", "text": "What is embedding drift and why does it require reindexing or versioning?"}
+{"_id": "q028", "text": "How do you manage embedding model versions in a production RAG system?"}
+{"_id": "q029", "text": "What are challenges of multilingual embeddings for RAG?"}
+{"_id": "q030", "text": "What are domain-specific embeddings and when should you use them?"}
+{"_id": "q031", "text": "What are common vector index types like HNSW, IVF, and PQ?"}
+{"_id": "q032", "text": "What is HNSW and why is it popular for approximate nearest neighbor search?"}
+{"_id": "q033", "text": "How do payloads and metadata filtering work in vector databases?"}
+{"_id": "q034", "text": "What operational tasks matter for vector DBs (upsert, delete, compaction)?"}
+{"_id": "q035", "text": "How do consistency and durability differ from performance concerns in vector DBs?"}
+{"_id": "q036", "text": "What are Qdrant collections, points, and payloads?"}
+{"_id": "q037", "text": "Which Qdrant HNSW parameters matter most for performance and recall?"}
+{"_id": "q038", "text": "What do Qdrant parameters m, ef_construct, and ef_search control?"}
+{"_id": "q039", "text": "How does Qdrant handle sharding and replication?"}
+{"_id": "q040", "text": "What routing strategies can be used in a sharded vector DB setup?"}
+{"_id": "q041", "text": "What is vector quantization and why use it in Qdrant?"}
+{"_id": "q042", "text": "How do Qdrant optimizers affect performance and resource usage?"}
+{"_id": "q043", "text": "What are common Qdrant performance tuning steps?"}
+{"_id": "q044", "text": "What are typical causes of slow queries in Qdrant and how to debug them?"}
+{"_id": "q045", "text": "What are Milvus collections and partitions?"}
+{"_id": "q046", "text": "What Milvus index types are commonly used and how do they compare?"}
+{"_id": "q047", "text": "How does Milvus scale in a cluster and what components does it have?"}
+{"_id": "q048", "text": "What consistency levels does Milvus support and why do they matter?"}
+{"_id": "q049", "text": "What are practical Milvus performance tuning recommendations?"}
+{"_id": "q050", "text": "What is Weaviate's schema concept and how does it affect retrieval?"}
+{"_id": "q051", "text": "How does Weaviate support hybrid search?"}
+{"_id": "q052", "text": "What are Weaviate vectorizer modules and how do they relate to embeddings?"}
+{"_id": "q053", "text": "How do filters work in Weaviate queries?"}
+{"_id": "q054", "text": "How does Weaviate handle sharding and replication for scaling?"}
+{"_id": "q055", "text": "What are common Weaviate tuning and troubleshooting steps?"}
+{"_id": "q056", "text": "What is pgvector and how do you index vectors in Postgres?"}
+{"_id": "q057", "text": "How do IVFFlat and HNSW differ in pgvector indexing?"}
+{"_id": "q058", "text": "How do Postgres transactions and consistency impact vector search with pgvector?"}
+{"_id": "q059", "text": "What Postgres settings affect vector search performance (work_mem, maintenance)?"}
+{"_id": "q060", "text": "What are basic Postgres scaling approaches like partitioning and replication?"}
+{"_id": "q061", "text": "What is sharding and what problem does it solve in distributed systems?"}
+{"_id": "q062", "text": "What is replication and what are typical consistency tradeoffs?"}
+{"_id": "q063", "text": "What is consistent hashing and why is it used for routing?"}
+{"_id": "q064", "text": "What is fanout retrieval and how does it reduce tail latency?"}
+{"_id": "q065", "text": "How do timeouts and cancellation work in async fanout retrieval?"}
+{"_id": "q066", "text": "What is multi-index routing in distributed RAG architectures?"}
+{"_id": "q067", "text": "How do you decide which index to query in a multi-index RAG system?"}
+{"_id": "q068", "text": "What are embedding caches and when do they help most?"}
+{"_id": "q069", "text": "What are retrieval caches and what are the main invalidation strategies?"}
+{"_id": "q070", "text": "How should you structure logs and traces for RAG observability?"}
+{"_id": "q071", "text": "What are the key latency components in a RAG request lifecycle?"}
+{"_id": "q072", "text": "How do you design a fair benchmark for comparing retrieval architectures?"}
+{"_id": "q073", "text": "What factors can bias RAG benchmark results and how to avoid them?"}
+{"_id": "q074", "text": "Define HNSW and list the key parameters that influence recall and speed."}
+{"_id": "q075", "text": "When should you prefer cosine similarity over dot product for embeddings?"}
+{"_id": "q076", "text": "What is the tradeoff between larger chunk_size and retrieval precision?"}
+{"_id": "q077", "text": "How does document parsing quality affect downstream retrieval performance?"}
+{"_id": "q078", "text": "What is the role of metadata filters in self-query retrieval?"}
+{"_id": "q079", "text": "Why can hybrid search outperform pure vector search on some queries?"}
+{"_id": "q080", "text": "Explain how RRF can improve robustness when merging heterogeneous retrievers."}
+{"_id": "q081", "text": "What are typical steps to tune ef_search in a Qdrant HNSW index?"}
+{"_id": "q082", "text": "How do Qdrant shards and replicas affect throughput and latency?"}
+{"_id": "q083", "text": "What are typical causes of performance regressions in vector DB workloads?"}
+{"_id": "q084", "text": "What are common vector DB background tasks and why do they matter operationally?"}
+{"_id": "q085", "text": "How can snapshots help with durability and recovery in vector databases?"}
+{"_id": "q086", "text": "How do Milvus partitions help manage large datasets?"}
+{"_id": "q087", "text": "What are typical Milvus cluster components involved in query execution?"}
+{"_id": "q088", "text": "How does Weaviate’s GraphQL querying interface relate to retrieval?"}
+{"_id": "q089", "text": "How does pgvector benefit from Postgres features like transactions and filters?"}
+{"_id": "q090", "text": "What Postgres maintenance or tuning knobs are important for vector workloads?"}
+{"_id": "q091", "text": "What are key design choices when building distributed storage for embeddings?"}
+{"_id": "q092", "text": "Why are timeouts essential in fanout retrieval across multiple sources?"}
+{"_id": "q093", "text": "What does an adaptive context selection policy do in RAG?"}
+{"_id": "q094", "text": "Why is reranking often applied only to top-k candidates?"}
+{"_id": "q095", "text": "What is the difference between precision and recall in retrieval evaluation?"}
+{"_id": "q096", "text": "What are the typical layers of caching in a RAG system?"}
+{"_id": "q097", "text": "How do you measure and report tail latency in RAG benchmarks?"}
+{"_id": "q098", "text": "What makes benchmark results reproducible across machines and runs?"}
+{"_id": "q099", "text": "What is a common approach to structure a RAG experiment for a thesis?"}
+{"_id": "q100", "text": "How do you connect observability (logs/traces) to debugging retrieval failures?"}

@@ -20,6 +20,9 @@ dependencies = [
   "numpy>=2.0.0",
   "sentence-transformers>=3.0.0",
 
+  # datasets (BEIR from HuggingFace Hub)
+  "huggingface-hub>=0.24.0",
+
   # Config/schema
   "pydantic>=2.8.2",
   "pydantic-settings>=2.4.0",

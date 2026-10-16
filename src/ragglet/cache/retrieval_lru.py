@@ -15,6 +15,9 @@ if TYPE_CHECKING:
 class RetrievalCacheEntry:
     retrieved_ids: list[str]
     retrieved_items: list[RetrievedItem] | None = None
+    # doc_id параллельно retrieved_ids (та же длина) — для восстановления chunk->doc
+    # маппинга на items-less cache hit
+    chunk_doc_ids: list[str] | None = None
 
 
 class LRURetrievalCache:

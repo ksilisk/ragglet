@@ -9,8 +9,8 @@ import anyio
 class RetrievedItem:
     # внутренний id (UUID point id в Qdrant и т.п.)
     point_id: str
-    # то, по чему мы считаем метрики и делаем dedup (external_id)
-    external_id: str
+    # id чанка: по нему делаем retrieval-dedup; doc_id для метрик лежит в payload
+    chunk_id: str
     score_raw: float
     source: str
     payload: dict[str, Any] | None
@@ -24,13 +24,13 @@ class SourceSpec:
     params: dict[str, Any]
 
 
-def deduplicate_by_external_id(items: Iterable[RetrievedItem]) -> list[RetrievedItem]:
+def deduplicate_by_chunk_id(items: Iterable[RetrievedItem]) -> list[RetrievedItem]:
     seen: set[str] = set()
     out: list[RetrievedItem] = []
     for it in items:
-        if it.external_id in seen:
+        if it.chunk_id in seen:
             continue
-        seen.add(it.external_id)
+        seen.add(it.chunk_id)
         out.append(it)
     return out
 
@@ -53,7 +53,7 @@ def rrf_merge(
     for source_name, items in per_source_ranked.items():
         w = float(weights.get(source_name, 1.0))
         for rank, it in enumerate(items, start=1):
-            key = it.external_id
+            key = it.chunk_id
             fused_score[key] = fused_score.get(key, 0.0) + w * (1.0 / (rrf_k + rank))
             # сохраняем один representative item (payload пригодится потом)
             if key not in best_item:
@@ -64,7 +64,7 @@ def rrf_merge(
     merged = [best_item[k] for k in ordered]
 
     if deduplicate:
-        merged = deduplicate_by_external_id(merged)
+        merged = deduplicate_by_chunk_id(merged)
 
     return merged[:top_k]
 
@@ -136,7 +136,7 @@ def interleave_merge(
                 idx[s] += 1
                 progressed = True
 
-                key = item.external_id
+                key = item.chunk_id
                 if deduplicate and key in used:
                     continue
 
@@ -155,7 +155,7 @@ def weighted_sum_merge(
     normalize: str = "minmax",  # "minmax" | "zscore" (позже) | "none"
     eps: float = 1e-9,
 ) -> list[RetrievedItem]:
-    # накопим по external_id
+    # накопим по chunk_id
     agg_score: dict[str, float] = {}
     best_item: dict[str, RetrievedItem] = {}  # чтобы payload/source/etc сохранить
 
@@ -177,7 +177,7 @@ def weighted_sum_merge(
             raise NotImplementedError(f"normalize='{normalize}' not implemented")
 
         for it in items:
-            key = it.external_id
+            key = it.chunk_id
             sc = w * norm(float(it.score_raw))
             agg_score[key] = agg_score.get(key, 0.0) + sc
             # сохраним "лучший" item как репрезентативный (например с max raw score)
@@ -190,7 +190,7 @@ def weighted_sum_merge(
         # можно положить итоговый score в score_raw (или добавить score_fused отдельным полем)
         merged.append(RetrievedItem(
             point_id=it.point_id,
-            external_id=it.external_id,
+            chunk_id=it.chunk_id,
             score_raw=float(sc),          # fused score
             source=it.source,             # можно поставить "fused"
             payload=it.payload,

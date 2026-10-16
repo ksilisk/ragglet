@@ -1,0 +1,52 @@
+# Пример бенчмарка на готовом датасете BEIR nfcorpus (с HuggingFace Hub).
+# Требует предварительной сборки индекса: ragglet index build configs/indexes/nfcorpus_hf.yaml
+version: 1
+name: "nfcorpus_hf"
+description: "BEIR nfcorpus (HF Hub): single-source vector retrieval, document-level метрики."
+tags: ["beir", "hf", "nfcorpus"]
+seed: 42
+
+run:
+  repeats: 1
+  shuffle: false
+  save_per_query: true
+  artifacts_dir: "results/runs"
+
+output:
+  format: "both"
+  include_debug_fields: true
+
+dataset:
+  source: "hf"
+  id: "BeIR/nfcorpus"
+  split: "test"
+  limit: 2000
+
+storage:
+  mode: "single"
+  backend:
+    type: "qdrant"
+    endpoint: "http://localhost:6333"
+    collection: "nfcorpus_v1"
+
+embedding:
+  model: "all-MiniLM-L6-v2"
+  normalize: true
+
+retrieval:
+  strategy: "single"
+  top_k: 30
+  async: false
+  sources:
+    - name: "qdrant_vector"
+      kind: "vector"
+      weight: 1.0
+      params:
+        ef_search: 64
+
+metrics:
+  latency_steps: ["embed", "retrieve", "total"]
+  percentiles: [50, 95, 99]
+  quality:
+    recall_at_k: [1, 3, 5, 10, 30]
+    mrr_at_k: 30
