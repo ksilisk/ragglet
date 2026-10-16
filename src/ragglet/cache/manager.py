@@ -111,12 +111,17 @@ class CacheManager:
         key: str | None,
         retrieved_ids: list[str],
         retrieved_items: list[RetrievedItem] | None = None,
+        chunk_doc_ids: list[str] | None = None,
     ) -> None:
         if self.ret_cache is None or key is None:
             return
         self.ret_cache.set(
             key,
-            RetrievalCacheEntry(retrieved_ids=retrieved_ids, retrieved_items=retrieved_items),
+            RetrievalCacheEntry(
+                retrieved_ids=retrieved_ids,
+                retrieved_items=retrieved_items,
+                chunk_doc_ids=chunk_doc_ids,
+            ),
         )
 
     def reset_stats(self) -> None:

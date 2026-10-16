@@ -1,45 +1,27 @@
 from __future__ import annotations
 
-from pathlib import Path
-from hashlib import sha1
-from typing import Iterable
 from copy import deepcopy
+from uuid import NAMESPACE_URL, uuid5
 
 from rich.progress import track
 
 from ragglet.config.index_profile import IndexProfileConfig
-from ragglet.indexing.parsers import parse_plain_text
+from ragglet.datasets.beir import read_corpus
+from ragglet.datasets.sources import resolve_dataset_dir
 from ragglet.indexing.chunking import recursive_chunk
 from ragglet.indexing.metadata import build_index_metadata
+from ragglet.indexing.qdrant_indexer import QdrantIndexer, QdrantIndexSpec
 from ragglet.modules.embedders.st_embedder import SentenceTransformerEmbedder
-from ragglet.indexing.qdrant_indexer import QdrantIndexSpec, QdrantIndexer
 from ragglet.storage.layout import StorageTarget, build_storage_layout
 
 
-def _iter_files(root: Path) -> Iterable[Path]:
-    for p in root.rglob("*"):
-        if p.is_file():
-            yield p
-
-
-def _make_chunk_id(doc_path: str, chunk_idx: int) -> str:
-    """
-    Стабильный id: sha1(path + idx) — чтобы при пересборке было воспроизводимо.
-    Важно: это id должен попадать в ground-truth датасета.
-    """
-    raw = f"{doc_path}#{chunk_idx}".encode("utf-8")
-    return sha1(raw).hexdigest()
-
-from uuid import uuid5, NAMESPACE_URL
-
-def _make_point_id(external_id: str) -> str:
+def _make_point_id(chunk_id: str) -> str:
     # детерминированный UUID по строке -> одинаковый при пересборке
-    return str(uuid5(NAMESPACE_URL, external_id))
+    return str(uuid5(NAMESPACE_URL, chunk_id))
+
 
 def build_index(cfg: IndexProfileConfig) -> None:
-    corpus_root = Path(cfg.corpus)
-    if not corpus_root.exists():
-        raise FileNotFoundError(f"Corpus path not found: {corpus_root}")
+    dataset_dir = resolve_dataset_dir(cfg.dataset.source, cfg.dataset.id)
 
     layout = build_storage_layout(cfg.storage)
     if any(target.type != "qdrant" for target in layout.targets):
@@ -102,22 +84,22 @@ def build_index(cfg: IndexProfileConfig) -> None:
         batch_payloads.clear()
         batch_targets.clear()
 
-    for file_path in track(list(_iter_files(corpus_root)), description="Indexing corpus"):
-        text = parse_plain_text(file_path)
-        chunks = recursive_chunk(text, cfg.chunking.chunk_size, cfg.chunking.chunk_overlap)
-        rel_path = str(file_path.relative_to(corpus_root))
+    for doc in track(list(read_corpus(dataset_dir)), description="Indexing corpus"):
+        doc_text = f"{doc.title}\n\n{doc.text}".strip() if doc.title else doc.text
+        chunks = recursive_chunk(doc_text, cfg.chunking.chunk_size, cfg.chunking.chunk_overlap)
 
         for idx, chunk_text in enumerate(chunks):
-            external_id = f"{rel_path}#{idx}"
-            point_id = _make_point_id(external_id)
+            chunk_id = f"{doc.doc_id}#{idx}"
+            point_id = _make_point_id(chunk_id)
             batch_ids.append(point_id)
             batch_texts.append(chunk_text)
             batch_payloads.append(
                 {
-                    "external_id": external_id,
-                    "doc_path": rel_path,
+                    "doc_id": doc.doc_id,          # id документа (BEIR corpus _id) — ground truth
+                    "chunk_id": chunk_id,          # внутренний id чанка: dedup/debug
                     "chunk_index": idx,
-                    "text": chunk_text,   # полезно для отладки/потом контекст строить
+                    "title": doc.title,
+                    "text": chunk_text,            # полезно для отладки/контекста
                 }
             )
             batch_targets.append(layout.route_write(batch_payloads[-1]))

@@ -1,28 +1,28 @@
 from __future__ import annotations
+
 from dataclasses import dataclass
-from pathlib import Path
-import json
+
+from ragglet.datasets.beir import read_queries
+from ragglet.datasets.sources import resolve_dataset_dir
+
 
 @dataclass(frozen=True)
 class QueryItem:
     qid: str
     query: str
-    truth_ids: list[str]
+    truth_ids: list[str]  # relevant doc_id из qrels (document-level ground truth)
 
-def load_jsonl_dataset(path: Path, query_field: str, truth_field: str, limit: int) -> list[QueryItem]:
-    items: list[QueryItem] = []
-    with path.open("r", encoding="utf-8") as f:
-        for i, line in enumerate(f):
-            if limit and len(items) >= limit:
-                break
-            line = line.strip()
-            if not line:
-                continue
-            obj = json.loads(line)
-            qid = str(obj.get("id", i))
-            query = str(obj[query_field])
-            truth = obj.get(truth_field, [])
-            if isinstance(truth, str):
-                truth = [truth]
-            items.append(QueryItem(qid=qid, query=query, truth_ids=[str(x) for x in truth]))
+
+def load_dataset_queries(source: str, dataset_id: str, split: str, limit: int) -> list[QueryItem]:
+    """
+    Грузит запросы+qrels из BEIR-датасета (local или hf) как список QueryItem с
+    document-level ground truth.
+    """
+    dataset_dir = resolve_dataset_dir(source, dataset_id)
+    queries = read_queries(dataset_dir, split)
+    items = [
+        QueryItem(qid=q.qid, query=q.text, truth_ids=list(q.relevant_doc_ids)) for q in queries
+    ]
+    if limit:
+        items = items[:limit]
     return items

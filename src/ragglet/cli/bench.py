@@ -43,16 +43,16 @@ def validate(
     status = "[bold green]OK[/bold green]" if report.ok else "[bold red]FAILED[/bold red]"
     rprint(f"Dataset validation: {status}")
     rprint(f"scenario: {report.scenario}")
-    rprint(f"dataset: {report.dataset_path}")
+    rprint(f"dataset: {report.dataset_id}")
     rprint(f"backend: {report.backend_type}")
     rprint(f"storage mode: {report.storage_mode}")
     rprint(f"collection: {report.collection}")
     rprint(f"backend counts: {report.backend_counts}")
     rprint(f"queries checked: {report.queries_checked}")
-    rprint(f"truth ids checked: {report.truth_ids_checked}")
-    rprint(f"indexed external ids: {report.indexed_external_ids}")
-    rprint(f"duplicate external ids: {report.duplicate_external_ids}")
-    rprint(f"missing truth ids: {report.missing_count}")
+    rprint(f"truth doc ids checked: {report.truth_ids_checked}")
+    rprint(f"indexed doc ids: {report.indexed_doc_ids}")
+    rprint(f"duplicate doc ids: {report.duplicate_doc_ids}")
+    rprint(f"missing truth doc ids: {report.missing_count}")
 
     if report.missing:
         rprint("\n[bold]Missing:[/bold]")

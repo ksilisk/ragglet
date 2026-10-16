@@ -15,7 +15,7 @@ def _config(policy: str = "top_n", max_tokens: int = 10, threshold: float = 0.0)
         {
             "version": 1,
             "name": "context-test",
-            "dataset": {"id": "data/queries/truth_manifest.jsonl"},
+            "dataset": {"id": "datasets/demo"},
             "storage": {
                 "mode": "single",
                 "backend": {
@@ -35,13 +35,13 @@ def _config(policy: str = "top_n", max_tokens: int = 10, threshold: float = 0.0)
     )
 
 
-def _item(external_id: str, score: float, text: str) -> RetrievedItem:
+def _item(chunk_id: str, score: float, text: str) -> RetrievedItem:
     return RetrievedItem(
-        point_id=external_id,
-        external_id=external_id,
+        point_id=chunk_id,
+        chunk_id=chunk_id,
         score_raw=score,
         source="test",
-        payload={"external_id": external_id, "text": text},
+        payload={"chunk_id": chunk_id, "doc_id": chunk_id, "text": text},
     )
 
 

@@ -109,7 +109,7 @@ def _render_context(chunks: list[ContextChunk], include_metadata: bool) -> str:
     parts: list[str] = []
     for chunk in chunks:
         if include_metadata:
-            parts.append(f"[{chunk.item.external_id}]\n{chunk.text}")
+            parts.append(f"[{chunk.item.chunk_id}]\n{chunk.text}")
         else:
             parts.append(chunk.text)
     return "\n\n".join(parts)

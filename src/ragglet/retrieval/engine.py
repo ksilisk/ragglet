@@ -20,11 +20,11 @@ def _backend_ref(params: dict) -> str | None:
 
 def _to_retrieved(candidate, source_name: str) -> RetrievedItem:
     payload = candidate.payload or {}
-    ext = payload.get("external_id")
-    external_id = str(ext) if ext is not None else str(candidate.id)
+    raw = payload.get("chunk_id")
+    chunk_id = str(raw) if raw is not None else str(candidate.id)
     return RetrievedItem(
         point_id=str(candidate.id),
-        external_id=external_id,
+        chunk_id=chunk_id,
         score_raw=float(candidate.score_raw),
         source=source_name,
         payload=candidate.payload,
@@ -115,7 +115,7 @@ async def retrieve_items(
 
 async def retrieve_ids(cfg: ScenarioConfig, backends: BackendRegistry, query_text: str, vec: list[float]) -> list[str]:
     """
-    Возвращает список retrieved external_ids (то, по чему считаем метрики).
+    Возвращает список retrieved chunk_id (внутренние id чанков; метрики считаются по doc_id).
     """
     retrieved_items = await retrieve_items(cfg, backends, query_text, vec)
-    return [it.external_id for it in retrieved_items]
+    return [it.chunk_id for it in retrieved_items]

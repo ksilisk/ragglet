@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import random
-from pathlib import Path
 
 import pandas as pd
 
 from ragglet.bench.artifacts import make_artifact_paths, save_config_snapshot
-from ragglet.bench.dataset import load_jsonl_dataset
+from ragglet.bench.dataset import load_dataset_queries
 from ragglet.bench.query_loop import run_queries_once
 from ragglet.bench.summarize import summarize_repeat, aggregate_over_repeats
 from ragglet.cache.manager import CacheManager
@@ -39,8 +38,9 @@ async def run_scenario(cfg: ScenarioConfig) -> dict:
         paths = make_artifact_paths(cfg.run.artifacts_dir, cfg.name)
         save_config_snapshot(paths.run_dir, cfg)
 
-        items = load_jsonl_dataset(Path(cfg.dataset.id), cfg.dataset.query_field, cfg.dataset.truth_field,
-                                   cfg.dataset.limit)
+        items = load_dataset_queries(
+            cfg.dataset.source, cfg.dataset.id, cfg.dataset.split, cfg.dataset.limit
+        )
 
         backends = await BackendRegistry.build(cfg, async_store, stores)
         embedder = SentenceTransformerEmbedder(cfg.embedding.model, normalize=cfg.embedding.normalize)

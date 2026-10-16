@@ -15,7 +15,7 @@ def _base_config(**rerank):
     data = {
         "version": 1,
         "name": "test",
-        "dataset": {"id": "data/queries/truth_manifest.jsonl"},
+        "dataset": {"id": "datasets/demo"},
         "storage": {
             "mode": "single",
             "backend": {
@@ -33,13 +33,13 @@ def _base_config(**rerank):
     return ScenarioConfig.model_validate(data)
 
 
-def _item(external_id: str, score: float, text: str = "text") -> RetrievedItem:
+def _item(chunk_id: str, score: float, text: str = "text") -> RetrievedItem:
     return RetrievedItem(
-        point_id=external_id,
-        external_id=external_id,
+        point_id=chunk_id,
+        chunk_id=chunk_id,
         score_raw=score,
         source="test",
-        payload={"external_id": external_id, "text": text},
+        payload={"chunk_id": chunk_id, "doc_id": chunk_id, "text": text},
     )
 
 
@@ -63,7 +63,7 @@ def test_noop_rerank_keeps_retrieval_order_and_cutoff():
 
     result = anyio.run(NoopReranker().rerank, "query", items, 3, 2)
 
-    assert [row.item.external_id for row in result] == ["a", "b"]
+    assert [row.item.chunk_id for row in result] == ["a", "b"]
     assert [row.score for row in result] == [0.1, 0.9]
 
 

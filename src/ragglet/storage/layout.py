@@ -26,7 +26,7 @@ class StorageLayout:
         if self.mode == "replicated":
             return list(self.targets)
         if self.mode == "sharded":
-            raw_key = str(payload.get(self.routing_key) or payload.get("external_id") or "")
+            raw_key = str(payload.get(self.routing_key) or payload.get("chunk_id") or "")
             idx = int(sha1(raw_key.encode("utf-8")).hexdigest(), 16) % len(self.targets)
             return [self.targets[idx]]
         raise ValueError(f"Unsupported storage mode: {self.mode}")
@@ -60,7 +60,7 @@ def _primary_backend(storage: Any) -> Any:
 def build_storage_layout(storage: Any) -> StorageLayout:
     mode = str(getattr(storage, "mode", "single"))
     routing = getattr(storage, "routing", None)
-    routing_key = str(getattr(routing, "key", "external_id"))
+    routing_key = str(getattr(routing, "key", "chunk_id"))
 
     primary = _target_from_backend(_primary_backend(storage), "default")
     configured = [
