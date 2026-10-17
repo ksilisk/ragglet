@@ -27,43 +27,73 @@
 | 10 | Прерванная материализация HF | готовность = «файлы существуют», `qrels/` создаётся заранее (`sources.py:37,73`) | неполный кэш считается готовым |
 
 В артефактах прогона лежит только `scenario.snapshot.*`. По ним нельзя понять, на
-каком корпусе, индексе и чанкинге получены цифры. Для статьи это обходили вручную:
-`analyze_article_runs.py capture-manifest` хэширует файлы, захардкоженные под demo.
-Аудит прямо фиксирует этот пробел (`docs/article-experiments-audit.md:24,147`).
+каком корпусе, индексе и чанкинге получены цифры.
 
-**Данные сейчас чистые.** Прогнал все правила из п. 1 по demo и nfcorpus (все три
-split). Нарушений 0, так что строгий режим ничего из текущего не ломает. Риск
-не в самих данных, а в эксплуатации: устаревший или половинный индекс, не та
-коллекция, правка корпуса. Downstream от этой идентичности зависят D2 (run manifest,
-ragglet-23), E3 (реестр запусков), F3 («показывать версии датасета»), H6 и G2.
+**Данные сейчас чистые.** На demo и nfcorpus (все три split) по всем правилам п. 1
+нарушений 0, так что строгий режим ничего из текущего не ломает. Риск не в самих
+данных, а в эксплуатации: устаревший или половинный индекс, не та коллекция, правка
+корпуса.
 
 ## Что значит «версия»
 
-**Версия = идентичность по содержимому (content-addressed).** Ручные метки
-(`v2`, semver) не используем: они расходятся с данными, а хэш соврать не может.
-Идентифицируем три вещи:
+**Версия датасета = хэш содержимого.** Ручные метки (`v2`, semver) не вводим. Плюс
+там, где у источника есть собственная версия (коммит на HF), мы её фиксируем (п. 3).
 
 | Объект | Идентичность | От чего зависит |
 |---|---|---|
-| корпус | `corpus.sha256` + число документов | индекс |
-| eval-набор | `eval.sha256` — (qid, текст, qrels) после выбора split и `limit` | quality-метрики |
-| индекс | `profile_sha256` (параметры сборки) + `corpus.sha256` + `build_id` | retrieval |
+| корпус | `corpus_sha256` | индекс |
+| eval-набор | `eval_sha256` — (qid, текст, qrels) после выбора split и `limit` | quality-метрики |
+| индекс | `built_at` + `corpus_sha256` + ревизия модели + chunking | retrieval |
 
-**Правило сравнимости.** Quality-метрики двух прогонов можно сравнивать, если у них
-равны `corpus.sha256` и `eval.sha256`. Различия индекса (chunking, модель, HNSW)
-не блокируются: это и есть экспериментальный фактор. Они только обязаны быть видны
-в артефактах. «Несовместимый индекс» — это индекс, собранный не из корпуса сценария,
-недособранный или с другой моделью эмбеддингов, чем у сценария. Такой индекс
-отклоняется ещё до прогона.
+**Правило сравнимости.** Quality-метрики двух прогонов сравнимы, если у них равны
+`corpus_sha256` и `eval_sha256`. Различия индекса (chunking, модель) — это
+экспериментальный фактор: запуск они не блокируют, но видны в артефактах.
+«Несовместимый индекс» — это индекс, собранный не из корпуса сценария, недособранный
+или с другой моделью. Такой индекс отклоняется ещё до прогона.
+
+### Когда версия меняется
+
+Хэш — чистая функция от прочитанного содержимого. В него не входят время, пути,
+машина, версия Python, способ доставки и порядок ключей. Поэтому он детерминирован.
+
+| Хэш меняется | Хэш не меняется |
+|---|---|
+| правка текста или title, добавление и удаление документа | повторное скачивание, другая машина или путь |
+| другой порядок документов в corpus (п. 2) | `.gz` против plain, порядок ключей, пробелы |
+| другой split, `limit`, grade в qrels, текст запроса | лишние поля записи (`metadata`) |
+| новая ревизия датасета на HF, если она не запинена | `shuffle`/`seed`, повторы прогона |
+
+Канонизация живёт в одной функции. Golden-тест фиксирует хэш demo, поэтому любое
+изменение канонизации будет осознанным: сломается тест.
 
 ## Решение
 
-### 1. Валидация датасета
+### 1. Валидация датасета: расширяемый набор проверок
 
-Ридер перестаёт молча пропускать данные. Он собирает **все** нарушения, а не падает
-на первом, и бросает `DatasetValidationError(issues)`. Принцип: **ошибка** — то, что
-тихо искажает метрики или индекс; **предупреждение** — то, что ни на что не влияет,
-но попадает в отчёт и manifest.
+Одна модель нарушения и реестр проверок. Новое правило — это одна функция в реестре
+плюс тест; команды и флаги для этого не нужны.
+
+```python
+@dataclass(frozen=True)
+class Issue:
+    code: str          # "qrels.unknown_doc"
+    severity: Severity  # error | warning
+    where: str         # "qrels/test.tsv:42", "target shard_0 (chunks_v1_shard0)"
+    message: str
+
+DATASET_CHECKS: list[Callable[[ParsedDataset], Iterable[Issue]]]
+INDEX_CHECKS: list[Callable[[IndexContext], Iterable[Issue]]]   # п. 5, та же модель
+```
+
+- Ошибки разбора (не JSON, битая строка qrels) ридер возвращает теми же `Issue`, без
+  тихих `continue`. Остальные правила — проверки над разобранным датасетом. Для
+  диагностики в разобранном датасете сохраняются номера строк.
+- Собираются **все** нарушения, а не первое. Есть хотя бы одна error — бросаем
+  `ValidationError(issues)`, отчёт рендерится одной функцией для всех точек входа.
+- Принцип уровней: **error** — то, что тихо искажает метрики или индекс; **warning** —
+  то, что ни на что не влияет, но полезно знать.
+
+Начальный набор:
 
 | Код | Уровень | Правило |
 |---|---|---|
@@ -80,8 +110,6 @@ ragglet-23), E3 (реестр запусков), F3 («показывать ве
 | `split.empty` | error | в split нет ни одного запроса с релевантными |
 | `corpus.empty_doc` | warning | пустой документ, на который нет ссылок |
 
-Как это выглядит:
-
 ```
 Dataset validation failed: local:datasets/my (3 errors, 1 warning)
   corpus.duplicate_id  corpus.jsonl:17     _id 'd1' already defined at line 3
@@ -90,86 +118,108 @@ Dataset validation failed: local:datasets/my (3 errors, 1 warning)
   corpus.empty_doc     corpus.jsonl:30     'd5' has empty title and text (not indexed)
 ```
 
-Где запускается (флагов обхода нет):
+**Новых команд нет.** Проверки встраиваются в существующие точки входа, флагов обхода
+нет:
 
-- `ragglet dataset validate --source local datasets/my [--split test]` — новая
-  команда, Qdrant не нужен. Без `--split` проверяет все split. Тот же отчёт печатает
-  `dataset import` по своему результату;
-- `index build` — весь датасет со всеми split, **до** создания коллекций. Битый qrels
+- `index build` — весь датасет со всеми split, **до** создания коллекций: битый qrels
   должен всплыть до часа эмбеддинга, а не после;
-- `bench run` / `bench validate` — corpus и split сценария (п. 5).
+- `bench run` и существующий `bench validate` — corpus и split сценария, плюс проверки
+  индекса (п. 5).
+
+Общую чистку CLI (единая схема команд, dry-run вместо отдельных `validate`, мёртвый
+`cli/cli.py`) выносим в отдельную задачу. Эта задача новых команд не добавляет.
 
 Если в публичном датасете найдутся висячие qrels с grade > 0, это сейчас ошибка.
-pytrec_eval держит такие документы в знаменателе recall, поэтому вопрос
-«сравнимость с опубликованными BEIR-цифрами или достижимость» решаем отдельно, когда
-встретим. Обходной путь — исправленная копия как `source: local`.
+pytrec_eval держит такие документы в знаменателе recall, поэтому вопрос «сравнимость
+с BEIR-цифрами или достижимость» решаем, когда встретим. Обходной путь — исправленная
+копия как `source: local`.
 
-### 2. Fingerprints
+### 2. Хэши содержимого
 
 - **Корпус:** потоковый sha256 по каноническим записям в порядке файла:
   `json.dumps([doc_id, title, text], ensure_ascii=False, separators=(",", ":")) + "\n"`.
-  Не зависит от порядка ключей, пробелов, лишних полей (`metadata`) и `.gz`. HF parquet
-  и raw jsonl одного содержимого дают один хэш. От текста и **порядка** документов
-  зависит. Порядок учитываем намеренно: он задаёт порядок вставки в HNSW, а значит
-  и приближённый результат поиска. Так что «тот же корпус в другом порядке» — честно
-  другой индекс.
+  Порядок документов учитываем намеренно: он задаёт порядок вставки в HNSW, а значит
+  и приближённый результат поиска.
 - **Eval-набор:** sha256 по отсортированным `[qid, text, sorted(qrels.items())]`
-  оцениваемых запросов, то есть после split и `limit`. `shuffle`/`seed` в хэш не
-  входят: набор они не меняют.
-- **Стоимость:** nfcorpus (5.9 МБ) — 61 мс, около 100 МБ/с. На самых больших BEIR
-  (MS MARCO, около 3 ГБ) это порядка минуты на прогон. Кэш fingerprint по
-  (size, mtime) пока не делаем, добавим, когда дойдём до таких корпусов.
-  Память — O(|doc_id в qrels|), корпус читаем потоком.
+  оцениваемых запросов, после split и `limit`.
+- **Стоимость:** nfcorpus (5.9 МБ) — 61 мс, около 100 МБ/с; MS MARCO (около 3 ГБ) —
+  порядка минуты на прогон. Корпус читаем потоком, в памяти держим только `doc_id`.
+  Кэш хэшей не делаем, пока не дойдём до таких корпусов.
 
-### 3. Источник: provenance и атомарная материализация
+### 3. Ревизии: общий механизм для источников датасетов и моделей
 
-- `resolve_dataset` возвращает путь и provenance. Для `hf` это revision основного
-  репозитория и `-qrels`: sha берём из пути snapshot, в кэше HF это
-  `snapshots/<sha>`. Для `local` — путь как задан и абсолютный путь.
-- Материализация идёт во временную директорию, затем rename. Последним пишется
-  `source.json` (repo, revision, qrels_revision). Нет `source.json` — кэш неполный,
-  материализуем заново (сбой 10).
-- В `_write_jsonl` заменяем `astype(str)` на `fillna("")`: сейчас null в parquet
-  превращается в текст `"None"`/`"nan"`.
-- Pin ревизии в конфиге (`dataset.revision`) не добавляем, см. вопросы. От подмены
-  данных защищает fingerprint, revision пишем как provenance.
+Хэш отвечает на вопрос «тот же ли датасет». Ревизия источника отвечает на вопрос «как
+получить его снова». Механизм один:
 
-### 4. Контракт метаданных индекса v2 (cutoff)
+- `revision` — непрозрачная строка, её смысл определяет источник. Она необязательна;
+  без неё источник берёт текущую версию.
+- Источник **всегда** возвращает разрешённую ревизию, и она попадает в manifest.
+  Чтобы запинить версию, её копируют из manifest в конфиг.
+- Источники живут в реестре (`resolve(id, revision) → (path, revision)`). Новый
+  источник (URL, S3, git) сам определяет, что для него значит ревизия.
+
+| Где | Источник | Что значит `revision` |
+|---|---|---|
+| `dataset` | `hf` | коммит репозитория; у BeIR/* qrels лежат в соседнем `-qrels` репозитории, поэтому ревизия составная: `<data_sha>+<qrels_sha>` |
+| `dataset` | `local` | не поддерживается (ошибка валидации конфига): версия local-датасета — его хэш |
+| index profile `embedding` | HF Hub (все модели тянем оттуда) | коммит репозитория модели |
+
+- **Датасет HF.** Кэш материализации ключуется ревизией: `~/.cache/ragglet/beir/<repo>@<revision>`.
+  Пишем во временную директорию, затем rename: раз директория есть, она полная
+  (сбой 10). Новая ревизия на Hub даёт новую директорию, а не тихо смешивается со
+  старым кэшем. Заодно в `_write_jsonl` меняем `astype(str)` на `fillna("")`: сейчас
+  null из parquet превращается в текст `"None"`.
+- **Модель эмбеддингов.** Ревизию разрешаем сами: `snapshot_download(repo, revision)` →
+  `snapshots/<sha>`. Это работает офлайн из кэша HF. Короткое имя приводим к repo так
+  же, как sentence-transformers: `all-MiniLM-L6-v2` → `sentence-transformers/all-MiniLM-L6-v2`.
+  Ревизия пишется в метаданные индекса. `bench run` загружает модель **ровно этой
+  ревизии**, поэтому рассинхрон модели индекса и запросов исключён по построению.
+  Отдельное поле `revision` в сценарии не нужно.
+- Ключ Redis embedding-кэша дополняется ревизией модели (одна строка): после смены
+  весов старые векторы запросов из кэша больше не придут.
+
+```yaml
+# index profile
+embedding:
+  model: "all-MiniLM-L6-v2"
+  revision: "1110a243…"        # необязательно; разрешённая ревизия всё равно пишется в индекс
+
+# scenario
+dataset:
+  source: "hf"
+  id: "BeIR/nfcorpus"
+  revision: "b5026a0e…+a451b3b2…"   # необязательно
+```
+
+### 4. Метаданные индекса: пишутся один раз в конце сборки
+
+Коллекция создаётся **без** метаданных `ragglet`. Их записывает
+`update_collection(metadata=…)` после последнего upsert во все targets. Нет
+метаданных — значит, сборка не завершилась или индекс собран по старому контракту.
+Отдельный статус не нужен (сбой 7).
+
+Существующий плоский контракт дополняем и чистим:
 
 ```jsonc
 {"ragglet": {
-  "schema": 2,
-  "status": "building",                     // → "complete" после последнего upsert
-  "build_id": "3f2c…",                      // uuid4, общий для всех targets одной сборки
-  "built_at": "2026-10-20T12:00:00Z",
-  "index_profile_id": "demo",               // метка; версия — profile_sha256
-  "profile_sha256": "…",                    // chunking, embedding.{model,normalize}, index_params,
-                                            // storage.{mode,routing.key,число backends}
-  "dataset": {"source": "local", "id": "datasets/demo", "revision": null,
-              "corpus_sha256": "893aa67b…", "documents": 50, "empty_documents": 0},
-  "embedding": {"model": "all-MiniLM-L6-v2", "normalize": true, "dim": 384,
-                "probe": [0.0123, …], "library": "sentence-transformers 5.2.3"},
-  "chunking": {…}, "index_params": {…},
-  "storage": {"mode": "sharded", "backend_id": "shard_0", "backend_count": 2,
-              "routing_key": "chunk_id"},
-  "points": 27                              // точек в этом target, пишется вместе с complete
+  "index_profile_id": "demo",                  // есть: метка для сообщений
+  "built_at": "2026-10-20T12:00:00Z",          // новое: id сборки, общий для всех её targets
+  "dataset_source": "local",                   // новое: для сообщений
+  "dataset_id": "datasets/demo",               // новое: для сообщений
+  "corpus_sha256": "893aa67b…",                // новое: проверка корпуса (сбой 8)
+  "embedding_model": "all-MiniLM-L6-v2",       // есть
+  "embedding_revision": "1110a243…",           // новое: какую модель грузить в bench
+  "embedding_normalize": true,                 // есть
+  "chunking_method": "recursive",              // есть: фактор эксперимента, в сценарии его нет
+  "chunk_size": 800, "chunk_overlap": 120,     // есть
+  "storage_mode": "sharded",                   // есть, теперь сверяется (сбой 9)
+  "storage_backend_count": 2                   // есть, теперь сверяется
 }}
 ```
 
-- **Двухфазная запись** (сбой 7). При создании коллекции пишем `status: building`. После
-  последнего upsert — `update_collection(metadata=…)` со `status: complete` и `points`.
-  Qdrant 1.17 мёржит metadata, мы перезаписываем ключ `ragglet` целиком.
-- **`profile_sha256`** — версия профиля: `id` профиля — свободная строка и при правке
-  `chunk_size` не меняется. В хэш не входят endpoint, имена коллекций и `batch_size`:
-  на содержимое индекса они не влияют.
-- **Версия модели эмбеддингов — через probe.** Имя модели не однозначно: веса на Hub
-  обновляются, а `model_card_data.base_model_revision` в sentence-transformers — это sha
-  remote `main` (нужна сеть), а не загруженного snapshot. При сборке эмбеддим
-  фиксированный probe-текст (сейчас это `vector_size_probe`, нужен только для
-  размерности) и сохраняем вектор. В рантайме сравниваем cosine ≥ 0.999. Так ловятся
-  дрейф весов, другой pooling и другой `normalize`, без сети. Шум CPU/GPU и fp16 на
-  порядки меньше порога. Проверку по имени оставляем: она даёт понятное сообщение.
-- Старые индексы без `schema: 2` отклоняются с подсказкой пересобрать. Demo
+- Удаляем `storage_backend_id` и `storage_routing_key`: их пишут, но никто не читает.
+- Размерность, distance и HNSW не дублируем: они есть в конфиге самой коллекции Qdrant.
+- Старые индексы без `corpus_sha256` отклоняются с подсказкой пересобрать. Demo
   пересобирается за секунды, nfcorpus — за минуты на CPU.
 
 ### 5. Preflight bench run: совместимость truth ↔ индекс
@@ -178,144 +228,111 @@ pytrec_eval держит такие документы в знаменателе
 **до** создания каталога артефактов: сейчас ошибка датасета оставляет пустой run dir
 (`run_scenario.py:38`).
 
-1. Датасет: валидация corpus и split сценария, fingerprints corpus и eval (п. 1–2).
-2. По каждому target, ошибки собираются все сразу:
-   - есть `schema == 2`;
-   - `status == complete`;
-   - `count(exact=True) == points`;
-   - `build_id` одинаков у всех targets;
-   - `storage.mode` и `backend_count` совпадают с layout сценария (сбой 9);
-   - `dataset.corpus_sha256` совпадает с fingerprint корпуса сценария (сбой 8);
-   - `embedding.model`/`normalize` совпадают, probe cosine ≥ 0.999 (embedder в run
-     всё равно загружается).
+1. Датасет: `DATASET_CHECKS` для corpus и split сценария, хэши corpus и eval.
+2. `INDEX_CHECKS` по каждому target, все нарушения сразу:
+   - метаданные `ragglet` есть и полны;
+   - `built_at` одинаков у всех targets;
+   - `storage_mode` и `storage_backend_count` совпадают с layout сценария;
+   - `corpus_sha256` совпадает с хэшем корпуса сценария;
+   - `embedding_model`/`normalize` совпадают со сценарием (как сейчас).
 
 ```
 Index is not compatible with scenario 's0_baseline_rag':
   - target default (chunks_v1): corpus differs — index built from local:datasets/demo
-    (893aa67b4bb4, 50 docs), scenario dataset hf:BeIR/nfcorpus (54ef7cf7a72d, 3633 docs)
+    (893aa67b4bb4), scenario dataset hf:BeIR/nfcorpus (54ef7cf7a72d)
   Rebuild the index: ragglet index build <index_profile.yaml>
 ```
 
-**Почему отдельная проверка truth ⊆ index больше не нужна.** Из пп. 1 и 2 это следует
-по построению:
+**Truth ⊆ index по построению.** Отдельная проверка этого больше не нужна, потому что
+выполняется всё сразу:
 
 - qrels ⊆ индексируемые документы корпуса (п. 1);
 - индекс собран ровно из этого корпуса (`corpus_sha256`);
-- индекс собран целиком, и после сборки в нём ничего не пропало (`complete` + `count`);
-- сценарий видит все targets сборки (`mode`, `backend_count`, `build_id`).
+- метаданные появляются только после всех upsert, значит индекс полный;
+- сценарий видит все targets сборки (mode, число backends, `built_at`).
 
-Значит, скролл всех payload из `bench validate` избыточен, и мы его удаляем. Команда
-печатает отчёт preflight: секцию датасета и секции targets.
+Поэтому скролл всех payload из `bench validate` удаляем. Команда печатает отчёт
+preflight.
 
 ### 6. Артефакты: `manifest.json`
 
-Пишется в run dir сразу после preflight, до запросов: у упавшего прогона
-идентичность тоже остаётся.
+Только то, чего нет в `scenario.snapshot.*`. Источник, id, split, limit, модель и
+storage там уже есть.
 
 ```jsonc
 {
-  "dataset": {"source": "hf", "id": "BeIR/nfcorpus", "path": "…",
-              "revision": "b5026a0e…", "qrels_revision": "a451b3b2…",
-              "split": "test", "limit": 2000,
-              "corpus": {"sha256": "54ef7cf7…", "documents": 3633},
-              "eval": {"sha256": "…", "queries": 323, "qrels": 12334},
-              "warnings": {"corpus.empty_doc": 0, "qrels.unknown_doc": 0}},
-  "index": {"build_id": "…", "built_at": "…", "index_profile_id": "nfcorpus_hf",
-            "profile_sha256": "…",
-            "embedding": {"model": "…", "normalize": true, "dim": 384,
-                          "library": "…", "probe_cosine": 1.0},
-            "chunking": {…}, "index_params": {…},
-            "storage": {"mode": "single",
-                        "targets": [{"id": "default", "collection": "nfcorpus_v1", "points": 9696}]}}
+  "dataset": {"revision": "b5026a0e…+a451b3b2…",   // null для local
+              "corpus_sha256": "54ef7cf7…", "eval_sha256": "9c41…"},
+  "index": {"profile_id": "nfcorpus_hf", "built_at": "2026-10-20T12:00:00Z",
+            "embedding_revision": "1110a243…",
+            "chunking": {"method": "recursive", "chunk_size": 800, "chunk_overlap": 120}}
 }
 ```
 
-- **Граница с D2 (ragglet-23).** Файл один, A3 пишет секции `dataset` и `index`. D2
-  добавит `code` (commit, dirty, lockfile), `environment` и статус прогона рядом, без
-  второго файла.
-- Fingerprint-колонки в `summary.*` не дублируем: manifest — единственный источник,
-  реестр E3 будет индексировать его.
+- Пишется сразу после preflight, до запросов: у упавшего прогона идентичность тоже
+  остаётся.
+- D2 (ragglet-23) дополнит этот же файл окружением и commit, второй файл не нужен.
 
 ## Затрагиваемые модули
 
 | Модуль | Изменение |
 |---|---|
-| `datasets/beir.py` | строгий ридер: issues с file:line вместо тихих `continue` |
-| `datasets/validation.py` (новый) | `DatasetIssue`, `DatasetValidationError`, правила п. 1 |
-| `datasets/fingerprint.py` (новый) | канонические хэши corpus/eval, `profile_sha256` |
-| `datasets/sources.py` | provenance, атомарная материализация, `source.json`, `fillna` |
-| `bench/dataset.py` | `load_dataset(cfg)` → items + identity + warnings |
-| `indexing/build_index.py`, `indexing/qdrant_indexer.py` | валидация до сборки, `build_id`, building → complete, `points`, probe |
-| `indexing/metadata.py` | контракт v2 и проверки совместимости (`IndexCompatibilityError(issues)`) |
-| `stores/qdrant_store_async.py` | `count(exact=True)` |
-| `bench/preflight.py` (новый, заменяет `bench/validate_dataset.py`) | `preflight(cfg)` |
+| `core/issues.py` (новый) | `Issue`, `Severity`, `ValidationError`, рендер отчёта |
+| `datasets/beir.py` | разбор с номерами строк; ошибки разбора — `Issue` |
+| `datasets/checks.py` (новый) | `DATASET_CHECKS` (п. 1), хэши corpus/eval |
+| `datasets/sources.py` | реестр источников, `revision`, кэш по ревизии с атомарным rename, `fillna` |
+| `config/scenario.py`, `config/index_profile.py` | `dataset.revision`, `embedding.revision` (профиль) |
+| `modules/embedders/st_embedder.py` | разрешение ревизии, загрузка конкретной ревизии |
+| `cache/embedding_redis.py` | ревизия в ключе |
+| `indexing/build_index.py`, `indexing/qdrant_indexer.py`, `indexing/metadata.py` | валидация до сборки, запись метаданных в конце, новые поля |
+| `bench/preflight.py` (новый, заменяет `bench/validate_dataset.py`) | `preflight(cfg)`, `INDEX_CHECKS` |
 | `bench/run_scenario.py`, `bench/artifacts.py` | preflight до run dir, `manifest.json` |
-| `cli/bench.py`, `cli/dataset.py`, `cli/index.py` | отчёты и диагностика, `dataset validate`, exit codes |
-| `README.md`, `docs/config-reference.yaml`, `docs/architecure-and-current-state.md` | troubleshooting, правило сравнимости, новый `bench validate` |
-
-Конфиги сценариев и профилей не меняются.
+| `cli/bench.py`, `cli/index.py` | рендер отчёта, exit codes |
+| `README.md`, `docs/config-reference.yaml` | troubleshooting, правило сравнимости, `revision` |
 
 ## Тесты (критерий приёмки)
 
 Unit, без Qdrant и torch (фейковый Qdrant-клиент и embedder, как в `test_rerank`):
 
-1. Каждый код из п. 1 на синтетическом датасете: правильный уровень, file:line в
-   сообщении, собираются все нарушения.
-2. demo проходит без ошибок и предупреждений; `grade ≤ 0` к неизвестному документу —
-   warning, не error.
-3. Fingerprint корпуса не меняется от порядка ключей, пробелов, лишних полей и `.gz`;
-   меняется от текста и порядка. Eval-fingerprint меняется от split, `limit` и grade.
-4. HF-кэш без `source.json` материализуется заново; null из parquet превращается в
-   `""` (фейковые snapshot-директории, без сети).
-5. Сборка: `building` → `complete` + `points`; исключение посреди upsert оставляет
-   `building`, и preflight его отклоняет.
-6. Preflight: каждое расхождение п. 5 (schema, status, count, build_id, mode/count,
-   corpus, model, probe) даёт свою строку; несколько расхождений — все сразу.
-7. `run_scenario`: ошибка preflight → run dir не создан; успех → `manifest.json` с
-   секциями `dataset`/`index`.
-8. `tests/test_configs.py` проходит без изменений конфигов.
+1. Каждый код из п. 1 на синтетическом датасете: правильный уровень, file:line,
+   собираются все нарушения. Демо проходит чисто.
+2. Хэши: golden-значение для demo; инвариантность и чувствительность по таблице
+   «Когда версия меняется».
+3. Ревизии: `revision` для `local` — ошибка конфига. Кэш HF ключуется ревизией, а
+   незавершённая материализация не видна. Составная ревизия разбирается.
+   Используются фейковые snapshot-директории, без сети.
+4. Сборка: метаданных нет, пока не закончен последний upsert; исключение посреди
+   upsert оставляет коллекцию без метаданных, и preflight её отклоняет.
+5. Preflight: каждое расхождение п. 5 даёт свою строку, несколько — все сразу. Bench
+   грузит модель ревизии из индекса.
+6. `run_scenario`: ошибка preflight → run dir не создан; успех → `manifest.json`.
+7. `tests/test_configs.py` проходит.
 
-E2E на этой ноде не запускается (нет Qdrant и torch, см. ограничения в ragglet-16). В
-PR приложу прогон preflight через фейковый harness и попрошу smoke на demo локально:
-`index build` → `bench validate` → `bench run`, затем правка одного документа в corpus →
-`bench run` отклоняется.
+E2E на этой ноде не запускается (нет Qdrant и torch). Попрошу smoke на demo локально:
+`index build` → `bench run`, затем правка одного документа в corpus → `bench run`
+отклоняется.
 
 ## Фазы (отдельными коммитами в этот же PR)
 
-1. Валидация датасета, fingerprints, `dataset validate`, исправления HF-кэша.
-2. Метаданные индекса v2: двухфазная запись, `profile_sha256`, probe, валидация в
-   `index build`.
-3. Preflight в `bench run`/`bench validate` (без скролла), `manifest.json`, документация.
-
-## Сложности и риски
-
-- **Что считать идентичностью.** Хэш байтов файла ломается от gzip, порядка ключей и
-  parquet→jsonl. Отсюда канонический content hash (п. 2) и сознательное решение
-  про порядок документов.
-- **Стоимость на больших корпусах.** Bench теперь читает корпус целиком: на BEIR-small
-  это миллисекунды, на MS MARCO — около минуты. Приемлемо, кэш потом.
-- **Версия модели без сети не достаётся.** Probe-вектор решает это поведенчески, но
-  порог (0.999) — эвристика.
-- **Multi-target.** Согласованность `build_id` и счётчиков по шардам и репликам, а
-  также сценарий в другом mode, чем индекс.
-- **Cutoff.** Все существующие коллекции придётся пересобрать. Старые run dir без
-  `manifest.json` остаются как есть.
+1. `Issue` и реестр проверок, валидация датасета, хэши.
+2. Ревизии: реестр источников, HF-кэш, ревизия модели.
+3. Метаданные индекса в конце сборки, preflight, `manifest.json`, документация.
 
 ## Вне скоупа
 
-- Окружение прогона (commit, lockfile, железо, версии сервисов, статус run) — D2
-  (ragglet-23), расширяет тот же `manifest.json`.
-- Реестр запусков и поиск по fingerprint — E3 (ragglet-30); UI сравнения — F3.
-- Pin ревизии HF в конфиге; кэш fingerprint для больших корпусов; DVC-подобный реестр
-  версий датасетов.
-- Ключ Redis embedding-кэша не учитывает версию модели (`model + normalize + text`):
-  после смены весов из кэша придут старые векторы запросов. Это D1 (ragglet-22).
+- Чистка CLI и единая схема команд — отдельная задача (п. 1).
+- Переход `scripts/analyze_article_runs.py` на `manifest.json` (решено на ревью).
+- Окружение прогона (commit, lockfile, железо) — D2 (ragglet-23); реестр запусков —
+  E3; UI сравнения — F3.
+- Ревизия rerank-модели: тот же механизм п. 3, но к совместимости индекса она не
+  относится.
 
-## Вопросы на ревью
+## Решено на ревью
 
-1. Переводить ли `scripts/analyze_article_runs.py` на `manifest.json` сейчас, вместе с
-   проверкой «в отчёте только прогоны с равными corpus/eval sha»? Или оставить статейный
-   `capture-manifest` как есть: его прогоны сделаны до этого контракта.
-2. Pin ревизии для `source: hf` (`dataset.revision`, плюс отдельная ревизия у `-qrels`
-   репозитория) — нужен в этой задаче или хватит записи revision в manifest и
-   fingerprint-проверки?
+- Analyzer статьи не трогаем.
+- `revision` для HF делаем, но как общий механизм источников. Модели эмбеддингов
+  версионируются ревизией HF, своего probe нет.
+- Метаданные индекса пишутся один раз в конце сборки, без статуса.
+- Метаданные и manifest урезаны до того, что проверяется или чего нет в snapshot
+  сценария.
+- Новых CLI-команд нет; набор проверок расширяемый.
