@@ -36,7 +36,7 @@ config_files:
       - "configs/scenarios/baseline_qdrant.yaml"
       - "configs/scenarios/baseline_qdrant_fanout_two_vec.yaml"
     cli: "ragglet bench run <scenario.yaml>"
-    validation_cli: "ragglet bench validate <scenario.yaml>"
+    validation_cli: "ragglet bench validate <scenario.yaml>  # the bench run preflight without running queries"
     schema_model: "ScenarioConfig"
   docker:
     path: "docker/docker-compose.yaml"
@@ -64,12 +64,18 @@ index_profile:
           allowed_values:
             - "local"
             - "hf"
-          docs: "local = path to a BEIR directory; hf = HuggingFace Hub dataset repo id (snapshot downloaded to cache)."
+          docs: "local = path to a BEIR directory; hf = HuggingFace Hub dataset repo id (snapshot downloaded to cache). Values come from the dataset source registry (datasets/sources.py)."
         id:
           type: "string"
           required: true
           docs: "For local: path to the BEIR dataset directory. For hf: repo id, e.g. 'BeIR/scifact'."
-      runtime_behavior: "corpus.jsonl is read; each document is chunked (or kept whole with chunking.method=none); payload stores doc_id (ground truth), chunk_id, chunk_index, title, text."
+        revision:
+          type: "string|null"
+          default: null
+          status: implemented
+          docs: "Source-defined pin. hf: commit of the dataset repo; BeIR/* keep qrels in '<id>-qrels', so the pin is '<data_sha>+<qrels_sha>'. local: not supported (validation error) - a local dataset is versioned by its content hash."
+          runtime_behavior: "The resolved revision is always recorded (run manifest.json); copy it here to pin. The hf cache directory is keyed by the revision."
+      runtime_behavior: "The whole dataset (corpus, queries, every qrels split) is validated before embedding; any error aborts the build with file:line diagnostics. corpus.jsonl is read; each document is chunked (or kept whole with chunking.method=none); payload stores doc_id (ground truth), chunk_id, chunk_index, title, text. Collection metadata (corpus_sha256, embedding revision, chunking, storage layout) is written after the last upsert; a collection without it is treated as an unfinished build."
     chunking:
       type: "object"
       required: false
@@ -110,6 +116,12 @@ index_profile:
           status: implemented
           docs: "SentenceTransformers model name passed to SentenceTransformer."
           runtime_behavior: "Used for index embeddings and vector size probing."
+        revision:
+          type: "string|null"
+          default: null
+          status: implemented
+          docs: "Commit of the model repo on HuggingFace Hub (short names resolve to sentence-transformers/<name>). Null = current main."
+          runtime_behavior: "The resolved commit is written to collection metadata; bench run loads exactly this revision for query embeddings, so scenario has no revision field."
         normalize:
           type: "boolean"
           default: true
@@ -321,6 +333,12 @@ scenario:
           required: true
           status: implemented
           docs: "For local: path to BEIR dataset directory. For hf: repo id, e.g. 'BeIR/scifact'."
+        revision:
+          type: "string|null"
+          default: null
+          status: implemented
+          docs: "Source-defined pin. hf: commit of the dataset repo; BeIR/* keep qrels in '<id>-qrels', so the pin is '<data_sha>+<qrels_sha>'. local: not supported (validation error) - a local dataset is versioned by its content hash."
+          runtime_behavior: "The resolved revision is always recorded (run manifest.json); copy it here to pin. The hf cache directory is keyed by the revision."
         split:
           type: "string"
           default: "test"
@@ -333,6 +351,7 @@ scenario:
             schema_enforced: ">= 1"
           status: implemented
           docs: "Maximum number of queries to load (after joining with qrels)."
+      runtime_behavior: "bench run validates the corpus and the selected split before the run (no run directory on failure) and checks that the index was built from the same corpus (corpus_sha256). manifest.json records revision, corpus_sha256 and eval_sha256 (queries + qrels after split and limit); quality metrics of two runs are comparable when both hashes match."
     storage:
       type: "object"
       status: partial
@@ -396,7 +415,7 @@ scenario:
           default: "all-MiniLM-L6-v2"
           status: implemented
           docs: "SentenceTransformers model for query embeddings."
-          conflict: "Must match the model used to build the index. For Qdrant, bench run validates this against collection metadata."
+          conflict: "Must match the model used to build the index. For Qdrant, bench run validates this against collection metadata and loads the model revision recorded there."
         normalize:
           type: "boolean"
           default: true

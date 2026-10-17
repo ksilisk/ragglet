@@ -275,7 +275,7 @@ Current limitations / TODO
 Notes from recent debugging
 
 * Qdrant requires point IDs be UUID or uint64; human-readable IDs must be stored in payload (external_id) for evaluation.
-* If quality metrics are all zeros: usually qrels reference corpus ids that are missing from the index; run `ragglet bench validate`.
+* If `bench run` reports `Index is not compatible with scenario`: the index was built from another corpus, with another embedding model or storage layout, or the build did not finish; rebuild it. `ragglet bench validate` prints the same preflight report without running queries.
 * AnyIO timeouts don’t work with sync clients; async Qdrant store is required for correct per-query and per-stage timeouts.
 
 ⸻

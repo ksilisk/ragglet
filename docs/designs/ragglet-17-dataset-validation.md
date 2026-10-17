@@ -278,13 +278,14 @@ storage там уже есть.
 | Модуль | Изменение |
 |---|---|
 | `core/issues.py` (новый) | `Issue`, `Severity`, `ValidationError`, рендер отчёта |
-| `datasets/beir.py` | разбор с номерами строк; ошибки разбора — `Issue` |
-| `datasets/checks.py` (новый) | `DATASET_CHECKS` (п. 1), хэши corpus/eval |
+| `datasets/beir.py` | разбор с номерами строк; ошибки разбора — `Issue`; хэш корпуса |
+| `datasets/checks.py` (новый) | `DATASET_CHECKS` (п. 1) |
 | `datasets/sources.py` | реестр источников, `revision`, кэш по ревизии с атомарным rename, `fillna` |
 | `config/scenario.py`, `config/index_profile.py` | `dataset.revision`, `embedding.revision` (профиль) |
 | `modules/embedders/st_embedder.py` | разрешение ревизии, загрузка конкретной ревизии |
 | `cache/embedding_redis.py` | ревизия в ключе |
 | `indexing/build_index.py`, `indexing/qdrant_indexer.py`, `indexing/metadata.py` | валидация до сборки, запись метаданных в конце, новые поля |
+| `bench/dataset.py` | eval-набор и его хэш |
 | `bench/preflight.py` (новый, заменяет `bench/validate_dataset.py`) | `preflight(cfg)`, `INDEX_CHECKS` |
 | `bench/run_scenario.py`, `bench/artifacts.py` | preflight до run dir, `manifest.json` |
 | `cli/bench.py`, `cli/index.py` | рендер отчёта, exit codes |
