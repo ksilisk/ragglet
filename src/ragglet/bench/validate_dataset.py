@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ragglet.bench.dataset import QueryItem, load_dataset_queries
+from ragglet.bench.dataset import QueryItem, load_eval_dataset
 from ragglet.config.scenario import ScenarioConfig
 from ragglet.storage.layout import StorageTarget, build_storage_layout
 from ragglet.stores.qdrant_store_async import AsyncQdrantStore
@@ -87,12 +87,7 @@ async def load_index_doc_ids(cfg: ScenarioConfig) -> set[str]:
 
 
 async def validate_scenario_dataset(cfg: ScenarioConfig) -> DatasetValidationReport:
-    items = load_dataset_queries(
-        cfg.dataset.source,
-        cfg.dataset.id,
-        cfg.dataset.split,
-        cfg.dataset.limit,
-    )
+    items = load_eval_dataset(cfg.dataset).items
     layout = build_storage_layout(cfg.storage)
     by_backend = await load_index_doc_ids_by_backend(cfg)
     indexed_doc_ids = set().union(*by_backend.values()) if by_backend else set()

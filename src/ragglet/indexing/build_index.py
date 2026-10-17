@@ -6,7 +6,8 @@ from uuid import NAMESPACE_URL, uuid5
 from rich.progress import track
 
 from ragglet.config.index_profile import IndexProfileConfig
-from ragglet.datasets.beir import read_corpus
+from ragglet.datasets.beir import document_text, read_corpus
+from ragglet.datasets.checks import validate_dataset
 from ragglet.datasets.sources import resolve_dataset_dir
 from ragglet.indexing.chunking import chunk_document
 from ragglet.indexing.metadata import build_index_metadata
@@ -22,6 +23,8 @@ def _make_point_id(chunk_id: str) -> str:
 
 def build_index(cfg: IndexProfileConfig) -> None:
     dataset_dir = resolve_dataset_dir(cfg.dataset.source, cfg.dataset.id)
+    # весь датасет со всеми split — до эмбеддинга, а не после
+    validate_dataset(dataset_dir, None, label=f"{cfg.dataset.source}:{cfg.dataset.id}")
 
     layout = build_storage_layout(cfg.storage)
     if any(target.type != "qdrant" for target in layout.targets):
@@ -85,8 +88,7 @@ def build_index(cfg: IndexProfileConfig) -> None:
         batch_targets.clear()
 
     for doc in track(list(read_corpus(dataset_dir)), description="Indexing corpus"):
-        doc_text = f"{doc.title}\n\n{doc.text}".strip() if doc.title else doc.text
-        chunks = chunk_document(doc_text, cfg.chunking)
+        chunks = chunk_document(document_text(doc), cfg.chunking)
 
         for idx, chunk_text in enumerate(chunks):
             chunk_id = f"{doc.doc_id}#{idx}"

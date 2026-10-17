@@ -7,6 +7,7 @@ import anyio
 from ragglet.config.scenario import load_scenario
 from ragglet.bench.run_scenario import run_scenario
 from ragglet.bench.validate_dataset import validate_scenario_dataset
+from ragglet.core.issues import ValidationError
 from ragglet.indexing.metadata import IndexMetadataError
 
 bench_app = typer.Typer(help="Run benchmarks and evaluate scenarios.")
@@ -17,6 +18,9 @@ def run(scenario: Path = typer.Argument(..., exists=True, dir_okay=False)) -> No
     cfg = load_scenario(scenario)
     try:
         res = anyio.run(run_scenario, cfg)
+    except ValidationError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(2) from e
     except IndexMetadataError as e:
         rprint(f"[bold red]Index metadata check failed[/bold red]: {e}")
         raise typer.Exit(2) from e
@@ -33,6 +37,9 @@ def validate(
     cfg = load_scenario(scenario)
     try:
         report = anyio.run(validate_scenario_dataset, cfg)
+    except ValidationError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(1) from e
     except NotImplementedError as e:
         rprint(f"[bold yellow]Validation skipped[/bold yellow]: {e}")
         raise typer.Exit(2) from e
