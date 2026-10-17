@@ -1,12 +1,17 @@
 from __future__ import annotations
 
-from ragglet.datasets.beir import BeirDocument, BeirQuery, read_corpus, read_queries
-from ragglet.datasets.sources import resolve_dataset_dir
+from ragglet.datasets.beir import BeirDocument, ParsedDataset, parse_dataset, read_corpus
+from ragglet.datasets.checks import DATASET_CHECKS, validate_dataset
+from ragglet.datasets.sources import SOURCES, ResolvedDataset, resolve_dataset
 
 __all__ = [
     "BeirDocument",
-    "BeirQuery",
+    "DATASET_CHECKS",
+    "ParsedDataset",
+    "ResolvedDataset",
+    "SOURCES",
+    "parse_dataset",
     "read_corpus",
-    "read_queries",
-    "resolve_dataset_dir",
+    "resolve_dataset",
+    "validate_dataset",
 ]

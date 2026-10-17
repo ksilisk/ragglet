@@ -4,14 +4,13 @@ import random
 
 import pandas as pd
 
-from ragglet.bench.artifacts import make_artifact_paths, save_config_snapshot
-from ragglet.bench.dataset import load_dataset_queries
+from ragglet.bench.artifacts import make_artifact_paths, save_config_snapshot, save_manifest
+from ragglet.bench.preflight import preflight
 from ragglet.bench.query_loop import run_queries_once
 from ragglet.bench.summarize import summarize_repeat, aggregate_over_repeats
 from ragglet.cache.manager import CacheManager
 from ragglet.config.scenario import ScenarioConfig
 from ragglet.generation.engine import build_generator
-from ragglet.indexing.metadata import validate_index_metadata_for_scenario
 from ragglet.modules.embedders.st_embedder import SentenceTransformerEmbedder
 from ragglet.rerank.engine import build_reranker
 from ragglet.retrieval.backends import BackendRegistry
@@ -32,21 +31,23 @@ async def run_scenario(cfg: ScenarioConfig) -> dict:
     caches: CacheManager | None = None
 
     try:
-        for store in stores.values():
-            validate_index_metadata_for_scenario(await store.collection_metadata(), cfg)
+        checked = await preflight(cfg, stores)
+        items = checked.dataset.items
 
         paths = make_artifact_paths(cfg.run.artifacts_dir, cfg.name)
         save_config_snapshot(paths.run_dir, cfg)
-
-        items = load_dataset_queries(
-            cfg.dataset.source, cfg.dataset.id, cfg.dataset.split, cfg.dataset.limit
-        )
+        save_manifest(paths.run_dir, checked.manifest())
 
         backends = await BackendRegistry.build(cfg, async_store, stores)
-        embedder = SentenceTransformerEmbedder(cfg.embedding.model, normalize=cfg.embedding.normalize)
+        # ровно та ревизия модели, которой собран индекс
+        embedder = SentenceTransformerEmbedder(
+            cfg.embedding.model,
+            normalize=cfg.embedding.normalize,
+            revision=checked.index["embedding_revision"],
+        )
         reranker = build_reranker(cfg)
         generator = build_generator(cfg)
-        caches = CacheManager(cfg)
+        caches = CacheManager(cfg, embedding_revision=embedder.revision)
 
         all_summaries: list[dict] = []
         base_rng = random.Random(cfg.seed)

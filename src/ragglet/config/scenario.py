@@ -7,6 +7,7 @@ import yaml
 from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator
 
 from ragglet.bench.metrics import METRICS
+from ragglet.datasets.sources import check_source
 
 
 # -----------------------
@@ -52,10 +53,16 @@ class OutputConfig(BaseModel):
 class DatasetConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    source: Literal["local", "hf"] = "local"
+    source: str = "local"
     id: str
+    revision: str | None = None
     split: str = "test"
     limit: int = Field(2000, ge=1)
+
+    @model_validator(mode="after")
+    def _known_source(self) -> DatasetConfig:
+        check_source(self.source, self.revision)
+        return self
 
 
 class StorageBackendConfig(BaseModel):
