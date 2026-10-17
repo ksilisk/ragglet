@@ -8,7 +8,7 @@ from rich.progress import track
 from ragglet.config.index_profile import IndexProfileConfig
 from ragglet.datasets.beir import document_text, read_corpus
 from ragglet.datasets.checks import validate_dataset
-from ragglet.datasets.sources import resolve_dataset_dir
+from ragglet.datasets.sources import describe_dataset, resolve_dataset
 from ragglet.indexing.chunking import chunk_document
 from ragglet.indexing.metadata import build_index_metadata
 from ragglet.indexing.qdrant_indexer import QdrantIndexer, QdrantIndexSpec
@@ -22,15 +22,20 @@ def _make_point_id(chunk_id: str) -> str:
 
 
 def build_index(cfg: IndexProfileConfig) -> None:
-    dataset_dir = resolve_dataset_dir(cfg.dataset.source, cfg.dataset.id)
+    dataset = resolve_dataset(cfg.dataset.source, cfg.dataset.id, cfg.dataset.revision)
+    dataset_dir = dataset.path
     # весь датасет со всеми split — до эмбеддинга, а не после
-    validate_dataset(dataset_dir, None, label=f"{cfg.dataset.source}:{cfg.dataset.id}")
+    validate_dataset(
+        dataset_dir, None, label=describe_dataset(cfg.dataset.source, cfg.dataset.id, dataset.revision)
+    )
 
     layout = build_storage_layout(cfg.storage)
     if any(target.type != "qdrant" for target in layout.targets):
         raise NotImplementedError("Only qdrant storage is implemented in the first iteration")
 
-    embedder = SentenceTransformerEmbedder(cfg.embedding.model, normalize=cfg.embedding.normalize)
+    embedder = SentenceTransformerEmbedder(
+        cfg.embedding.model, normalize=cfg.embedding.normalize, revision=cfg.embedding.revision
+    )
 
     # We need vector size before creating collection.
     # Easiest: embed a tiny sample.

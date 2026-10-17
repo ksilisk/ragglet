@@ -8,10 +8,12 @@ import redis.asyncio as redis
 
 
 class RedisEmbeddingCache:
-    def __init__(self, endpoint: str, ttl_seconds: int, model_name: str, normalize: bool):
+    def __init__(
+        self, endpoint: str, ttl_seconds: int, model_name: str, revision: str | None, normalize: bool
+    ):
         self.redis = redis.from_url(endpoint, encoding="utf-8", decode_responses=True)
         self.ttl = int(ttl_seconds)
-        self.ns = f"emb:{model_name}:{int(normalize)}"
+        self.ns = f"emb:{model_name}@{revision}:{int(normalize)}"
 
     def _key(self, text: str) -> str:
         h = hashlib.sha1(text.encode("utf-8")).hexdigest()

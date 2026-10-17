@@ -8,7 +8,7 @@ from ragglet.config.scenario import DatasetConfig
 from ragglet.core.issues import Issue
 from ragglet.datasets.beir import ParsedDataset
 from ragglet.datasets.checks import validate_dataset
-from ragglet.datasets.sources import resolve_dataset_dir
+from ragglet.datasets.sources import describe_dataset, resolve_dataset
 
 
 @dataclass(frozen=True)
@@ -24,6 +24,7 @@ class QueryItem:
 
 @dataclass(frozen=True)
 class EvalDataset:
+    revision: str | None
     items: list[QueryItem]
     corpus_sha256: str
     eval_sha256: str
@@ -51,10 +52,12 @@ def eval_sha256(items: list[QueryItem]) -> str:
 
 def load_eval_dataset(cfg: DatasetConfig) -> EvalDataset:
     """Валидирует датасет сценария (corpus + его split) и собирает eval-набор с хэшами."""
-    root = resolve_dataset_dir(cfg.source, cfg.id)
-    ds, warnings = validate_dataset(root, [cfg.split], label=f"{cfg.source}:{cfg.id}")
+    resolved = resolve_dataset(cfg.source, cfg.id, cfg.revision)
+    label = describe_dataset(cfg.source, cfg.id, resolved.revision)
+    ds, warnings = validate_dataset(resolved.path, [cfg.split], label=label)
     items = eval_items(ds, cfg.split, cfg.limit)
     return EvalDataset(
+        revision=resolved.revision,
         items=items,
         corpus_sha256=ds.corpus_sha256,
         eval_sha256=eval_sha256(items),
