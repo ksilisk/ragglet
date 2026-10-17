@@ -1,0 +1,210 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from ragglet.bench import run_scenario as run_module
+from ragglet.bench.preflight import preflight
+from ragglet.config.index_profile import IndexProfileConfig
+from ragglet.config.scenario import ScenarioConfig
+from ragglet.core.issues import ValidationError
+from ragglet.indexing.metadata import build_index_metadata
+
+DEMO = Path(__file__).resolve().parents[1] / "datasets" / "demo"
+DEMO_SHA = "893aa67b4bb4c811afb0afc144ac6fc0b081ae724a39c3f6899b789225c71477"
+MODEL_SHA = "1110a243fdf4706b3f48f1d95db1a4f5529b4d41"
+
+
+def _scenario(tmp_path: Path | None = None, **overrides) -> ScenarioConfig:
+    data = {
+        "name": "s",
+        "dataset": {"id": str(DEMO)},
+        "storage": {
+            "mode": "single",
+            "backend": {"type": "qdrant", "endpoint": "http://q:6333", "collection": "chunks_v1"},
+        },
+        "embedding": {"model": "all-MiniLM-L6-v2", "normalize": True},
+        "run": {"repeats": 1, "shuffle": False, "artifacts_dir": str(tmp_path or "results/runs")},
+        **overrides,
+    }
+    return ScenarioConfig.model_validate(data)
+
+
+def _meta(**overrides) -> dict:
+    profile = IndexProfileConfig.model_validate(
+        {
+            "id": "demo",
+            "dataset": {"id": "datasets/demo"},
+            "embedding": {"model": "all-MiniLM-L6-v2"},
+            "storage": {"endpoint": "http://q:6333", "collection": "chunks_v1"},
+        }
+    )
+    meta = build_index_metadata(
+        profile,
+        built_at="2026-10-20T12:00:00Z",
+        corpus_sha256=DEMO_SHA,
+        embedding_revision=MODEL_SHA,
+        storage_mode="single",
+        storage_backend_count=1,
+    )
+    meta["ragglet"].update(overrides)
+    return meta
+
+
+class _Store:
+    def __init__(self, metadata):
+        self.metadata = metadata
+
+    async def collection_metadata(self):
+        return self.metadata
+
+
+def _codes(exc) -> list[tuple[str, str]]:
+    return [(i.code, i.where) for i in exc.value.issues]
+
+
+async def test_compatible_index_passes_and_builds_manifest():
+    checked = await preflight(_scenario(), {"default": _Store(_meta())})
+
+    assert len(checked.dataset.items) == 100
+    assert checked.manifest() == {
+        "dataset": {
+            "revision": None,
+            "corpus_sha256": DEMO_SHA,
+            "eval_sha256": "b68bae536f369e98dedd1f9d9a16e2c90245d347f535c7515b27ccf7b480a376",
+        },
+        "index": {
+            "profile_id": "demo",
+            "built_at": "2026-10-20T12:00:00Z",
+            "embedding_revision": MODEL_SHA,
+            "chunking": {"method": "recursive", "chunk_size": 800, "chunk_overlap": 120},
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        None,  # сборка не дошла до записи метаданных
+        {"ragglet": {"index_profile_id": "demo", "embedding_model": "all-MiniLM-L6-v2"}},  # старый контракт
+    ],
+)
+async def test_incomplete_or_outdated_index_is_rejected(metadata):
+    with pytest.raises(ValidationError) as exc:
+        await preflight(_scenario(), {"default": _Store(metadata)})
+    assert _codes(exc) == [("index.no_metadata", "target default (chunks_v1)")]
+    assert "Rebuild the index" in str(exc.value)
+
+
+async def test_all_index_mismatches_reported_at_once():
+    meta = _meta(
+        corpus_sha256="c" * 64,
+        dataset_id="datasets/other",
+        storage_mode="sharded",
+        storage_backend_count=2,
+        embedding_normalize=False,
+    )
+    with pytest.raises(ValidationError) as exc:
+        await preflight(_scenario(), {"default": _Store(meta)})
+
+    assert sorted(i.code for i in exc.value.issues) == [
+        "index.corpus",
+        "index.embedding",
+        "index.storage_layout",
+    ]
+    message = str(exc.value)
+    assert "index is sharded with 2 backend(s), scenario expects single with 1" in message
+    assert f"index built from local:datasets/other (cccccccccccc), scenario dataset local:{DEMO} ({DEMO_SHA[:12]})" in message
+    assert "embedding_normalize: index has False, scenario expects True" in message
+
+
+async def test_targets_from_different_builds_are_rejected():
+    cfg = _scenario(
+        storage={
+            "mode": "sharded",
+            "backend": {"type": "qdrant", "endpoint": "http://q:6333", "collection": "c"},
+            "backends": [
+                {"id": "s0", "type": "qdrant", "endpoint": "http://q:6333", "collection": "c0"},
+                {"id": "s1", "type": "qdrant", "endpoint": "http://q:6334", "collection": "c1"},
+            ],
+        }
+    )
+    shard = {"storage_mode": "sharded", "storage_backend_count": 2}
+    stores = {
+        "s0": _Store(_meta(**shard)),
+        "s1": _Store(_meta(**shard, built_at="2026-10-21T09:00:00Z")),
+    }
+    with pytest.raises(ValidationError) as exc:
+        await preflight(cfg, stores)
+    assert _codes(exc) == [("index.mixed_builds", "storage")]
+
+    stores["s1"] = _Store(None)
+    with pytest.raises(ValidationError) as exc:
+        await preflight(cfg, stores)
+    assert _codes(exc) == [("index.no_metadata", "target s1 (c1)")]
+
+
+async def test_invalid_dataset_fails_before_index_checks(tmp_path):
+    (tmp_path / "qrels").mkdir()
+    (tmp_path / "corpus.jsonl").write_text('{"_id":"d1","text":"a"}\n', encoding="utf-8")
+    (tmp_path / "queries.jsonl").write_text('{"_id":"q1","text":"a?"}\n', encoding="utf-8")
+    (tmp_path / "qrels" / "test.tsv").write_text("q1\td2\t1\n", encoding="utf-8")
+    with pytest.raises(ValidationError, match="Dataset validation failed") as exc:
+        await preflight(_scenario(dataset={"id": str(tmp_path)}), {"default": _Store(None)})
+    assert _codes(exc) == [("qrels.unknown_doc", "qrels/test.tsv:1")]
+
+
+class _RunStore(_Store):
+    metadata_for: dict = {}
+
+    def __init__(self, endpoint, collection):
+        super().__init__(self.metadata_for.get(collection))
+
+    async def search(self, vector, top_k, params=None):
+        from ragglet.stores.qdrant_store_async import Candidate
+
+        return [Candidate(id="p", score_raw=1.0, payload={"chunk_id": "x#0", "doc_id": "x", "text": "t"})]
+
+    async def close(self):
+        pass
+
+
+class _Embedder:
+    created: list = []
+
+    def __init__(self, model_name, normalize=True, revision=None):
+        self.revision = revision
+        self.created.append(revision)
+
+    def embed_batch(self, texts):
+        return [[0.0] for _ in texts]
+
+
+@pytest.fixture
+def fake_runtime(monkeypatch):
+    monkeypatch.setattr(run_module, "AsyncQdrantStore", _RunStore)
+    monkeypatch.setattr(run_module, "SentenceTransformerEmbedder", _Embedder)
+    _Embedder.created.clear()
+    return _RunStore
+
+
+async def test_run_without_valid_index_creates_no_run_dir(tmp_path, fake_runtime):
+    fake_runtime.metadata_for = {}
+    with pytest.raises(ValidationError):
+        await run_module.run_scenario(_scenario(tmp_path / "runs"))
+    assert not (tmp_path / "runs").exists()
+
+
+async def test_run_writes_manifest_and_loads_index_model_revision(tmp_path, fake_runtime):
+    fake_runtime.metadata_for = {"chunks_v1": _meta()}
+    cfg = _scenario(tmp_path / "runs", dataset={"id": str(DEMO), "limit": 3})
+
+    res = await run_module.run_scenario(cfg)
+
+    manifest = json.loads((Path(res["run_dir"]) / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["dataset"]["corpus_sha256"] == DEMO_SHA
+    assert manifest["index"]["embedding_revision"] == MODEL_SHA
+    assert _Embedder.created == [MODEL_SHA]
+    assert (Path(res["run_dir"]) / "scenario.snapshot.json").exists()

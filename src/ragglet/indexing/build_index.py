@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from copy import deepcopy
+from datetime import UTC, datetime
 from uuid import NAMESPACE_URL, uuid5
 
 from rich.progress import track
@@ -25,7 +25,7 @@ def build_index(cfg: IndexProfileConfig) -> None:
     dataset = resolve_dataset(cfg.dataset.source, cfg.dataset.id, cfg.dataset.revision)
     dataset_dir = dataset.path
     # весь датасет со всеми split — до эмбеддинга, а не после
-    validate_dataset(
+    parsed, _ = validate_dataset(
         dataset_dir, None, label=describe_dataset(cfg.dataset.source, cfg.dataset.id, dataset.revision)
     )
 
@@ -42,18 +42,6 @@ def build_index(cfg: IndexProfileConfig) -> None:
     sample_vec = embedder.embed_batch(["vector_size_probe"])[0]
     vector_size = len(sample_vec)
 
-    def target_metadata(target: StorageTarget) -> dict:
-        metadata = deepcopy(build_index_metadata(cfg))
-        metadata["ragglet"].update(
-            {
-                "storage_mode": layout.mode,
-                "storage_backend_id": target.id,
-                "storage_backend_count": len(layout.targets),
-                "storage_routing_key": layout.routing_key,
-            }
-        )
-        return metadata
-
     indexers: dict[str, QdrantIndexer] = {}
     for target in layout.targets:
         spec = QdrantIndexSpec(
@@ -63,7 +51,6 @@ def build_index(cfg: IndexProfileConfig) -> None:
             distance=cfg.index_params.distance,
             hnsw_m=cfg.index_params.hnsw.m,
             hnsw_ef_construct=cfg.index_params.hnsw.ef_construct,
-            metadata=target_metadata(target),
         )
         indexer = QdrantIndexer(spec)
         indexer.recreate_collection()
@@ -115,3 +102,15 @@ def build_index(cfg: IndexProfileConfig) -> None:
                 flush()
 
     flush()
+
+    # метаданные — только после всех upsert: их наличие и означает, что индекс полный
+    metadata = build_index_metadata(
+        cfg,
+        built_at=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        corpus_sha256=parsed.corpus_sha256,
+        embedding_revision=embedder.revision,
+        storage_mode=layout.mode,
+        storage_backend_count=len(layout.targets),
+    )
+    for indexer in indexers.values():
+        indexer.write_metadata(metadata)

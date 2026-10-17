@@ -29,7 +29,7 @@ def warning(code: str, where: str, message: str) -> Issue:
 def render_issues(title: str, issues: list[Issue], hint: str | None = None, limit: int = 20) -> str:
     n_errors = sum(1 for i in issues if i.severity is Severity.ERROR)
     n_warnings = len(issues) - n_errors
-    counts = [f"{n_errors} error{'s' if n_errors != 1 else ''}"]
+    counts = [f"{n_errors} error{'s' if n_errors != 1 else ''}"] if n_errors else []
     if n_warnings:
         counts.append(f"{n_warnings} warning{'s' if n_warnings != 1 else ''}")
     ordered = sorted(issues, key=lambda i: i.severity is not Severity.ERROR)
