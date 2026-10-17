@@ -69,7 +69,7 @@ index_profile:
           type: "string"
           required: true
           docs: "For local: path to the BEIR dataset directory. For hf: repo id, e.g. 'BeIR/scifact'."
-      runtime_behavior: "corpus.jsonl is read; each document is chunked; payload stores doc_id (ground truth), chunk_id, chunk_index, title, text."
+      runtime_behavior: "corpus.jsonl is read; each document is chunked (or kept whole with chunking.method=none); payload stores doc_id (ground truth), chunk_id, chunk_index, title, text."
     chunking:
       type: "object"
       required: false
@@ -80,20 +80,22 @@ index_profile:
           default: "recursive"
           allowed_values:
             - "recursive"
+            - "none"
           status: implemented
-          docs: "Character-based chunking. Despite the name, it does not split by semantic structure."
+          docs: "recursive = character-based chunking (despite the name, it does not split by semantic structure). none = each document is indexed whole as one point (chunk_id '<doc_id>#0'), the standard BEIR setup; document- and chunk-level metrics coincide."
+          caveat: "The embedder silently truncates input to the model max_seq_length (all-MiniLM-L6-v2: 256 tokens), so with method=none the tail of long documents does not reach the vector. Use recursive chunking for long documents."
         chunk_size:
-          type: "integer"
-          default: 800
+          type: "integer|null"
+          default: "800 for recursive"
           constraints:
-            schema_enforced: "> 0"
+            schema_enforced: "> 0; not allowed with method=none"
           status: implemented
           docs: "Maximum chunk length in characters."
         chunk_overlap:
-          type: "integer"
-          default: 120
+          type: "integer|null"
+          default: "120 for recursive"
           constraints:
-            schema_enforced: "0 <= chunk_overlap < chunk_size"
+            schema_enforced: "0 <= chunk_overlap < chunk_size; not allowed with method=none"
           status: implemented
           docs: "Overlap between adjacent chunks in characters."
           runtime_behavior: "Runtime step is chunk_size - chunk_overlap; invalid overlap values are rejected by schema."
@@ -708,22 +710,43 @@ scenario:
         quality:
           type: "object"
           status: implemented
+          docs: "Quality of the final list (after rerank/context) against document-level qrels. Every metric of a level is computed for every k; columns are <level>_<metric>@<k>, summary adds <column>_mean."
           fields:
-            recall_at_k:
+            k:
               type: "list[integer]"
               default:
                 - 1
                 - 3
                 - 5
                 - 10
-                - 30
+              constraints:
+                schema_enforced: "non-empty, unique, >= 1, max(k) <= final list depth (retrieval.top_k, or min with rerank.input_top_k/output_top_n when rerank is enabled)"
               status: implemented
-              docs: "Recall@K columns to compute."
-            mrr_at_k:
-              type: "integer"
-              default: 30
+              docs: "Cutoffs shared by all @k metrics."
+            doc:
+              type: "list[enum]"
+              default:
+                - "recall"
+                - "hit"
+                - "mrr"
+              allowed_values:
+                - "recall"
+                - "hit"
+                - "mrr"
+                - "precision"
               status: implemented
-              docs: "Cutoff for MRR."
+              docs: "Document-level metrics, comparable with BEIR: retrieved chunks are projected to unique doc_id keeping the best rank. recall@k = share of relevant documents found in top k; hit@k = at least one relevant document in top k; mrr@k = 1/rank of the first relevant document; precision@k = relevant documents in top k divided by k."
+              caveat: "If the final list has fewer than k unique documents, @k is computed over the shorter list; summary reports doc_short@<k>_rate. Raise retrieval.top_k when it is high."
+            chunk:
+              type: "list[enum]"
+              default: []
+              allowed_values:
+                - "hit"
+                - "mrr"
+                - "precision"
+              status: implemented
+              docs: "Chunk-level metrics over unique chunks of the final list (what goes into the context); a chunk inherits the relevance of its document. Off by default; enable it (for example [mrr, precision]) when the scenario varies chunking or context. With chunking.method=none it equals the document level."
+              caveat: "Inherited relevance is a proxy: a chunk of a relevant document counts even if it does not contain the answer. recall is not available at this level: the number of relevant chunks is unknown with document-level qrels."
 
 runtime_support_matrix:
   storage_backends:
@@ -890,10 +913,13 @@ minimal_working_configs:
         - 95
         - 99
       quality:
-        recall_at_k:
+        k:
           - 1
           - 3
           - 5
           - 10
-          - 30
-        mrr_at_k: 30
+        doc:
+          - "recall"
+          - "hit"
+          - "mrr"
+        chunk: []
