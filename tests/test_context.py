@@ -106,6 +106,7 @@ def test_adaptive_context_falls_back_to_first_candidate():
 
 def test_summary_includes_context_latency_and_counts():
     pd = pytest.importorskip("pandas")
+    from ragglet.bench.evaluation import quality_columns
     from ragglet.bench.summarize import summarize_repeat
 
     cfg = _config(policy="adaptive", max_tokens=10, threshold=0.0)
@@ -113,12 +114,10 @@ def test_summary_includes_context_latency_and_counts():
     df = pd.DataFrame(
         [
             {
-                "mrr": 1.0,
-                "recall@1": 1.0,
-                "recall@3": 1.0,
-                "recall@5": 1.0,
-                "recall@10": 1.0,
-                "recall@30": 1.0,
+                **{col: 1.0 for col in quality_columns(cfg.metrics.quality)},
+                "n_chunks": 1,
+                "n_docs": 1,
+                "dup_chunks": 0,
                 "lat_embed_ms": 1.0,
                 "lat_retrieve_ms": 2.0,
                 "lat_context_ms": 4.0,

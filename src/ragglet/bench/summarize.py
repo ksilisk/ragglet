@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 import pandas as pd
+from ragglet.bench.evaluation import quality_columns
 from ragglet.config.scenario import ScenarioConfig
 
 
@@ -52,7 +53,6 @@ def summarize_repeat(cfg: ScenarioConfig, df: pd.DataFrame) -> dict[str, Any]:
     s: dict[str, Any] = {
         "scenario": cfg.name,
         "n": int(len(df)),
-        "mrr_mean": float(df["mrr"].mean()) if len(df) else 0.0,
         **_latency_percentiles(cfg, df),
         "emb_hit_rate": float(df["emb_hit_rate"].mean()) if len(df) else 0.0,
         "ret_hit_rate": float(df["ret_hit_rate"].mean()) if len(df) else 0.0,
@@ -67,10 +67,20 @@ def summarize_repeat(cfg: ScenarioConfig, df: pd.DataFrame) -> dict[str, Any]:
         "timeout_stage_counts": stage_counts,
         "timeout_stage_rates": stage_rates,
     }
-    for k in cfg.metrics.quality.recall_at_k:
-        col = f"recall@{k}"
-        s[f"{col}_mean"] = float(df[col].mean()) if len(df) else 0.0
+    s.update(_quality_summary(cfg, df))
     return s
+
+
+def _quality_summary(cfg: ScenarioConfig, df: pd.DataFrame) -> dict[str, float]:
+    quality = cfg.metrics.quality
+    out: dict[str, float] = {}
+    for col in [*quality_columns(quality), "n_chunks", "n_docs", "dup_chunks"]:
+        out[f"{col}_mean"] = float(df[col].mean()) if len(df) else 0.0
+    if quality.doc:
+        # доля запросов, где doc-level @k посчитан по списку короче k документов
+        for k in quality.k:
+            out[f"doc_short@{k}_rate"] = float((df["n_docs"] < k).mean()) if len(df) else 0.0
+    return out
 
 
 def aggregate_over_repeats(df_sum: pd.DataFrame, scenario: str, repeats: int) -> dict[str, Any]:

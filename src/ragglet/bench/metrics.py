@@ -1,32 +1,50 @@
 from __future__ import annotations
 
-
-def project_to_docs(chunk_ids: list[str], chunk_to_doc: dict[str, str]) -> list[str]:
-    """
-    Проецирует последовательность chunk_id в doc_id, сохраняя лучший (первый) ранг и
-    дедуплицируя. Дедуп обязателен: иначе несколько чанков одного документа занимают
-    несколько рангов.
-    """
-    out: list[str] = []
-    seen: set[str] = set()
-    for chunk_id in chunk_ids:
-        doc_id = chunk_to_doc[chunk_id]
-        if doc_id in seen:
-            continue
-        seen.add(doc_id)
-        out.append(doc_id)
-    return out
+from collections.abc import Callable
+from dataclasses import dataclass
 
 
-def recall_at_k(retrieved: list[str], truth: set[str], k: int) -> float:
-    if not truth:
+@dataclass(frozen=True)
+class Ranking:
+    grades: list[int]  # grade каждого ранга после дедупа, 0 — нерелевантен
+    ideal: list[int] | None  # grades всех релевантных из qrels по убыванию; None — неизвестно
+
+
+def _hits(ranking: Ranking, k: int) -> int:
+    return sum(1 for grade in ranking.grades[:k] if grade > 0)
+
+
+def recall_at_k(ranking: Ranking, k: int) -> float:
+    if not ranking.ideal:
         return 0.0
-    topk = retrieved[:k]
-    return 1.0 if any(doc_id in truth for doc_id in topk) else 0.0
+    return _hits(ranking, k) / len(ranking.ideal)
 
-def mrr_at_k(retrieved: list[str], truth: set[str], k: int) -> float:
-    topk = retrieved[:k]
-    for rank, doc_id in enumerate(topk, start=1):
-        if doc_id in truth:
+
+def hit_at_k(ranking: Ranking, k: int) -> float:
+    return 1.0 if _hits(ranking, k) else 0.0
+
+
+def mrr_at_k(ranking: Ranking, k: int) -> float:
+    for rank, grade in enumerate(ranking.grades[:k], start=1):
+        if grade > 0:
             return 1.0 / rank
     return 0.0
+
+
+def precision_at_k(ranking: Ranking, k: int) -> float:
+    return _hits(ranking, k) / k
+
+
+@dataclass(frozen=True)
+class MetricSpec:
+    fn: Callable[[Ranking, int], float]
+    # метрике нужно знать все релевантные единицы (Ranking.ideal), а это известно только на doc-level
+    needs_ideal: bool = False
+
+
+METRICS: dict[str, MetricSpec] = {
+    "recall": MetricSpec(recall_at_k, needs_ideal=True),
+    "hit": MetricSpec(hit_at_k),
+    "mrr": MetricSpec(mrr_at_k),
+    "precision": MetricSpec(precision_at_k),
+}

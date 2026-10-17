@@ -89,6 +89,7 @@ def test_generation_requires_context_when_enabled():
 
 def test_summary_includes_generation_latency_and_tokens():
     pd = pytest.importorskip("pandas")
+    from ragglet.bench.evaluation import quality_columns
     from ragglet.bench.summarize import summarize_repeat
 
     cfg = _scenario(enabled=True, provider="noop", model="noop")
@@ -96,12 +97,10 @@ def test_summary_includes_generation_latency_and_tokens():
     df = pd.DataFrame(
         [
             {
-                "mrr": 1.0,
-                "recall@1": 1.0,
-                "recall@3": 1.0,
-                "recall@5": 1.0,
-                "recall@10": 1.0,
-                "recall@30": 1.0,
+                **{col: 1.0 for col in quality_columns(cfg.metrics.quality)},
+                "n_chunks": 1,
+                "n_docs": 1,
+                "dup_chunks": 0,
                 "lat_embed_ms": 1.0,
                 "lat_retrieve_ms": 2.0,
                 "lat_generation_ms": 5.0,

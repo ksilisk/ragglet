@@ -6,7 +6,7 @@ from typing import Any
 import anyio
 import pandas as pd
 
-from ragglet.bench.metrics import mrr_at_k, project_to_docs, recall_at_k
+from ragglet.bench.evaluation import evaluate_quality, project_to_docs
 from ragglet.cache.manager import CacheManager
 from ragglet.config.scenario import ScenarioConfig
 from ragglet.context.base import ContextResult
@@ -19,6 +19,7 @@ from ragglet.rerank.base import Reranker
 from ragglet.rerank.engine import rerank_items
 from ragglet.retrieval.backends import BackendRegistry
 from ragglet.retrieval.engine import retrieve_items
+from ragglet.retrieval.merge import RetrievedItem
 
 
 async def run_queries_once(
@@ -42,10 +43,8 @@ async def run_queries_once(
         retrieved_ids = []
         reranked_ids = []
         context_ids = []
-        final_ids = []
+        final_items: list[RetrievedItem] = []
         retrieved_doc_ids = []
-        final_doc_ids = []
-        chunk_to_doc: dict[str, str] = {}
         rerank_scores = []
         context_text = ""
         context_tokens = 0
@@ -75,10 +74,7 @@ async def run_queries_once(
                     retrieved_items = await retrieve_items(cfg, backends, it.query, vec)
                     caches.set_retrieval(key, retrieved_items)
                 retrieved_ids = [item.chunk_id for item in retrieved_items]
-                chunk_to_doc = {item.chunk_id: item.doc_id for item in retrieved_items}
-
-                # doc-level список retrieved (дедуп по лучшему рангу) — для отладки
-                retrieved_doc_ids = project_to_docs(retrieved_ids, chunk_to_doc)
+                retrieved_doc_ids = project_to_docs(retrieved_items)
 
                 t3 = time.perf_counter()
 
@@ -87,10 +83,10 @@ async def run_queries_once(
                     reranked_ids = [result.item.chunk_id for result in reranked]
                     rerank_scores = [result.score for result in reranked]
                     context_candidates = reranked
-                    final_ids = reranked_ids
+                    final_items = [result.item for result in reranked]
                 else:
                     context_candidates = retrieved_items
-                    final_ids = retrieved_ids
+                    final_items = retrieved_items
 
                 t4 = time.perf_counter()
 
@@ -100,7 +96,7 @@ async def run_queries_once(
                     context_text = context.text if cfg.output.include_debug_fields else ""
                     context_tokens = context.token_count
                     context_chunks = len(context.chunks)
-                    final_ids = context_ids
+                    final_items = [chunk.item for chunk in context.chunks]
                 else:
                     context = ContextResult(chunks=[], text="", token_count=0)
 
@@ -139,11 +135,7 @@ async def run_queries_once(
         finally:
             lat_total_ms = (time.perf_counter() - t0) * 1000.0
 
-        # метрики считаем на document-level: проецируем финальные chunk_id в doc_id с дедупом
-        truth = set(it.truth_ids)
-        final_doc_ids = project_to_docs(final_ids, chunk_to_doc)
-        rec = {f"recall@{k}": recall_at_k(final_doc_ids, truth, k) for k in cfg.metrics.quality.recall_at_k}
-        rr = mrr_at_k(final_doc_ids, truth, cfg.metrics.quality.mrr_at_k)
+        quality = evaluate_quality(cfg.metrics.quality, final_items, it.qrels)
 
         rows.append(
             {
@@ -165,11 +157,10 @@ async def run_queries_once(
                 "gen_output_tokens": gen_output_tokens,
                 "gen_total_tokens": gen_total_tokens,
                 "gen_cost_estimated": gen_cost_estimated,
-                "final_ids": final_ids,
-                "final_doc_ids": final_doc_ids,
+                "final_ids": [item.chunk_id for item in final_items],
+                "final_doc_ids": project_to_docs(final_items),
                 "rerank_scores": rerank_scores,
-                "mrr": rr,
-                **rec,
+                **quality,
                 "lat_embed_ms": lat_embed_ms,
                 "lat_retrieve_ms": lat_retrieve_ms,
                 "lat_rerank_ms": lat_rerank_ms,
