@@ -8,7 +8,7 @@ Focus: quality–performance tradeoffs in distributed / multi-source retrieval:
 - merge algorithms: currently `rrf`, in progress: `weighted_sum`, `interleave`
 - caching: embedding cache (Redis), retrieval cache (in-memory LRU)
 - timeouts: per-query `total_ms` + per-stage (retrieval/rerank/llm) using AnyIO cancel scopes
-- evaluation: Recall@k, MRR@k, latency percentiles, timeout rate
+- evaluation: document-level Recall@k / Hit@k / MRR@k (optional chunk-level MRR@k / Precision@k), latency percentiles, timeout rate
 - indexing: build vector DB index (Qdrant) from a directory corpus; payload carries `external_id` for ground truth
 RAG generation can be enabled as an optional post-context stage; retrieval-only benchmarks remain the default.
 ---
@@ -42,7 +42,7 @@ Suggested / partially implemented modular split:
 - `src/ragglet/bench/`
   - dataset loader: JSONL (`load_jsonl_dataset`)
   - dataset/index validation: compare JSONL relevant[] ids with indexed payload external_id values
-  - metrics: Recall@k / MRR@k
+  - metrics: Recall@k / Hit@k / MRR@k / Precision@k on document and chunk levels (`metrics.py`, `evaluation.py`)
   - query loop: run per-query (embed -> retrieval -> metrics) and collect per-query rows
   - summarize: per-repeat summary + aggregate over repeats
   - artifacts: run folder + scenario snapshot + per-query outputs + summaries
@@ -94,7 +94,7 @@ Key sections:
   Notes:
   - retrieval LRU is per-process; hit rate across separate CLI runs is expected to be 0 unless repeats>1 or queries repeat.
 - `metrics`:
-  - `quality.recall_at_k`, `quality.mrr_at_k`
+  - `quality.k`, `quality.doc`, `quality.chunk`
   - `percentiles` from YAML for emitted latency fields
   - step latency fields measured in per-query table (embed/retrieve/rerank/context/total)
   - `timed_out`, `timeout_stage` fields are recorded per-query; summary stores timeout rates/cnts.
@@ -242,7 +242,7 @@ What is implemented today (core)
 
 ✅ Evaluation:
 
-* Recall@k, MRR@k
+* document-level Recall@k / Hit@k / MRR@k, optional chunk-level MRR@k / Precision@k
 * latency step times (lat_embed_ms, lat_retrieve_ms, lat_rerank_ms, lat_context_ms, lat_generation_ms, lat_total_ms)
 * configurable latency percentiles from YAML for emitted latency steps (embed/retrieve/total)
 
@@ -275,7 +275,7 @@ Current limitations / TODO
 Notes from recent debugging
 
 * Qdrant requires point IDs be UUID or uint64; human-readable IDs must be stored in payload (external_id) for evaluation.
-* If Recall/MRR are all zeros: usually mismatch between queries.relevant[] and payload external_id.
+* If quality metrics are all zeros: usually qrels reference corpus ids that are missing from the index; run `ragglet bench validate`.
 * AnyIO timeouts don’t work with sync clients; async Qdrant store is required for correct per-query and per-stage timeouts.
 
 ⸻

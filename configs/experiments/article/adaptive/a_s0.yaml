@@ -15,10 +15,10 @@ output:
   include_debug_fields: true
 
 dataset:
-  id: "data/queries/truth_manifest.jsonl"
+  source: "local"
+  id: "datasets/demo"
+  split: "test"
   limit: 100
-  query_field: "question"
-  truth_field: "relevant"
 
 storage:
   mode: "single"
@@ -73,8 +73,8 @@ metrics:
   latency_steps: ["embed", "retrieve", "context", "total"]
   percentiles: [50, 95]
   quality:
-    recall_at_k: [1, 3, 5, 10, 30]
-    mrr_at_k: 30
+    k: [1, 3, 5, 10, 30]
+    doc: ["recall", "hit", "mrr"]
 
 timeouts:
   total_ms: 6000

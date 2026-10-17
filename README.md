@@ -16,10 +16,10 @@
 
 - поддержка готовых датасетов в индустриальном формате **BEIR** (локально или с HuggingFace Hub);
 - офлайн-индексация корпуса в Qdrant;
-- разбиение документов на чанки и построение эмбеддингов через `sentence-transformers`;
+- разбиение документов на чанки (или индексация документов целиком, `chunking.method: none`) и построение эмбеддингов через `sentence-transformers`;
 - запуск экспериментальных сценариев из YAML-конфигураций;
 - поддержка single-source retrieval и fanout/hybrid retrieval;
-- document-level подсчет метрик `Recall@K`, `MRR@K`, latency и cache hit rate;
+- подсчет метрик `Recall@K`, `Hit@K`, `MRR@K` на уровне документов (опционально `MRR@K`, `Precision@K` на уровне чанков), latency и cache hit rate;
 - сохранение покомпонентных и агрегированных результатов в `results/`.
 
 ## Формат датасета (BEIR)
@@ -159,7 +159,9 @@ docs/config-reference.yaml
 Ключевые правила:
 
 - `chunk_overlap` должен быть меньше `chunk_size`; иначе профиль не пройдет валидацию;
-- `qrels` ссылается на `corpus._id` (document-level); при индексации chunk получает `doc_id` и внутренний `chunk_id`, метрики считаются по `doc_id`;
+- `chunking.method: none` индексирует документ целиком (как в BEIR); `chunk_size`/`chunk_overlap` с ним запрещены;
+- `qrels` ссылается на `corpus._id` (document-level); при индексации chunk получает `doc_id` и внутренний `chunk_id`;
+- `metrics.quality` задает `k` и метрики уровней: `doc` (по умолчанию `recall`, `hit`, `mrr`) и `chunk` (по умолчанию выключен; включайте, если сценарий варьирует chunking или context). `recall@k` — доля найденных релевантных документов, `hit@k` — найден ли хотя бы один. Каждое `k` не должно превышать глубину финального списка (`retrieval.top_k`, при rerank — `output_top_n`);
 - `storage.backend.type` реально поддерживает только `qdrant`;
 - `rerank` поддерживает локальный `cross_encoder` provider из `sentence-transformers`;
 - `context` поддерживает сбор retrieved/reranked чанков по политикам `top_n`, `threshold` и `adaptive`;
@@ -190,7 +192,7 @@ docker compose -f docker/docker-compose.yaml --profile qdrant down -v
 
 ## Частые проблемы
 
-Если benchmark возвращает нулевые `Recall@K` и `MRR`, сначала запустите `bench validate`: чаще всего `qrels` ссылается на `corpus._id`, которого нет в индексе (рассинхрон датасета и собранного индекса). Пересоберите индекс после смены датасета.
+Если benchmark возвращает нулевые quality-метрики, сначала запустите `bench validate`: чаще всего `qrels` ссылается на `corpus._id`, которого нет в индексе (рассинхрон датасета и собранного индекса). Пересоберите индекс после смены датасета.
 
 Если индекс строится слишком долго или создается неожиданно много чанков, проверьте `chunk_size` и `chunk_overlap` в index profile. Схема уже запрещает `chunk_overlap >= chunk_size`, но слишком маленький `chunk_size` все равно может сделать эксперимент нерепрезентативным.
 
@@ -248,7 +250,7 @@ flowchart LR
     QDRANT --> KW
 
     RET --> MERGE["Merge: RRF / weighted_sum / interleave"]
-    MERGE --> METRICS["Recall@K / MRR / latency / timeout / cache hit rate"]
+    MERGE --> METRICS["Recall@K / Hit@K / MRR@K / latency / timeout / cache hit rate"]
     METRICS --> RES["results/ artifacts"]
 
 ```

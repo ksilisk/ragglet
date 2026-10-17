@@ -6,6 +6,8 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator
 
+from ragglet.bench.metrics import METRICS
+
 
 # -----------------------
 # Small helpers
@@ -225,10 +227,48 @@ class CacheConfig(BaseModel):
 
 
 class MetricsQualityConfig(BaseModel):
+    """
+    Каждая метрика уровня считается для каждого k из `k`.
+    doc — уникальные документы (как в BEIR); chunk — уникальные чанки финального списка,
+    релевантность наследуется от документа. chunk-level по умолчанию выключен.
+    """
     model_config = ConfigDict(extra="forbid")
 
-    recall_at_k: list[int] = Field(default_factory=lambda: [1, 3, 5, 10, 30])
-    mrr_at_k: int = 30
+    k: list[int] = Field(default_factory=lambda: [1, 3, 5, 10])
+    doc: list[str] = Field(default_factory=lambda: ["recall", "hit", "mrr"])
+    chunk: list[str] = Field(default_factory=list)
+
+    @field_validator("k")
+    @classmethod
+    def _k_positive_unique(cls, v: list[int]) -> list[int]:
+        if not v:
+            raise ValueError("metrics.quality.k must contain at least one value")
+        if any(k < 1 for k in v):
+            raise ValueError("metrics.quality.k values must be >= 1")
+        if len(set(v)) != len(v):
+            raise ValueError("metrics.quality.k values must be unique")
+        return sorted(v)
+
+    @field_validator("doc", "chunk")
+    @classmethod
+    def _known_metrics(cls, v: list[str], info) -> list[str]:
+        level = info.field_name
+        unknown = [name for name in v if name not in METRICS]
+        if unknown:
+            raise ValueError(
+                f"metrics.quality.{level}: unknown metrics {unknown}; available: {sorted(METRICS)}"
+            )
+        if len(set(v)) != len(v):
+            raise ValueError(f"metrics.quality.{level} values must be unique")
+        if level == "chunk":
+            doc_only = [name for name in v if METRICS[name].needs_ideal]
+            if doc_only:
+                raise ValueError(
+                    f"metrics.quality.chunk: {doc_only} need the total number of relevant units, "
+                    "which is unknown for chunks with document-level qrels; use them in "
+                    "metrics.quality.doc"
+                )
+        return v
 
 
 class MetricsConfig(BaseModel):
@@ -286,6 +326,24 @@ class ScenarioConfig(BaseModel):
     def _generation_requires_context(self) -> "ScenarioConfig":
         if self.generation.enabled and not self.context.enabled:
             raise ValueError("context.enabled must be true when generation.enabled=true")
+        return self
+
+    @model_validator(mode="after")
+    def _quality_k_within_final_depth(self) -> "ScenarioConfig":
+        # иначе @k тихо считается по более короткому списку
+        depth, source = self.retrieval.top_k, "retrieval.top_k"
+        if self.rerank.enabled:
+            for value, name in (
+                (self.rerank.input_top_k, "rerank.input_top_k"),
+                (self.rerank.output_top_n, "rerank.output_top_n"),
+            ):
+                if value < depth:
+                    depth, source = value, name
+        max_k = max(self.metrics.quality.k)
+        if max_k > depth:
+            raise ValueError(
+                f"metrics.quality.k={max_k} exceeds final list depth {depth} ({source})"
+            )
         return self
 
 

@@ -27,7 +27,7 @@ def _base_config(**rerank):
         "rerank": {"enabled": False, **rerank},
         "metrics": {
             "latency_steps": ["embed", "retrieve", "rerank", "total"],
-            "quality": {"recall_at_k": [5, 10], "mrr_at_k": 30},
+            "quality": {"k": [5, 10]},
         },
     }
     return ScenarioConfig.model_validate(data)
@@ -37,6 +37,7 @@ def _item(chunk_id: str, score: float, text: str = "text") -> RetrievedItem:
     return RetrievedItem(
         point_id=chunk_id,
         chunk_id=chunk_id,
+        doc_id=chunk_id,
         score_raw=score,
         source="test",
         payload={"chunk_id": chunk_id, "doc_id": chunk_id, "text": text},
@@ -72,23 +73,24 @@ def test_retrieval_cache_entry_can_store_items():
     from ragglet.cache.retrieval_lru import RetrievalCacheEntry
 
     items = [_item("a", 1.0), _item("b", 0.5)]
-    entry = RetrievalCacheEntry(retrieved_ids=["a", "b"], retrieved_items=items)
+    entry = RetrievalCacheEntry(retrieved_items=items)
 
-    assert entry.retrieved_ids == ["a", "b"]
     assert entry.retrieved_items == items
 
 
 def test_summary_includes_rerank_latency_when_requested():
     pd = pytest.importorskip("pandas")
+    from ragglet.bench.evaluation import quality_columns
     from ragglet.bench.summarize import summarize_repeat
 
     cfg = _base_config()
     df = pd.DataFrame(
         [
             {
-                "mrr": 1.0,
-                "recall@5": 1.0,
-                "recall@10": 1.0,
+                **{col: 1.0 for col in quality_columns(cfg.metrics.quality)},
+                "n_chunks": 1,
+                "n_docs": 1,
+                "dup_chunks": 0,
                 "lat_embed_ms": 1.0,
                 "lat_retrieve_ms": 2.0,
                 "lat_rerank_ms": 3.0,

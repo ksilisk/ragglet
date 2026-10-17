@@ -417,3 +417,25 @@ cache namespace/warmup API, строгую config validation и расширен
 - Benchmark runtime в `src/ragglet` не изменялся.
 - Итоги: `results/article/tidy.csv`, `results/article/summary.json` и
   `results/article/report.md`.
+
+## 13. Актуализация под BEIR и doc-level метрики (2026-10-17, ragglet-8/ragglet-16)
+
+Результаты из раздела 12 получены на `b7be394`. После ragglet-8 (BEIR) и ragglet-16
+(метрики) конфиги и analyzer в том виде не загружались, поэтому они переведены на
+текущий контракт. Экспериментальные факторы не менялись.
+
+- Конфиги: `dataset` → `source: local`, `id: datasets/demo`, `split: test` (тот же
+  демо-набор, сконвертированный в BEIR); `metrics.quality` → `k: [1, 3, 5, 10, 30]`,
+  `doc: [recall, hit, mrr]`. В ячейках с включённым context добавлен chunk-level
+  `[mrr, precision]`.
+- Analyzer: hash датасета считается по `datasets/demo/{corpus.jsonl,queries.jsonl,qrels/test.tsv}`.
+  Retrieval/context Recall@k и MRR@30 считаются по `retrieved_doc_ids` и `final_doc_ids`
+  (при включённом context это context), а не по chunk id. Smoke-сравнение берёт колонки
+  `doc_*@k`/`chunk_*@k`.
+- Сопоставимость со статьёй: тогда truth был chunk-level (`<file>#0`), а `recall@k` в
+  runtime был Hit@k. Теперь truth doc-level: засчитывается любой чанк релевантного
+  документа. В демо 50 документов дают 53 чанка, поэтому расхождение ожидается
+  небольшим, но 1:1 старые и новые числа не сравниваются. При одном релевантном документе
+  на запрос `recall@k == hit@k`.
+- Команды из раздела 10 остаются в силе. Индекс собирается тем же
+  `configs/indexes/demo.yaml`, который теперь читает BEIR.

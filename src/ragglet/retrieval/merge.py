@@ -9,8 +9,10 @@ import anyio
 class RetrievedItem:
     # внутренний id (UUID point id в Qdrant и т.п.)
     point_id: str
-    # id чанка: по нему делаем retrieval-dedup; doc_id для метрик лежит в payload
+    # id чанка: по нему делаем retrieval-dedup
     chunk_id: str
+    # id документа (BEIR corpus _id): по нему считаются doc-level метрики
+    doc_id: str
     score_raw: float
     source: str
     payload: dict[str, Any] | None
@@ -191,6 +193,7 @@ def weighted_sum_merge(
         merged.append(RetrievedItem(
             point_id=it.point_id,
             chunk_id=it.chunk_id,
+            doc_id=it.doc_id,
             score_raw=float(sc),          # fused score
             source=it.source,             # можно поставить "fused"
             payload=it.payload,
