@@ -6,6 +6,7 @@ from uuid import NAMESPACE_URL, uuid5
 from rich.progress import track
 
 from ragglet.config.index_profile import IndexProfileConfig
+from ragglet.core.issues import Issue
 from ragglet.datasets.beir import document_text, read_corpus
 from ragglet.datasets.checks import validate_dataset
 from ragglet.datasets.sources import describe_dataset, resolve_dataset
@@ -21,11 +22,12 @@ def _make_point_id(chunk_id: str) -> str:
     return str(uuid5(NAMESPACE_URL, chunk_id))
 
 
-def build_index(cfg: IndexProfileConfig) -> None:
+def build_index(cfg: IndexProfileConfig) -> list[Issue]:
+    """Собирает индекс; возвращает предупреждения валидации датасета."""
     dataset = resolve_dataset(cfg.dataset.source, cfg.dataset.id, cfg.dataset.revision)
     dataset_dir = dataset.path
     # весь датасет со всеми split — до эмбеддинга, а не после
-    parsed, _ = validate_dataset(
+    parsed, warnings = validate_dataset(
         dataset_dir, None, label=describe_dataset(cfg.dataset.source, cfg.dataset.id, dataset.revision)
     )
 
@@ -114,3 +116,4 @@ def build_index(cfg: IndexProfileConfig) -> None:
     )
     for indexer in indexers.values():
         indexer.write_metadata(metadata)
+    return warnings

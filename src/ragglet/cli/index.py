@@ -6,7 +6,7 @@ import typer
 from rich import print as rprint
 
 from ragglet.config.index_profile import load_index_profile
-from ragglet.core.issues import ValidationError
+from ragglet.core.issues import ValidationError, render_issues
 from ragglet.indexing.build_index import build_index
 
 index_app = typer.Typer(help="Build and manage indexes (offline).")
@@ -18,8 +18,10 @@ def build(config: Path = typer.Argument(..., exists=True, dir_okay=False)) -> No
     rprint("[bold green]Building index[/bold green]")
     rprint(cfg.model_dump())
     try:
-        build_index(cfg)
+        warnings = build_index(cfg)
     except ValidationError as e:
         typer.echo(str(e), err=True)
         raise typer.Exit(2) from e
+    if warnings:
+        typer.echo(render_issues("Dataset warnings", warnings))
     rprint("[bold green]Done[/bold green]")

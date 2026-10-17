@@ -61,7 +61,7 @@ def _profile(dataset_id: str = str(DEMO), **storage) -> IndexProfileConfig:
 
 
 def test_metadata_written_once_after_all_upserts():
-    build_module.build_index(_profile())
+    assert build_module.build_index(_profile()) == []  # demo без предупреждений
 
     kinds = [e[0] for e in _Indexer.events]
     assert kinds[0] == "recreate" and kinds[-1] == "metadata"
