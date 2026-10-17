@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from ragglet.config.index_profile import ChunkingConfig
+
 
 @dataclass(frozen=True)
 class Chunk:
@@ -29,3 +31,13 @@ def recursive_chunk(text: str, chunk_size: int, chunk_overlap: int) -> list[str]
         if end == len(text):
             break
     return chunks
+
+
+def chunk_document(text: str, cfg: ChunkingConfig) -> list[str]:
+    if cfg.method == "none":
+        text = text.strip()
+        return [text] if text else []
+    if cfg.method == "recursive":
+        assert cfg.chunk_size is not None and cfg.chunk_overlap is not None
+        return recursive_chunk(text, cfg.chunk_size, cfg.chunk_overlap)
+    raise NotImplementedError(f"chunking.method='{cfg.method}' is not implemented")

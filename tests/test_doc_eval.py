@@ -9,11 +9,6 @@ def test_project_dedup_keeps_best_rank():
     assert project_to_docs(chunk_ids, mapping) == ["d1", "d2", "d3"]
 
 
-def test_project_fallback_splits_last_hash():
-    # неизвестный чанк -> отрезаем суффикс после последнего '#'
-    assert project_to_docs(["doc-a#5"], {}) == ["doc-a"]
-
-
 def test_doc_level_recall_and_mrr_use_deduped_sequence():
     # два чанка d2 идут первыми, затем d1; без дедупа ранги были бы искажены
     chunk_ids = ["d2#0", "d2#1", "d1#0"]

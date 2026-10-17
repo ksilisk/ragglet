@@ -8,7 +8,7 @@ from rich.progress import track
 from ragglet.config.index_profile import IndexProfileConfig
 from ragglet.datasets.beir import read_corpus
 from ragglet.datasets.sources import resolve_dataset_dir
-from ragglet.indexing.chunking import recursive_chunk
+from ragglet.indexing.chunking import chunk_document
 from ragglet.indexing.metadata import build_index_metadata
 from ragglet.indexing.qdrant_indexer import QdrantIndexer, QdrantIndexSpec
 from ragglet.modules.embedders.st_embedder import SentenceTransformerEmbedder
@@ -86,7 +86,7 @@ def build_index(cfg: IndexProfileConfig) -> None:
 
     for doc in track(list(read_corpus(dataset_dir)), description="Indexing corpus"):
         doc_text = f"{doc.title}\n\n{doc.text}".strip() if doc.title else doc.text
-        chunks = recursive_chunk(doc_text, cfg.chunking.chunk_size, cfg.chunking.chunk_overlap)
+        chunks = chunk_document(doc_text, cfg.chunking)
 
         for idx, chunk_text in enumerate(chunks):
             chunk_id = f"{doc.doc_id}#{idx}"

@@ -20,11 +20,18 @@ def _backend_ref(params: dict) -> str | None:
 
 def _to_retrieved(candidate, source_name: str) -> RetrievedItem:
     payload = candidate.payload or {}
-    raw = payload.get("chunk_id")
-    chunk_id = str(raw) if raw is not None else str(candidate.id)
+    chunk_id = payload.get("chunk_id")
+    doc_id = payload.get("doc_id")
+    if chunk_id is None or doc_id is None:
+        raise ValueError(
+            f"Point {candidate.id} from source '{source_name}' has no chunk_id/doc_id in payload: "
+            "the index was built with an outdated payload contract, rebuild it with "
+            "`ragglet index build`."
+        )
     return RetrievedItem(
         point_id=str(candidate.id),
-        chunk_id=chunk_id,
+        chunk_id=str(chunk_id),
+        doc_id=str(doc_id),
         score_raw=float(candidate.score_raw),
         source=source_name,
         payload=candidate.payload,

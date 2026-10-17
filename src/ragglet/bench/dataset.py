@@ -10,7 +10,11 @@ from ragglet.datasets.sources import resolve_dataset_dir
 class QueryItem:
     qid: str
     query: str
-    truth_ids: list[str]  # relevant doc_id из qrels (document-level ground truth)
+    qrels: dict[str, int]  # relevant doc_id -> grade (> 0), document-level ground truth
+
+    @property
+    def truth_ids(self) -> list[str]:
+        return sorted(self.qrels)
 
 
 def load_dataset_queries(source: str, dataset_id: str, split: str, limit: int) -> list[QueryItem]:
@@ -20,9 +24,7 @@ def load_dataset_queries(source: str, dataset_id: str, split: str, limit: int) -
     """
     dataset_dir = resolve_dataset_dir(source, dataset_id)
     queries = read_queries(dataset_dir, split)
-    items = [
-        QueryItem(qid=q.qid, query=q.text, truth_ids=list(q.relevant_doc_ids)) for q in queries
-    ]
+    items = [QueryItem(qid=q.qid, query=q.text, qrels=dict(q.qrels)) for q in queries]
     if limit:
         items = items[:limit]
     return items

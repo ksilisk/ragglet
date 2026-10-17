@@ -19,7 +19,7 @@ class BeirDocument:
 class BeirQuery:
     qid: str
     text: str
-    relevant_doc_ids: list[str]
+    qrels: dict[str, int]  # relevant doc_id -> grade (> 0)
 
 
 def _open_text(path: Path) -> TextIO:
@@ -65,13 +65,14 @@ def _read_query_texts(dataset_dir: Path) -> dict[str, str]:
     return out
 
 
-def _read_qrels(dataset_dir: Path, split: str) -> dict[str, list[str]]:
+def _read_qrels(dataset_dir: Path, split: str) -> dict[str, dict[str, int]]:
     """
     Читает qrels (BEIR tsv `query-id corpus-id score` с заголовком или TREC `qid 0 docid rel`).
     Формат определяется по числу колонок; релевантными считаем записи со score > 0.
+    При повторе пары (query, doc) берём максимальный grade.
     """
     path = _find(dataset_dir, f"qrels/{split}.tsv", f"qrels/{split}.tsv.gz")
-    rel: dict[str, list[str]] = {}
+    rel: dict[str, dict[str, int]] = {}
     with _open_text(path) as f:
         for line in f:
             parts = line.split()
@@ -82,11 +83,12 @@ def _read_qrels(dataset_dir: Path, split: str) -> dict[str, list[str]]:
             else:  # TREC: qid 0 docid rel
                 qid, _, doc_id, score = parts[:4]
             try:
-                score_val = float(score)
+                grade = int(float(score))
             except ValueError:
                 continue  # header row (`query-id corpus-id score`) or garbage
-            if score_val > 0:
-                rel.setdefault(str(qid), []).append(str(doc_id))
+            if grade > 0:
+                doc_grades = rel.setdefault(str(qid), {})
+                doc_grades[str(doc_id)] = max(grade, doc_grades.get(str(doc_id), 0))
     return rel
 
 
@@ -102,5 +104,5 @@ def read_queries(dataset_dir: Path, split: str) -> list[BeirQuery]:
         text = texts.get(qid)
         if text is None:
             continue
-        out.append(BeirQuery(qid=qid, text=text, relevant_doc_ids=sorted(set(qrels[qid]))))
+        out.append(BeirQuery(qid=qid, text=text, qrels=qrels[qid]))
     return out

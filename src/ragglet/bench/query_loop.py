@@ -21,14 +21,6 @@ from ragglet.retrieval.backends import BackendRegistry
 from ragglet.retrieval.engine import retrieve_items
 
 
-def _chunk_to_doc_map(items) -> dict[str, str]:
-    out: dict[str, str] = {}
-    for it in items:
-        payload = it.payload or {}
-        out[it.chunk_id] = str(payload.get("doc_id", it.chunk_id))
-    return out
-
-
 async def run_queries_once(
         cfg: ScenarioConfig,
         items,
@@ -77,21 +69,13 @@ async def run_queries_once(
                 # retrieval cache
                 key = caches.make_retrieval_key(it.query)
                 cached = caches.get_retrieval(key)
-                if cached is not None and cached.retrieved_items is not None:
+                if cached is not None:
                     retrieved_items = cached.retrieved_items
-                    retrieved_ids = cached.retrieved_ids
-                    chunk_to_doc = _chunk_to_doc_map(retrieved_items)
-                elif cached is not None and not cfg.rerank.enabled and not cfg.context.enabled:
-                    retrieved_ids = cached.retrieved_ids
-                    retrieved_items = []
-                    # items-less hit: восстанавливаем chunk->doc из параллельного списка
-                    chunk_to_doc = dict(zip(retrieved_ids, cached.chunk_doc_ids or [], strict=False))
                 else:
                     retrieved_items = await retrieve_items(cfg, backends, it.query, vec)
-                    retrieved_ids = [item.chunk_id for item in retrieved_items]
-                    chunk_to_doc = _chunk_to_doc_map(retrieved_items)
-                    chunk_doc_ids = [chunk_to_doc[cid] for cid in retrieved_ids]
-                    caches.set_retrieval(key, retrieved_ids, retrieved_items, chunk_doc_ids)
+                    caches.set_retrieval(key, retrieved_items)
+                retrieved_ids = [item.chunk_id for item in retrieved_items]
+                chunk_to_doc = {item.chunk_id: item.doc_id for item in retrieved_items}
 
                 # doc-level список retrieved (дедуп по лучшему рангу) — для отладки
                 retrieved_doc_ids = project_to_docs(retrieved_ids, chunk_to_doc)

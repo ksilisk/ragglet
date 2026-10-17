@@ -15,14 +15,28 @@ def _load_yaml(path: Path) -> dict[str, Any]:
 
 
 class ChunkingConfig(BaseModel):
+    """
+    method="none": документ индексируется целиком одной точкой (стандартная BEIR-постановка).
+    chunk_size/chunk_overlap для него запрещены, для "recursive" по умолчанию 800/120.
+    """
     model_config = ConfigDict(extra="forbid")
 
-    method: Literal["recursive"] = "recursive"
-    chunk_size: int = Field(800, gt=0)
-    chunk_overlap: int = Field(120, ge=0)
+    method: Literal["recursive", "none"] = "recursive"
+    chunk_size: int | None = Field(None, gt=0)
+    chunk_overlap: int | None = Field(None, ge=0)
 
     @model_validator(mode="after")
-    def _validate_overlap(self) -> "ChunkingConfig":
+    def _validate_sizes(self) -> "ChunkingConfig":
+        if self.method == "none":
+            if self.chunk_size is not None or self.chunk_overlap is not None:
+                raise ValueError(
+                    "chunking.chunk_size/chunk_overlap are not allowed when chunking.method='none'"
+                )
+            return self
+        if self.chunk_size is None:
+            self.chunk_size = 800
+        if self.chunk_overlap is None:
+            self.chunk_overlap = 120
         if self.chunk_overlap >= self.chunk_size:
             raise ValueError("chunk_overlap must be less than chunk_size")
         return self

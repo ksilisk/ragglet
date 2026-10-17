@@ -39,6 +39,7 @@ def _item(chunk_id: str, score: float, text: str) -> RetrievedItem:
     return RetrievedItem(
         point_id=chunk_id,
         chunk_id=chunk_id,
+        doc_id=chunk_id,
         score_raw=score,
         source="test",
         payload={"chunk_id": chunk_id, "doc_id": chunk_id, "text": text},

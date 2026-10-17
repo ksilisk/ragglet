@@ -37,6 +37,7 @@ def _item(chunk_id: str, score: float, text: str = "text") -> RetrievedItem:
     return RetrievedItem(
         point_id=chunk_id,
         chunk_id=chunk_id,
+        doc_id=chunk_id,
         score_raw=score,
         source="test",
         payload={"chunk_id": chunk_id, "doc_id": chunk_id, "text": text},
@@ -72,9 +73,8 @@ def test_retrieval_cache_entry_can_store_items():
     from ragglet.cache.retrieval_lru import RetrievalCacheEntry
 
     items = [_item("a", 1.0), _item("b", 0.5)]
-    entry = RetrievalCacheEntry(retrieved_ids=["a", "b"], retrieved_items=items)
+    entry = RetrievalCacheEntry(retrieved_items=items)
 
-    assert entry.retrieved_ids == ["a", "b"]
     assert entry.retrieved_items == items
 
 
