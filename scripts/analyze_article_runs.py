@@ -21,6 +21,7 @@ import redis
 
 ROOT = Path(__file__).resolve().parents[1]
 K_VALUES = (1, 3, 5, 10, 30)
+QUALITY_COLUMN = re.compile(r"^(doc|chunk)_[a-z]+@\d+$")
 
 SCENARIOS = {
     "article_a_s0_retrieval_reference": ("adaptive", "A-S0", "retrieval reference"),
@@ -150,7 +151,10 @@ def capture_manifest(args: argparse.Namespace) -> int:
         },
         "hashes": {
             "uv.lock": sha256(ROOT / "uv.lock"),
-            "dataset": sha256(ROOT / "data/queries/truth_manifest.jsonl"),
+            "dataset": {
+                name: sha256(ROOT / "datasets/demo" / name)
+                for name in ("corpus.jsonl", "queries.jsonl", "qrels/test.tsv")
+            },
             "index_profile": sha256(ROOT / "configs/indexes/demo.yaml"),
             "experiment_configs": {
                 str(path.relative_to(ROOT)): sha256(path) for path in config_paths
@@ -244,6 +248,9 @@ def matching_run_dirs(root: Path, scenario: str) -> list[Path]:
 def compare_smoke_runs(top_dir: Path, adaptive_dir: Path) -> dict[str, Any]:
     _, top = load_run(top_dir, 1)
     _, adaptive = load_run(adaptive_dir, 1)
+    quality = [c for c in top.columns if QUALITY_COLUMN.match(c)]
+    if quality != [c for c in adaptive.columns if QUALITY_COLUMN.match(c)]:
+        raise AssertionError("Smoke runs have different quality columns")
     columns = [
         "qid",
         "retrieved_ids",
@@ -251,8 +258,7 @@ def compare_smoke_runs(top_dir: Path, adaptive_dir: Path) -> dict[str, Any]:
         "context_text",
         "context_tokens",
         "context_chunks",
-        "mrr",
-        *[f"recall@{k}" for k in K_VALUES],
+        *quality,
     ]
     if len(top) != len(adaptive):
         raise AssertionError(f"Smoke row count differs: {len(top)} != {len(adaptive)}")
@@ -344,9 +350,11 @@ def build_tidy(runs_root: Path) -> tuple[pd.DataFrame, dict[str, list[dict[str, 
             out["emb_hit_rate_recorded"] = raw["emb_hit_rate"].astype(float)
             out["ret_hit_rate_recorded"] = raw["ret_hit_rate"].astype(float)
 
+            # qrels document-level: сравниваем с doc_id (уже дедуплицированы по лучшему рангу);
+            # при включённом context финальный список и есть context
             truths = raw["truth_ids"].map(as_list)
-            retrieved = raw["retrieved_ids"].map(as_list)
-            contexts = raw["context_ids"].map(as_list)
+            retrieved = raw["retrieved_doc_ids"].map(as_list)
+            contexts = raw["final_doc_ids"].map(as_list)
             out["retrieval_mrr@30"] = [
                 mrr_at_k(ids, truth) for ids, truth in zip(retrieved, truths, strict=True)
             ]
@@ -537,8 +545,8 @@ def build_summary(tidy: pd.DataFrame, anomalies: list[str], manifest_path: Path)
         "generated_at_utc": utc_now(),
         "manifest": str(manifest_path),
         "metric_definitions": {
-            "recall@k": "Fraction of relevant ids present in the first k ids of the named stage.",
-            "mrr@30": "Reciprocal rank of the first relevant id within the first 30 ids of the named stage.",
+            "recall@k": "Fraction of relevant documents present in the first k documents of the named stage (chunks projected to doc_id, best rank kept).",
+            "mrr@30": "Reciprocal rank of the first relevant document within the first 30 documents of the named stage.",
             "context_chunks": "Number of chunks selected by context assembly.",
             "context_chars": "Python len() of rendered context_text, including metadata labels and separators.",
             "context_words_estimate": "Existing context_tokens field: approximate whitespace-separated word count, not tokenizer tokens.",
