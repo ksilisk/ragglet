@@ -45,7 +45,7 @@
 | Уровень | Единица ранжирования | Релевантность единицы | Какой вопрос | Метрики |
 |---|---|---|---|---|
 | **doc** | уникальный `doc_id`, ранг = лучший ранг его чанков | `qrels[doc_id]` | находит ли система нужные документы (сравнимо с BEIR) | `recall`, `hit`, `mrr`, `precision` |
-| **chunk** | уникальный `chunk_id` | наследуется: `qrels[doc_id(chunk)]` | насколько хорош список чанков, который реально уходит в контекст | `hit`, `mrr`, `precision` |
+| **chunk** (по умолчанию выключен) | уникальный `chunk_id` | наследуется: `qrels[doc_id(chunk)]` | насколько хорош список чанков, который реально уходит в контекст | `mrr`, `precision` |
 
 - Doc-level ранжирование = агрегация MaxP (Dai & Callan, 2019): документ занимает ранг
   своего лучшего чанка. Это уже реализовано в `project_to_docs`, сохраняем.
@@ -62,6 +62,22 @@
 - Если понадобится настоящая релевантность чанка (evidence spans, как в
   LegalBench-RAG), это новый способ вычислить grade единицы (пересечение со span) за тем
   же интерфейсом `Ranking` (п. 7), а не ручка в конфиге. Сейчас не делаем.
+
+**Что показывает chunk-level.** Релевантны B и D, топ-5 чанков:
+`A#0, B#1, B#4, C#2, B#0`.
+
+- doc-level: документы `[A, B, C]` → `hit@5=1`, `recall@5=1/2` (D не нашли), `mrr=1/2`.
+- chunk-level: `precision@5=3/5` (60% контекста — из релевантных документов),
+  `mrr=1/2` (первый полезный кусок на 2-й позиции контекста). Для `A#0, A#1, A#2, B#0`
+  doc `mrr=1/2`, а chunk `mrr=1/4`: LLM сначала читает три куска нерелевантного документа.
+- Это **прокси**: B#1/B#4/B#0 засчитаны, даже если ответ только в B#3. На коротких
+  документах (абстракты nfcorpus) прокси нормальный, на длинных — завышает.
+- Смысл появляется, когда крутят `chunk_size` или context: мелкие чанки дают
+  концентрацию (chunk `precision` растёт, один релевантный документ занимает несколько
+  слотов) ценой широты (doc `recall@k` падает — в k слотов влезает меньше документов).
+  Поэтому уровень выключен по умолчанию и включается в таких сценариях.
+- `hit` на chunk-level в примерах и подсказках не используем: он почти дублирует
+  doc-level `hit` (реестр его не запрещает).
 
 ### 2. Семантика метрик
 
@@ -120,10 +136,12 @@ metrics:
   quality:
     k: [1, 3, 5, 10]           # общие cutoff'ы для всех @k метрик
     doc: [recall, hit, mrr]    # метрики document-level
-    chunk: [hit, precision]    # метрики chunk-level; [] — уровень выключен
+    chunk: []                  # chunk-level выключен; например [mrr, precision]
 ```
 
 - Это значения по умолчанию.
+- В `docs/config-reference.yaml` у `chunk` короткая подсказка: включать, если сценарий
+  варьирует `chunking` или context; при `chunking.method: none` (п. 9) уровни совпадают.
 - Валидация: неизвестное имя → ошибка со списком доступных; метрика, которой нужно
   знать все релевантные единицы (`recall`, позже `ndcg`), на chunk-level → ошибка с
   объяснением; `k ≥ 1` и ≤ глубины (п. 4).
@@ -159,8 +177,8 @@ METRICS: dict[str, MetricSpec] = {
 
 ### 8. Выходные колонки
 
-- **Per-query:** `doc_recall@5`, `doc_hit@5`, `doc_mrr@10`, `chunk_hit@5`,
-  `chunk_precision@5`, …; диагностика `n_chunks`, `n_docs`, `dup_chunks`. `final_ids`,
+- **Per-query:** `doc_recall@5`, `doc_hit@5`, `doc_mrr@10`, при включённом chunk-level
+  `chunk_mrr@5`, `chunk_precision@5`, …; диагностика `n_chunks`, `n_docs`, `dup_chunks`. `final_ids`,
   `final_doc_ids`, `retrieved_doc_ids`, `truth_ids` остаются.
 - **Summary:** `<колонка>_mean` для каждой метрики, `n_docs_mean`, `dup_chunks_mean`,
   `doc_short@{k}_rate`. `aggregate_over_repeats` подхватит их автоматически (берёт все
@@ -168,6 +186,30 @@ METRICS: dict[str, MetricSpec] = {
 - Старые `recall@k` / `mrr` исчезают. Переименование намеренное: в закоммиченных
   `results/*.csv` (февраль 2026, ещё до BEIR) колонка `recall@k` на деле означает
   Hit@k, а новые имена такую путаницу исключают.
+
+### 9. Индекс без чанкинга: `chunking.method: none`
+
+Сейчас чанкинг обязателен: `method` допускает только `recursive`, `chunk_size`
+по умолчанию 800 символов. Индексировать документ целиком, как в стандартной
+BEIR-постановке (dense-ретривер эмбеддит `title + text` целиком), можно только хаком —
+огромным `chunk_size`.
+
+Предлагаю явный режим:
+
+```yaml
+chunking:
+  method: "none"     # один документ = одна точка в индексе
+```
+
+- `chunk_size`/`chunk_overlap` при `none` запрещены (ошибка валидации), чтобы не было
+  «настроек, которые ни на что не влияют».
+- Контракт payload не меняется: одна точка на документ, `chunk_id = "<doc_id>#0"`.
+  Retrieval, merge, кэш и оценка работают без веток; doc- и chunk-level совпадают.
+- В метаданных индекса `chunking_method: none`, `chunk_size`/`chunk_overlap` = null.
+- Ограничение: embedder молча обрезает вход по `max_seq_length` модели
+  (`all-MiniLM-L6-v2` — 256 токенов, примерно 1000+ символов английского текста), поэтому
+  у длинных документов хвост не попадает в вектор. Так же устроены dense-бейзлайны BEIR;
+  для длинных документов и нужен чанкинг. Пишем это в config-reference.
 
 ## Затрагиваемые модули
 
@@ -182,7 +224,8 @@ METRICS: dict[str, MetricSpec] = {
 | `retrieval/merge.py`, `retrieval/engine.py` | `RetrievedItem.doc_id`, строгий `_to_retrieved` |
 | `cache/retrieval_lru.py`, `cache/manager.py` | убрать `chunk_doc_ids` |
 | `config/scenario.py` | новый `MetricsQualityConfig` + кросс-валидация глубины на уровне `ScenarioConfig` |
-| `configs/scenarios/*.yaml`, `docs/config-reference.yaml`, README, `docs/architecure-and-current-state.md` | новый блок `metrics.quality`, описание метрик; в troubleshooting до сих пор упоминается `external_id` |
+| `config/index_profile.py`, `indexing/build_index.py`, `indexing/metadata.py` | `chunking.method: none` |
+| `configs/scenarios/*.yaml`, `docs/config-reference.yaml`, README, `docs/architecure-and-current-state.md` | новый блок `metrics.quality`, описание метрик, подсказка про chunk-level и `method: none`; в troubleshooting до сих пор упоминается `external_id` |
 
 ## Тесты (критерий приёмки)
 
@@ -201,21 +244,27 @@ Unit, без Qdrant:
 7. **Passage-датасет** (1 doc = 1 chunk): doc- и chunk-метрики совпадают для общих имён.
 8. Глубина: 3 чанка одного документа, `k=3` → `n_docs=1`, запрос попадает в
    `doc_short@3`.
-9. Конфиг: `recall` на chunk-level, `k` > глубины, неизвестное имя → ошибки валидации.
+9. Конфиг: `recall` на chunk-level, `k` > глубины, неизвестное имя → ошибки валидации;
+   по умолчанию chunk-колонок нет.
 10. qrels: grades сохраняются, `score=0` отбрасывается, BEIR и TREC формат.
 11. Payload без `doc_id` → явная ошибка в `_to_retrieved`.
 12. `query_loop` на фейковых backends (как в `test_rerank`/`test_context`): колонки и
     summary в новом виде; существующие тесты переводим на новые имена.
+13. `chunking.method: none`: одна точка на документ с `chunk_id = doc#0`; `chunk_size`
+    вместе с `none` → ошибка валидации.
 
 E2E (цифры положу в PR):
 
 - demo: `doc_recall@k == doc_hit@k` (sanity);
 - BeIR/nfcorpus: `doc_recall@10` ≪ `doc_hit@10`; старый «recall@10» = новый `hit@10`;
-- `s2_rerank`: старый конфиг падает на валидации глубины, исправленный — проходит.
+- `s2_rerank`: старый конфиг падает на валидации глубины, исправленный — проходит;
+- nfcorpus: `method: none` против `recursive 800` — doc-метрики, `doc_short@k_rate`, и
+  на чанковом индексе chunk-level.
 
 ## Фазы (отдельными коммитами в этот же PR)
 
-1. Контракт: `RetrievedItem.doc_id`, строгий маппинг, чистка кэша, qrels с grades.
+1. Контракт: `RetrievedItem.doc_id`, строгий маппинг, чистка кэша, qrels с grades,
+   `chunking.method: none`.
 2. Реестр метрик + doc/chunk-оценка + cutoff конфига + summary + тесты.
 3. Конфиги/доки + e2e-прогоны demo и nfcorpus.
 
@@ -230,10 +279,10 @@ E2E (цифры положу в PR):
 
 ## Вопросы на ревью
 
-1. Устраивает трактовка «уровней документа и чанка» как двух уровней **оценки** поверх
-   одной doc-level разметки (без возврата chunk-level qrels)?
-2. Включать chunk-level по умолчанию (`[hit, precision]`) или оставить `[]` и включать в
-   сценариях явно?
-3. Добавить сразу `r_cap@k` (`|hits@k| / min(k, |R|)`, есть в BEIR)? Он полезен на
+Решено в обсуждении: два уровня оценки поверх одной doc-level разметки; chunk-level
+выключен по умолчанию, без `hit`, с подсказкой в config-reference.
+
+1. `chunking.method: none` делаем в этом PR или отдельной задачей?
+2. Добавить сразу `r_cap@k` (`|hits@k| / min(k, |R|)`, есть в BEIR)? Он полезен на
    nfcorpus, где при десятках релевантных на запрос `recall@k` на малых k ограничен
    сверху `k/|R|`. Или оставить до H2?
