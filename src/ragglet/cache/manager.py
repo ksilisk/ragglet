@@ -30,7 +30,7 @@ class CacheStats:
 
 
 class CacheManager:
-    def __init__(self, cfg: ScenarioConfig):
+    def __init__(self, cfg: ScenarioConfig, embedding_revision: str | None = None):
         self.cfg = cfg
         self.stats = CacheStats()
 
@@ -42,6 +42,7 @@ class CacheManager:
                 endpoint=cfg.cache.embedding.endpoint,
                 ttl_seconds=cfg.cache.embedding.ttl_seconds,
                 model_name=cfg.embedding.model,
+                revision=embedding_revision,
                 normalize=cfg.embedding.normalize,
             )
 

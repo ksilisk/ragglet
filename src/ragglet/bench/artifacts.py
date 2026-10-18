@@ -27,3 +27,7 @@ def save_config_snapshot(run_dir: Path, cfg: ScenarioConfig) -> None:
     payload = cfg.model_dump()
     (run_dir / "scenario.snapshot.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), "utf-8")
     (run_dir / "scenario.snapshot.yaml").write_text(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False), "utf-8")
+
+
+def save_manifest(run_dir: Path, manifest: dict) -> None:
+    (run_dir / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), "utf-8")

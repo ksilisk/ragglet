@@ -6,6 +6,8 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from ragglet.datasets.sources import check_source
+
 
 def _load_yaml(path: Path) -> dict[str, Any]:
     data = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -46,6 +48,7 @@ class EmbeddingConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     model: str
+    revision: str | None = None  # коммит модели на HF; без него — текущий main
     normalize: bool = True
     batch_size: int = 64
 
@@ -102,8 +105,14 @@ class StorageConfig(BaseModel):
 class DatasetSourceConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    source: Literal["local", "hf"] = "local"
+    source: str = "local"
     id: str
+    revision: str | None = None
+
+    @model_validator(mode="after")
+    def _known_source(self) -> DatasetSourceConfig:
+        check_source(self.source, self.revision)
+        return self
 
 
 class IndexProfileConfig(BaseModel):

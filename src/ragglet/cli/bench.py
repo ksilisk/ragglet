@@ -1,13 +1,14 @@
 from pathlib import Path
 
+import anyio
 import typer
 from rich import print as rprint
-import anyio
 
-from ragglet.config.scenario import load_scenario
+from ragglet.bench.preflight import validate_scenario
 from ragglet.bench.run_scenario import run_scenario
-from ragglet.bench.validate_dataset import validate_scenario_dataset
-from ragglet.indexing.metadata import IndexMetadataError
+from ragglet.config.scenario import load_scenario
+from ragglet.core.issues import ValidationError, render_issues
+from ragglet.datasets.sources import describe_dataset
 
 bench_app = typer.Typer(help="Run benchmarks and evaluate scenarios.")
 
@@ -17,8 +18,8 @@ def run(scenario: Path = typer.Argument(..., exists=True, dir_okay=False)) -> No
     cfg = load_scenario(scenario)
     try:
         res = anyio.run(run_scenario, cfg)
-    except IndexMetadataError as e:
-        rprint(f"[bold red]Index metadata check failed[/bold red]: {e}")
+    except ValidationError as e:
+        typer.echo(str(e), err=True)
         raise typer.Exit(2) from e
     rprint("[bold green]Done[/bold green]")
     rprint(res["summary"])
@@ -26,13 +27,14 @@ def run(scenario: Path = typer.Argument(..., exists=True, dir_okay=False)) -> No
 
 
 @bench_app.command("validate")
-def validate(
-    scenario: Path = typer.Argument(..., exists=True, dir_okay=False),
-    max_missing: int = typer.Option(20, "--max-missing", min=1, help="Maximum missing ids to print."),
-) -> None:
+def validate(scenario: Path = typer.Argument(..., exists=True, dir_okay=False)) -> None:
+    """Проверки датасета и индекса, которые `bench run` делает перед прогоном."""
     cfg = load_scenario(scenario)
     try:
-        report = anyio.run(validate_scenario_dataset, cfg)
+        checked = anyio.run(validate_scenario, cfg)
+    except ValidationError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(1) from e
     except NotImplementedError as e:
         rprint(f"[bold yellow]Validation skipped[/bold yellow]: {e}")
         raise typer.Exit(2) from e
@@ -40,25 +42,18 @@ def validate(
         rprint(f"[bold red]Validation failed[/bold red]: {e}")
         raise typer.Exit(2) from e
 
-    status = "[bold green]OK[/bold green]" if report.ok else "[bold red]FAILED[/bold red]"
-    rprint(f"Dataset validation: {status}")
-    rprint(f"scenario: {report.scenario}")
-    rprint(f"dataset: {report.dataset_id}")
-    rprint(f"backend: {report.backend_type}")
-    rprint(f"storage mode: {report.storage_mode}")
-    rprint(f"collection: {report.collection}")
-    rprint(f"backend counts: {report.backend_counts}")
-    rprint(f"queries checked: {report.queries_checked}")
-    rprint(f"truth doc ids checked: {report.truth_ids_checked}")
-    rprint(f"indexed doc ids: {report.indexed_doc_ids}")
-    rprint(f"duplicate doc ids: {report.duplicate_doc_ids}")
-    rprint(f"missing truth doc ids: {report.missing_count}")
-
-    if report.missing:
-        rprint("\n[bold]Missing:[/bold]")
-        for item in report.missing[:max_missing]:
-            rprint(f"- {item.qid}: {item.truth_id}")
-        remaining = report.missing_count - max_missing
-        if remaining > 0:
-            rprint(f"... and {remaining} more")
-        raise typer.Exit(1)
+    dataset, index = checked.dataset, checked.index
+    chunking = index["chunking_method"]
+    if index["chunk_size"] is not None:
+        chunking += f" {index['chunk_size']}/{index['chunk_overlap']}"
+    rprint("Preflight: [bold green]OK[/bold green]")
+    typer.echo(f"scenario: {cfg.name}")
+    typer.echo(f"dataset: {describe_dataset(cfg.dataset.source, cfg.dataset.id, dataset.revision)}")
+    typer.echo(f"split: {cfg.dataset.split}, queries: {len(dataset.items)}")
+    typer.echo(f"corpus sha256: {dataset.corpus_sha256}")
+    typer.echo(f"eval sha256: {dataset.eval_sha256}")
+    typer.echo(f"index: {index['index_profile_id']}, built {index['built_at']}")
+    typer.echo(f"embedding: {index['embedding_model']}@{index['embedding_revision']}")
+    typer.echo(f"chunking: {chunking}")
+    if dataset.warnings:
+        typer.echo(render_issues("Dataset warnings", dataset.warnings))
