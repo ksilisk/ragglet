@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from ragglet.bench import run_scenario as run_module
+from ragglet.bench.compare import section_kind
 from ragglet.bench.preflight import preflight
 from ragglet.config.index_profile import IndexProfileConfig
 from ragglet.config.scenario import ScenarioConfig
@@ -250,3 +251,5 @@ async def test_run_writes_manifest_and_loads_index_model_revision(tmp_path, fake
     assert env["compute"] == {"device": "mps", "accelerator": None, "torch_threads": 8}
     assert {"commit", "python", "system"} <= set(env)
     assert env["services"] == {"storage": {"default": {"type": "qdrant", "version": "1.17.0", "status": "green"}}}
+    for section in manifest:
+        section_kind(section)  # каждая секция участвует в compare_runs

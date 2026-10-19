@@ -167,6 +167,7 @@ Artifacts:
 
 * results/runs/<scenario>_<timestamp>/
     * scenario.snapshot.yaml/json
+    * manifest.json (dataset/index identity, rerank revision, run environment)
     * per_query.repeat0.csv (if enabled)
     * summary.csv/json (per-repeat)
     * summary.aggregate.csv/json (mean/std/min/max over repeats)

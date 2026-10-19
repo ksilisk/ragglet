@@ -147,7 +147,11 @@ results/runs/<scenario_name>_<utc_timestamp>/
 Типичные файлы:
 
 - `scenario.snapshot.json` и `scenario.snapshot.yaml` — нормализованный снимок scenario;
-- `manifest.json` — идентичность данных: ревизия датасета, хэши корпуса и eval-набора, сборка индекса (profile, время, ревизия модели, chunking);
+- `manifest.json` — что и где измеряли:
+  - `dataset` — ревизия датасета, хэши корпуса и eval-набора;
+  - `index` — сборка индекса: profile, время, ревизия модели, chunking, фактические параметры коллекции (`params`) и окружение сборки (`build_env`);
+  - `rerank` — ревизия rerank-модели (`null`, если rerank выключен);
+  - `env` — окружение прогона: commit ragglet, Python, машина (`system`), устройство эмбеддингов (`compute`), версии и состояние сервисов (`services`: storage, cache);
 - `per_query.repeat0.csv` / `.parquet` — результаты по каждому запросу, если `run.save_per_query: true`;
 - `summary.csv` и `summary.json` — сводка по каждому repeat;
 - `summary.aggregate.csv` и `summary.aggregate.json` — агрегация по repeats.
@@ -155,6 +159,14 @@ results/runs/<scenario_name>_<utc_timestamp>/
 Формат per-query файлов задается через `output.format: csv | parquet | both`. Summary-файлы сейчас всегда пишутся в CSV и JSON.
 
 Quality-метрики двух прогонов сравнимы, если в `manifest.json` у них равны `dataset.corpus_sha256` и `dataset.eval_sha256`. Различия индекса (chunking, модель) — экспериментальный фактор и видны в секции `index`.
+
+`ragglet.bench.compare.compare_runs(a, b)` сравнивает два каталога прогонов и относит каждое различие к одному из классов:
+
+- `data` (`dataset`) — quality-метрики несравнимы;
+- `config` (snapshot сценария, `index`, `rerank`) — настройка RAG, то, что исследуем;
+- `env` (`env`, `index.build_env`) — окружение: часть разницы метрик может быть его эффектом; различия `system`, `compute` и `services` делают latency несравнимой.
+
+Разница метрик — эффект настройки RAG, если различий `data` и `env` нет. Зависимости фиксирует `uv.lock` того коммита, что записан в `env.commit`.
 
 ## Конфиги
 
@@ -208,7 +220,9 @@ docker compose -f docker/docker-compose.yaml --profile qdrant down -v
 
 Если `bench run` пишет `Index is not compatible with scenario` — индекс собран из другого корпуса (например, после правки `corpus.jsonl`), другой моделью, в другом storage layout или сборка не завершилась. Пересоберите индекс: `ragglet index build <index_profile.yaml>`.
 
-Чтобы зафиксировать версию HF-датасета или модели, скопируйте ревизию из `manifest.json` в конфиг: `dataset.revision` (сценарий и index profile) и `embedding.revision` (index profile). У local-датасета ревизии нет: его версия — хэш содержимого.
+Чтобы зафиксировать версию HF-датасета или модели, скопируйте ревизию из `manifest.json` в конфиг: `dataset.revision` (сценарий и index profile), `embedding.revision` (index profile) и `rerank.revision` (сценарий). У local-датасета ревизии нет: его версия — хэш содержимого.
+
+Предупреждение `index.not_green` означает, что Qdrant ещё оптимизирует коллекцию (обычно сразу после `index build`): latency и recall такого прогона нерепрезентативны. Дождитесь статуса `green` и запустите заново.
 
 Если индекс строится слишком долго или создается неожиданно много чанков, проверьте `chunk_size` и `chunk_overlap` в index profile. Схема уже запрещает `chunk_overlap >= chunk_size`, но слишком маленький `chunk_size` все равно может сделать эксперимент нерепрезентативным.
 
