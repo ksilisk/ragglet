@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 from sentence_transformers import SentenceTransformer
@@ -31,6 +32,16 @@ class SentenceTransformerEmbedder:
         self.model = SentenceTransformer(model_name, revision=revision)
         self.normalize = normalize
         self.revision = cached_model_revision(model_name, revision)
+
+    def compute_info(self) -> dict[str, Any]:
+        import torch
+
+        device = self.model.device
+        return {
+            "device": str(device),
+            "accelerator": torch.cuda.get_device_name(device) if device.type == "cuda" else None,
+            "torch_threads": torch.get_num_threads(),
+        }
 
     def embed_one(self, text: str) -> list[float]:
         v = self.model.encode([text], normalize_embeddings=self.normalize)[0]

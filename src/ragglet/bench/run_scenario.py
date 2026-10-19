@@ -10,6 +10,7 @@ from ragglet.bench.query_loop import run_queries_once
 from ragglet.bench.summarize import summarize_repeat, aggregate_over_repeats
 from ragglet.cache.manager import CacheManager
 from ragglet.config.scenario import ScenarioConfig
+from ragglet.core.environment import capture_env
 from ragglet.generation.engine import build_generator
 from ragglet.modules.embedders.st_embedder import SentenceTransformerEmbedder
 from ragglet.rerank.engine import build_reranker
@@ -34,10 +35,6 @@ async def run_scenario(cfg: ScenarioConfig) -> dict:
         checked = await preflight(cfg, stores)
         items = checked.dataset.items
 
-        paths = make_artifact_paths(cfg.run.artifacts_dir, cfg.name)
-        save_config_snapshot(paths.run_dir, cfg)
-        save_manifest(paths.run_dir, checked.manifest())
-
         backends = await BackendRegistry.build(cfg, async_store, stores)
         # ровно та ревизия модели, которой собран индекс
         embedder = SentenceTransformerEmbedder(
@@ -48,6 +45,11 @@ async def run_scenario(cfg: ScenarioConfig) -> dict:
         reranker = build_reranker(cfg)
         generator = build_generator(cfg)
         caches = CacheManager(cfg, embedding_revision=embedder.revision)
+
+        # каталог прогона — только когда всё загружено, но до запросов
+        paths = make_artifact_paths(cfg.run.artifacts_dir, cfg.name)
+        save_config_snapshot(paths.run_dir, cfg)
+        save_manifest(paths.run_dir, {**checked.manifest(), "env": capture_env(embedder.compute_info())})
 
         all_summaries: list[dict] = []
         base_rng = random.Random(cfg.seed)

@@ -173,10 +173,16 @@ class _RunStore(_Store):
 
 class _Embedder:
     created: list = []
+    fail = False
 
     def __init__(self, model_name, normalize=True, revision=None):
+        if self.fail:
+            raise OSError("model not found")
         self.revision = revision
         self.created.append(revision)
+
+    def compute_info(self):
+        return {"device": "mps", "accelerator": None, "torch_threads": 8}
 
     def embed_batch(self, texts):
         return [[0.0] for _ in texts]
@@ -187,12 +193,21 @@ def fake_runtime(monkeypatch):
     monkeypatch.setattr(run_module, "AsyncQdrantStore", _RunStore)
     monkeypatch.setattr(run_module, "SentenceTransformerEmbedder", _Embedder)
     _Embedder.created.clear()
+    _Embedder.fail = False
     return _RunStore
 
 
 async def test_run_without_valid_index_creates_no_run_dir(tmp_path, fake_runtime):
     fake_runtime.metadata_for = {}
     with pytest.raises(ValidationError):
+        await run_module.run_scenario(_scenario(tmp_path / "runs"))
+    assert not (tmp_path / "runs").exists()
+
+
+async def test_model_load_failure_creates_no_run_dir(tmp_path, fake_runtime):
+    fake_runtime.metadata_for = {"chunks_v1": _meta()}
+    _Embedder.fail = True
+    with pytest.raises(OSError):
         await run_module.run_scenario(_scenario(tmp_path / "runs"))
     assert not (tmp_path / "runs").exists()
 
@@ -208,3 +223,6 @@ async def test_run_writes_manifest_and_loads_index_model_revision(tmp_path, fake
     assert manifest["index"]["embedding_revision"] == MODEL_SHA
     assert _Embedder.created == [MODEL_SHA]
     assert (Path(res["run_dir"]) / "scenario.snapshot.json").exists()
+    env = manifest["env"]
+    assert env["compute"] == {"device": "mps", "accelerator": None, "torch_threads": 8}
+    assert {"commit", "python", "system"} <= set(env)
