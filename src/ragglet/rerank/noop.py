@@ -5,6 +5,8 @@ from ragglet.retrieval.merge import RetrievedItem
 
 
 class NoopReranker:
+    revision: str | None = None
+
     async def rerank(
         self,
         query: str,

@@ -16,7 +16,7 @@ def build_reranker(cfg: ScenarioConfig) -> Reranker:
     if cfg.rerank.provider == "cross_encoder":
         if not cfg.rerank.model:
             raise ValueError("rerank.model is required for provider='cross_encoder'")
-        return CrossEncoderReranker(cfg.rerank.model)
+        return CrossEncoderReranker(cfg.rerank.model, revision=cfg.rerank.revision)
     raise NotImplementedError(f"rerank.provider='{cfg.rerank.provider}' is not implemented")
 
 

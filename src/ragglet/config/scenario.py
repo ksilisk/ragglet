@@ -157,6 +157,7 @@ class RerankConfig(BaseModel):
     enabled: bool = False
     provider: Literal["cross_encoder", "noop"] = "cross_encoder"
     model: str | None = None
+    revision: str | None = None  # коммит модели на HF; без него — текущий main
     input_top_k: int = 30
     output_top_n: int = 10
 

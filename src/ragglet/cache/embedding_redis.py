@@ -29,5 +29,9 @@ class RedisEmbeddingCache:
         key = self._key(text)
         await self.redis.set(key, json.dumps(vector), ex=self.ttl)
 
+    async def describe(self) -> dict[str, Any]:
+        server = await self.redis.info("server")
+        return {"type": "redis", "version": server["redis_version"]}
+
     async def close(self) -> None:
         await self.redis.aclose()

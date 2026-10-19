@@ -119,10 +119,12 @@ def test_hf_raw_mirror_is_used_in_place(tmp_path, monkeypatch):
 def test_model_revision_from_hf_cache(tmp_path, monkeypatch):
     import huggingface_hub
 
-    from ragglet.modules.embedders.st_embedder import cached_model_revision, hub_model_id
+    from ragglet.modules.embedders.st_embedder import hub_model_id
+    from ragglet.modules.hub import cached_model_revision
 
     assert hub_model_id("all-MiniLM-L6-v2") == "sentence-transformers/all-MiniLM-L6-v2"
     assert hub_model_id("BAAI/bge-small-en") == "BAAI/bge-small-en"
+    assert hub_model_id(str(tmp_path)) == str(tmp_path)
 
     seen = []
 
@@ -131,10 +133,10 @@ def test_model_revision_from_hf_cache(tmp_path, monkeypatch):
         return None if revision == "missing" else f"/hf/models--x/snapshots/{DATA_SHA}/{filename}"
 
     monkeypatch.setattr(huggingface_hub, "try_to_load_from_cache", fake_cache)
-    assert cached_model_revision("all-MiniLM-L6-v2", None) == DATA_SHA
+    assert cached_model_revision("sentence-transformers/all-MiniLM-L6-v2", None) == DATA_SHA
     assert seen == [("sentence-transformers/all-MiniLM-L6-v2", None)]
     with pytest.raises(RuntimeError, match="pin a full commit sha"):
-        cached_model_revision("all-MiniLM-L6-v2", "missing")
+        cached_model_revision("sentence-transformers/all-MiniLM-L6-v2", "missing")
     assert cached_model_revision(str(tmp_path), None) is None  # локальный путь
 
 

@@ -11,10 +11,13 @@ from ragglet.config.index_profile import IndexProfileConfig
 from ragglet.config.scenario import ScenarioConfig
 from ragglet.core.issues import ValidationError
 from ragglet.indexing.metadata import build_index_metadata
+from ragglet.stores.qdrant_store_async import CollectionInfo
 
 DEMO = Path(__file__).resolve().parents[1] / "datasets" / "demo"
 DEMO_SHA = "893aa67b4bb4c811afb0afc144ac6fc0b081ae724a39c3f6899b789225c71477"
 MODEL_SHA = "1110a243fdf4706b3f48f1d95db1a4f5529b4d41"
+BUILD_ENV = {"commit": "c" * 40, "python": "3.12.7", "system": {}, "compute": {"device": "cpu"}}
+PARAMS = {"vector_size": 384, "distance": "Cosine", "hnsw": {"m": 16, "ef_construct": 128}}
 
 
 def _scenario(tmp_path: Path | None = None, **overrides) -> ScenarioConfig:
@@ -48,17 +51,23 @@ def _meta(**overrides) -> dict:
         embedding_revision=MODEL_SHA,
         storage_mode="single",
         storage_backend_count=1,
+        build_env=BUILD_ENV,
     )
     meta["ragglet"].update(overrides)
     return meta
 
 
 class _Store:
-    def __init__(self, metadata):
-        self.metadata = metadata
+    def __init__(self, metadata, status="green"):
+        self.info = CollectionInfo(
+            metadata=metadata, params=PARAMS, status=status, points=53, indexed_vectors=0, segments=2
+        )
 
-    async def collection_metadata(self):
-        return self.metadata
+    async def collection_info(self):
+        return self.info
+
+    async def describe(self):
+        return {"type": "qdrant", "version": "1.17.0", "status": self.info.status}
 
 
 def _codes(exc) -> list[tuple[str, str]]:
@@ -80,8 +89,19 @@ async def test_compatible_index_passes_and_builds_manifest():
             "built_at": "2026-10-20T12:00:00Z",
             "embedding_revision": MODEL_SHA,
             "chunking": {"method": "recursive", "chunk_size": 800, "chunk_overlap": 120},
+            "params": PARAMS,
+            "build_env": BUILD_ENV,
         },
     }
+    assert checked.warnings == []
+
+
+async def test_collection_not_green_warns_but_passes():
+    checked = await preflight(_scenario(), {"default": _Store(_meta(), status="yellow")})
+
+    assert [(i.code, i.severity, i.where) for i in checked.warnings] == [
+        ("index.not_green", "warning", "target default (chunks_v1)")
+    ]
 
 
 @pytest.mark.parametrize(
@@ -89,6 +109,7 @@ async def test_compatible_index_passes_and_builds_manifest():
     [
         None,  # сборка не дошла до записи метаданных
         {"ragglet": {"index_profile_id": "demo", "embedding_model": "all-MiniLM-L6-v2"}},  # старый контракт
+        {"ragglet": {k: v for k, v in _meta()["ragglet"].items() if k != "build_env"}},  # до ragglet-23
     ],
 )
 async def test_incomplete_or_outdated_index_is_rejected(metadata):
@@ -223,6 +244,9 @@ async def test_run_writes_manifest_and_loads_index_model_revision(tmp_path, fake
     assert manifest["index"]["embedding_revision"] == MODEL_SHA
     assert _Embedder.created == [MODEL_SHA]
     assert (Path(res["run_dir"]) / "scenario.snapshot.json").exists()
+    assert manifest["index"]["build_env"] == BUILD_ENV
+    assert manifest["rerank"] is None
     env = manifest["env"]
     assert env["compute"] == {"device": "mps", "accelerator": None, "torch_threads": 8}
     assert {"commit", "python", "system"} <= set(env)
+    assert env["services"] == {"storage": {"default": {"type": "qdrant", "version": "1.17.0", "status": "green"}}}

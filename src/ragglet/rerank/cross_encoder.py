@@ -2,15 +2,18 @@ from __future__ import annotations
 
 import anyio
 
+from ragglet.modules.hub import cached_model_revision
 from ragglet.rerank.base import RerankedItem
 from ragglet.retrieval.merge import RetrievedItem
 
 
 class CrossEncoderReranker:
-    def __init__(self, model_name: str):
+    def __init__(self, model_name: str, revision: str | None = None):
         from sentence_transformers import CrossEncoder
 
-        self.model = CrossEncoder(model_name)
+        self.model = CrossEncoder(model_name, revision=revision)
+        # CrossEncoder, в отличие от SentenceTransformer, не дописывает организацию к короткому имени
+        self.revision = cached_model_revision(model_name, revision)
 
     async def rerank(
         self,
