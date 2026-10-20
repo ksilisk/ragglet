@@ -242,7 +242,7 @@ class MetricsQualityConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     k: list[int] = Field(default_factory=lambda: [1, 3, 5, 10])
-    doc: list[str] = Field(default_factory=lambda: ["recall", "hit", "mrr"])
+    doc: list[str] = Field(default_factory=lambda: ["ndcg", "recall", "hit", "mrr"])
     chunk: list[str] = Field(default_factory=list)
 
     @field_validator("k")
