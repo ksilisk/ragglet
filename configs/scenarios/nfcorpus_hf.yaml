@@ -49,4 +49,4 @@ metrics:
   percentiles: [50, 95, 99]
   quality:
     k: [1, 3, 5, 10]
-    doc: ["recall", "hit", "mrr"]
+    doc: ["ndcg", "recall", "r_cap", "hit", "mrr"]

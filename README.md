@@ -19,7 +19,7 @@
 - разбиение документов на чанки (или индексация документов целиком, `chunking.method: none`) и построение эмбеддингов через `sentence-transformers`;
 - запуск экспериментальных сценариев из YAML-конфигураций;
 - поддержка single-source retrieval и fanout/hybrid retrieval;
-- подсчет метрик `Recall@K`, `Hit@K`, `MRR@K` на уровне документов (опционально `MRR@K`, `Precision@K` на уровне чанков), latency и cache hit rate;
+- подсчет метрик `nDCG@K`, `Recall@K`, `R_cap@K`, `Hit@K`, `MRR@K` на уровне документов (опционально `MRR@K`, `Precision@K` на уровне чанков), latency и cache hit rate; что значит каждая метрика — [docs/metrics.md](docs/metrics.md);
 - сохранение покомпонентных и агрегированных результатов в `results/`.
 
 ## Формат датасета (BEIR)
@@ -175,7 +175,7 @@ docs/config-reference.yaml
 - `chunk_overlap` должен быть меньше `chunk_size`; иначе профиль не пройдет валидацию;
 - `chunking.method: none` индексирует документ целиком (как в BEIR); `chunk_size`/`chunk_overlap` с ним запрещены;
 - `qrels` ссылается на `corpus._id` (document-level); при индексации chunk получает `doc_id` и внутренний `chunk_id`;
-- `metrics.quality` задает `k` и метрики уровней: `doc` (по умолчанию `recall`, `hit`, `mrr`) и `chunk` (по умолчанию выключен; включайте, если сценарий варьирует chunking или context). `recall@k` — доля найденных релевантных документов, `hit@k` — найден ли хотя бы один. Каждое `k` не должно превышать глубину финального списка (`retrieval.top_k`, при rerank — `output_top_n`);
+- `metrics.quality` задает `k` и метрики уровней: `doc` (по умолчанию `ndcg`, `recall`, `hit`, `mrr`) и `chunk` (по умолчанию выключен; включайте, если сценарий варьирует chunking или context). `recall@k` — доля найденных релевантных документов, `hit@k` — найден ли хотя бы один, `ndcg@k` — качество порядка с учётом оценок qrels; подробно в [docs/metrics.md](docs/metrics.md). Каждое `k` не должно превышать глубину финального списка (`retrieval.top_k`, при rerank — `output_top_n`);
 - `storage.backend.type` реально поддерживает только `qdrant`;
 - `rerank` поддерживает локальный `cross_encoder` provider из `sentence-transformers`;
 - `context` поддерживает сбор retrieved/reranked чанков по политикам `top_n`, `threshold` и `adaptive`;
@@ -266,7 +266,7 @@ flowchart LR
     QDRANT --> KW
 
     RET --> MERGE["Merge: RRF / weighted_sum / interleave"]
-    MERGE --> METRICS["Recall@K / Hit@K / MRR@K / latency / timeout / cache hit rate"]
+    MERGE --> METRICS["nDCG@K / Recall@K / Hit@K / MRR@K / latency / timeout / cache hit rate"]
     METRICS --> RES["results/ artifacts"]
 
 ```
