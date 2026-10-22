@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 
 from ragglet.bench.evaluation import evaluate_quality, project_to_docs, quality_columns
-from ragglet.bench.metrics import Ranking, precision_at_k, recall_at_k
+from ragglet.bench.metrics import Ranking, ndcg_at_k, precision_at_k, r_cap_at_k, recall_at_k
 from ragglet.bench.summarize import summarize_repeat
 from ragglet.config.scenario import MetricsQualityConfig, ScenarioConfig
 from ragglet.retrieval.merge import RetrievedItem
@@ -118,6 +118,72 @@ def test_graded_qrels_count_as_relevant_for_binary_metrics():
     assert precision_at_k(Ranking(grades=[1], ideal=[1]), 3) == pytest.approx(1 / 3)
 
 
+# пример из docs/metrics.md: нужны A, D (оценка 2) и B, C (оценка 1)
+GRADED = {"A": 2, "D": 2, "B": 1, "C": 1}
+ALL_DOC_METRICS = ["ndcg", "recall", "hit", "mrr", "precision", "r_cap"]
+
+
+def test_graded_example_matches_pytrec_eval():
+    quality = MetricsQualityConfig(k=[3, 5], doc=ALL_DOC_METRICS)
+    row = evaluate_quality(quality, _items("X#0", "B#0", "A#0", "Y#0", "C#0"), GRADED)
+
+    # ndcg_cut, recall, P, recip_rank из pytrec_eval 0.5
+    assert row["doc_ndcg@3"] == pytest.approx(0.433544, abs=1e-6)
+    assert row["doc_ndcg@5"] == pytest.approx(0.481280, abs=1e-6)
+    assert row["doc_recall@5"] == 0.75
+    assert row["doc_precision@5"] == 0.6
+    assert row["doc_mrr@5"] == 0.5
+    assert row["doc_hit@5"] == 1.0
+    assert row["doc_r_cap@3"] == pytest.approx(2 / 3)
+    assert row["doc_r_cap@5"] == 0.75
+
+
+def test_only_ndcg_sees_order_of_grades():
+    quality = MetricsQualityConfig(k=[5], doc=ALL_DOC_METRICS)
+    before = evaluate_quality(quality, _items("X#0", "B#0", "A#0", "Y#0", "C#0"), GRADED)
+    after = evaluate_quality(quality, _items("X#0", "A#0", "B#0", "Y#0", "C#0"), GRADED)
+
+    assert after["doc_ndcg@5"] > before["doc_ndcg@5"]
+    for name in ("recall", "hit", "mrr", "precision", "r_cap"):
+        assert after[f"doc_{name}@5"] == before[f"doc_{name}@5"]
+
+
+def test_ndcg_is_one_for_ideal_order():
+    assert ndcg_at_k(Ranking(grades=[2, 2, 1, 1], ideal=[2, 2, 1, 1]), 4) == pytest.approx(1.0)
+    # нужных больше k: идеал тоже обрезается до k
+    assert ndcg_at_k(Ranking(grades=[2, 2], ideal=[2, 2, 1, 1]), 2) == pytest.approx(1.0)
+
+
+@pytest.mark.parametrize(("rank", "expected"), [(1, 1.0), (2, 0.630930), (3, 0.5)])
+def test_ndcg_discounts_single_relevant_doc_by_rank(rank, expected):
+    grades = [0] * (rank - 1) + [1]
+    assert ndcg_at_k(Ranking(grades=grades, ideal=[1]), 3) == pytest.approx(expected, abs=1e-6)
+
+
+def test_ndcg_and_r_cap_are_zero_without_relevant_docs_or_results():
+    nothing_relevant = Ranking(grades=[0, 0], ideal=[])
+    nothing_found = Ranking(grades=[], ideal=[2, 1])
+
+    assert ndcg_at_k(nothing_relevant, 2) == r_cap_at_k(nothing_relevant, 2) == 0.0
+    assert ndcg_at_k(nothing_found, 5) == r_cap_at_k(nothing_found, 5) == 0.0
+
+
+def test_chunks_of_one_doc_count_once_in_ndcg():
+    quality = MetricsQualityConfig(k=[3], doc=["ndcg"])
+    row = evaluate_quality(quality, _items("d1#0", "d1#1", "d2#0"), {"d1": 2, "d2": 1})
+
+    assert row["doc_ndcg@3"] == pytest.approx(1.0)
+
+
+def test_r_cap_is_recall_or_precision_depending_on_relevant_count():
+    few = Ranking(grades=[1, 0, 1], ideal=[1, 1])
+    many = Ranking(grades=[1, 0, 1], ideal=[1] * 38)
+
+    assert r_cap_at_k(few, 3) == recall_at_k(few, 3) == 1.0
+    assert r_cap_at_k(many, 3) == precision_at_k(many, 3) == pytest.approx(2 / 3)
+    assert recall_at_k(many, 3) == pytest.approx(2 / 38)
+
+
 def test_summary_reports_means_and_short_doc_depth():
     cfg = _scenario({"k": [1, 3], "chunk": ["precision"]})
     rows = [
@@ -146,7 +212,7 @@ def test_quality_defaults_doc_level_only():
     quality = MetricsQualityConfig()
     assert quality.k == [1, 3, 5, 10]
     assert quality_columns(quality) == [
-        f"doc_{name}@{k}" for name in ("recall", "hit", "mrr") for k in (1, 3, 5, 10)
+        f"doc_{name}@{k}" for name in ("ndcg", "recall", "hit", "mrr") for k in (1, 3, 5, 10)
     ]
 
 
@@ -154,7 +220,9 @@ def test_quality_defaults_doc_level_only():
     ("quality", "message"),
     [
         ({"chunk": ["recall"]}, "unknown for chunks"),
-        ({"doc": ["ndcg"]}, "unknown metrics"),
+        ({"chunk": ["ndcg"]}, "unknown for chunks"),
+        ({"chunk": ["r_cap"]}, "unknown for chunks"),
+        ({"doc": ["map"]}, "unknown metrics"),
         ({"doc": ["hit", "hit"]}, "must be unique"),
         ({"k": [5, 5]}, "must be unique"),
         ({"k": [0]}, ">= 1"),

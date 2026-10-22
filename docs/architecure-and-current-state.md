@@ -8,7 +8,7 @@ Focus: quality–performance tradeoffs in distributed / multi-source retrieval:
 - merge algorithms: currently `rrf`, in progress: `weighted_sum`, `interleave`
 - caching: embedding cache (Redis), retrieval cache (in-memory LRU)
 - timeouts: per-query `total_ms` + per-stage (retrieval/rerank/llm) using AnyIO cancel scopes
-- evaluation: document-level Recall@k / Hit@k / MRR@k (optional chunk-level MRR@k / Precision@k), latency percentiles, timeout rate
+- evaluation: document-level nDCG@k / Recall@k / R_cap@k / Hit@k / MRR@k (optional chunk-level MRR@k / Precision@k), latency percentiles, timeout rate; semantics in `docs/metrics.md`
 - indexing: build vector DB index (Qdrant) from a directory corpus; payload carries `external_id` for ground truth
 RAG generation can be enabled as an optional post-context stage; retrieval-only benchmarks remain the default.
 ---
@@ -42,7 +42,7 @@ Suggested / partially implemented modular split:
 - `src/ragglet/bench/`
   - dataset loader: JSONL (`load_jsonl_dataset`)
   - dataset/index validation: compare JSONL relevant[] ids with indexed payload external_id values
-  - metrics: Recall@k / Hit@k / MRR@k / Precision@k on document and chunk levels (`metrics.py`, `evaluation.py`)
+  - metrics: nDCG@k / Recall@k / R_cap@k / Hit@k / MRR@k / Precision@k on document and chunk levels (`metrics.py`, `evaluation.py`)
   - query loop: run per-query (embed -> retrieval -> metrics) and collect per-query rows
   - summarize: per-repeat summary + aggregate over repeats
   - artifacts: run folder + scenario snapshot + per-query outputs + summaries
@@ -242,7 +242,7 @@ What is implemented today (core)
 
 ✅ Evaluation:
 
-* document-level Recall@k / Hit@k / MRR@k, optional chunk-level MRR@k / Precision@k
+* document-level nDCG@k / Recall@k / R_cap@k / Hit@k / MRR@k, optional chunk-level MRR@k / Precision@k
 * latency step times (lat_embed_ms, lat_retrieve_ms, lat_rerank_ms, lat_context_ms, lat_generation_ms, lat_total_ms)
 * configurable latency percentiles from YAML for emitted latency steps (embed/retrieve/total)
 

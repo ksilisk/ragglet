@@ -104,6 +104,26 @@ def qrels_unindexable_doc(ds: ParsedDataset) -> Iterator[Issue]:
             )
 
 
+def qrels_no_relevant(ds: ParsedDataset) -> Iterator[Issue]:
+    for split, records in ds.qrels.items():
+        first_line: dict[str, int] = {}
+        relevant: set[str] = set()
+        for record in records:
+            first_line.setdefault(record.qid, record.line)
+            if record.grade > 0:
+                relevant.add(record.qid)
+        if not relevant:
+            continue  # пустой split целиком — ошибка split.empty
+        for qid, line in first_line.items():
+            if qid not in relevant:
+                yield warning(
+                    "qrels.no_relevant",
+                    f"{ds.qrels_files[split]}:{line}",
+                    f"query {qid!r} has no relevant judgments (score > 0) and is excluded from evaluation; "
+                    "BEIR counts such queries as 0",
+                )
+
+
 def split_empty(ds: ParsedDataset) -> Iterator[Issue]:
     for split, records in ds.qrels.items():
         if not any(r.grade > 0 for r in records):
@@ -119,6 +139,7 @@ DATASET_CHECKS: list[DatasetCheck] = [
     qrels_unknown_query,
     qrels_unknown_doc,
     qrels_unindexable_doc,
+    qrels_no_relevant,
     split_empty,
 ]
 

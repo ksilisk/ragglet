@@ -83,7 +83,7 @@ metrics:
   percentiles: [50, 95, 99]
   quality:
     k: [1, 3, 5, 10]
-    doc: ["recall", "hit", "mrr"]
+    doc: ["ndcg", "recall", "hit", "mrr"]
 
 timeouts:
   total_ms: 6000

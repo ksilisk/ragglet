@@ -113,6 +113,19 @@ def test_warnings_do_not_fail(tmp_path):
     assert all(i.severity is Severity.WARNING for i in warnings)
 
 
+def test_query_without_relevant_judgments_is_warned_and_excluded(tmp_path):
+    root = _write(
+        tmp_path,
+        corpus='{"_id":"d1","text":"alpha"}\n{"_id":"d2","text":"beta"}\n',
+        queries='{"_id":"q1","text":"alpha?"}\n{"_id":"q2","text":"gamma?"}\n',
+        qrels={"test": "query-id\tcorpus-id\tscore\nq1\td1\t1\nq2\td1\t0\nq2\td2\t-1\n"},
+    )
+    ds, warnings = validate_dataset(root, ["test"], "local:x")
+
+    assert _codes(warnings) == [("qrels.no_relevant", "warning", "qrels/test.tsv:3")]
+    assert [it.qid for it in eval_items(ds, "test", 0)] == ["q1"]
+
+
 def test_missing_split_lists_available(tmp_path):
     root = _write(
         tmp_path,

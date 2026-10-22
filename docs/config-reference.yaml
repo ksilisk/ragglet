@@ -745,16 +745,19 @@ scenario:
             doc:
               type: "list[enum]"
               default:
+                - "ndcg"
                 - "recall"
                 - "hit"
                 - "mrr"
               allowed_values:
+                - "ndcg"
                 - "recall"
+                - "r_cap"
                 - "hit"
                 - "mrr"
                 - "precision"
               status: implemented
-              docs: "Document-level metrics, comparable with BEIR: retrieved chunks are projected to unique doc_id keeping the best rank. recall@k = share of relevant documents found in top k; hit@k = at least one relevant document in top k; mrr@k = 1/rank of the first relevant document; precision@k = relevant documents in top k divided by k."
+              docs: "Document-level metrics, comparable with BEIR: retrieved chunks are projected to unique doc_id keeping the best rank. ndcg@k = order quality that takes qrels grades into account (linear gain, as in BEIR/MTEB); recall@k = share of relevant documents found in top k; r_cap@k = relevant in top k divided by min(k, number of relevant); hit@k = at least one relevant document in top k; mrr@k = 1/rank of the first relevant document; precision@k = relevant documents in top k divided by k. A document is relevant when its qrels score is > 0. Semantics and examples: docs/metrics.md."
               caveat: "If the final list has fewer than k unique documents, @k is computed over the shorter list; summary reports doc_short@<k>_rate. Raise retrieval.top_k when it is high."
             chunk:
               type: "list[enum]"
@@ -765,7 +768,7 @@ scenario:
                 - "precision"
               status: implemented
               docs: "Chunk-level metrics over unique chunks of the final list (what goes into the context); a chunk inherits the relevance of its document. Off by default; enable it (for example [mrr, precision]) when the scenario varies chunking or context. With chunking.method=none it equals the document level."
-              caveat: "Inherited relevance is a proxy: a chunk of a relevant document counts even if it does not contain the answer. recall is not available at this level: the number of relevant chunks is unknown with document-level qrels."
+              caveat: "Inherited relevance is a proxy: a chunk of a relevant document counts even if it does not contain the answer. recall, r_cap and ndcg are not available at this level: the number of relevant chunks is unknown with document-level qrels."
 
 runtime_support_matrix:
   storage_backends:
@@ -938,6 +941,7 @@ minimal_working_configs:
           - 5
           - 10
         doc:
+          - "ndcg"
           - "recall"
           - "hit"
           - "mrr"
