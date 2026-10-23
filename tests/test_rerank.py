@@ -57,6 +57,34 @@ def test_noop_provider_does_not_require_model():
     cfg = _base_config(enabled=True, provider="noop", model=None)
     reranker = build_reranker(cfg)
     assert isinstance(reranker, NoopReranker)
+    assert reranker.revision is None
+
+
+def test_cross_encoder_loads_pinned_revision(monkeypatch):
+    import sentence_transformers
+
+    from ragglet.rerank import cross_encoder
+    from ragglet.rerank.engine import build_reranker
+
+    loaded, resolved = [], []
+
+    class _CrossEncoder:
+        def __init__(self, model_name, revision=None):
+            loaded.append((model_name, revision))
+
+    def fake_revision(repo_id, revision):
+        resolved.append((repo_id, revision))
+        return "d" * 40
+
+    monkeypatch.setattr(sentence_transformers, "CrossEncoder", _CrossEncoder)
+    monkeypatch.setattr(cross_encoder, "cached_model_revision", fake_revision)
+    model = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+
+    reranker = build_reranker(_base_config(enabled=True, model=model, revision="d" * 40))
+
+    assert loaded == [(model, "d" * 40)]
+    assert resolved == [(model, "d" * 40)]  # имя как есть, без sentence-transformers/
+    assert reranker.revision == "d" * 40
 
 
 def test_noop_rerank_keeps_retrieval_order_and_cutoff():

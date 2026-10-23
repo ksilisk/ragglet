@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import random
+from collections.abc import Mapping
 
 import pandas as pd
 
@@ -10,6 +11,7 @@ from ragglet.bench.query_loop import run_queries_once
 from ragglet.bench.summarize import summarize_repeat, aggregate_over_repeats
 from ragglet.cache.manager import CacheManager
 from ragglet.config.scenario import ScenarioConfig
+from ragglet.core.environment import Service, capture_env, describe_services
 from ragglet.generation.engine import build_generator
 from ragglet.modules.embedders.st_embedder import SentenceTransformerEmbedder
 from ragglet.rerank.engine import build_reranker
@@ -34,10 +36,6 @@ async def run_scenario(cfg: ScenarioConfig) -> dict:
         checked = await preflight(cfg, stores)
         items = checked.dataset.items
 
-        paths = make_artifact_paths(cfg.run.artifacts_dir, cfg.name)
-        save_config_snapshot(paths.run_dir, cfg)
-        save_manifest(paths.run_dir, checked.manifest())
-
         backends = await BackendRegistry.build(cfg, async_store, stores)
         # ровно та ревизия модели, которой собран индекс
         embedder = SentenceTransformerEmbedder(
@@ -48,6 +46,24 @@ async def run_scenario(cfg: ScenarioConfig) -> dict:
         reranker = build_reranker(cfg)
         generator = build_generator(cfg)
         caches = CacheManager(cfg, embedding_revision=embedder.revision)
+
+        services: dict[str, Mapping[str, Service]] = {"storage": stores}
+        if caches.emb_cache is not None:
+            services["cache"] = {"embedding": caches.emb_cache}
+        env = capture_env(embedder.compute_info())
+        env["services"] = await describe_services(services)
+
+        # каталог прогона — только когда всё загружено, но до запросов
+        paths = make_artifact_paths(cfg.run.artifacts_dir, cfg.name)
+        save_config_snapshot(paths.run_dir, cfg)
+        save_manifest(
+            paths.run_dir,
+            {
+                **checked.manifest(),
+                "rerank": {"revision": reranker.revision} if cfg.rerank.enabled else None,
+                "env": env,
+            },
+        )
 
         all_summaries: list[dict] = []
         base_rng = random.Random(cfg.seed)
@@ -82,7 +98,12 @@ async def run_scenario(cfg: ScenarioConfig) -> dict:
         (paths.run_dir / "summary.aggregate.json").write_text(pd.Series(agg).to_json(indent=2), encoding="utf-8")
         pd.DataFrame([agg]).to_csv(paths.run_dir / "summary.aggregate.csv", index=False)
 
-        return {"summary": agg, "run_dir": str(paths.run_dir), "repeats": all_summaries}
+        return {
+            "summary": agg,
+            "run_dir": str(paths.run_dir),
+            "repeats": all_summaries,
+            "warnings": checked.warnings,
+        }
 
     finally:
         if caches is not None:

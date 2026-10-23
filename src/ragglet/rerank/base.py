@@ -13,6 +13,8 @@ class RerankedItem:
 
 
 class Reranker(Protocol):
+    revision: str | None  # разрешённая ревизия модели; None, если модели нет
+
     async def rerank(
         self,
         query: str,

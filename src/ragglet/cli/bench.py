@@ -24,6 +24,8 @@ def run(scenario: Path = typer.Argument(..., exists=True, dir_okay=False)) -> No
     rprint("[bold green]Done[/bold green]")
     rprint(res["summary"])
     rprint(f"Artifacts: {res['run_dir']}")
+    if res["warnings"]:
+        typer.echo(render_issues("Preflight warnings", res["warnings"]))
 
 
 @bench_app.command("validate")
@@ -55,5 +57,5 @@ def validate(scenario: Path = typer.Argument(..., exists=True, dir_okay=False)) 
     typer.echo(f"index: {index['index_profile_id']}, built {index['built_at']}")
     typer.echo(f"embedding: {index['embedding_model']}@{index['embedding_revision']}")
     typer.echo(f"chunking: {chunking}")
-    if dataset.warnings:
-        typer.echo(render_issues("Dataset warnings", dataset.warnings))
+    if checked.warnings:
+        typer.echo(render_issues("Preflight warnings", checked.warnings))

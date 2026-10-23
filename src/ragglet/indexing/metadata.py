@@ -20,6 +20,7 @@ REQUIRED_FIELDS = (
     "chunk_overlap",
     "storage_mode",
     "storage_backend_count",
+    "build_env",
 )
 
 
@@ -31,6 +32,7 @@ def build_index_metadata(
     embedding_revision: str | None,
     storage_mode: str,
     storage_backend_count: int,
+    build_env: dict[str, Any],
 ) -> dict[str, Any]:
     return {
         RAGGLET_METADATA_KEY: {
@@ -47,6 +49,7 @@ def build_index_metadata(
             "chunk_overlap": cfg.chunking.chunk_overlap,
             "storage_mode": storage_mode,
             "storage_backend_count": storage_backend_count,
+            "build_env": build_env,
         }
     }
 

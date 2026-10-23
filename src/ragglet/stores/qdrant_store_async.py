@@ -13,6 +13,16 @@ class Candidate:
     payload: dict[str, Any] | None
 
 
+@dataclass(frozen=True)
+class CollectionInfo:
+    metadata: dict[str, Any] | None
+    params: dict[str, Any]  # фактические параметры коллекции, а не профиля
+    status: str  # green | yellow (оптимизация идёт) | grey (ждёт запуска) | red
+    points: int | None
+    indexed_vectors: int | None  # 0 — HNSW не построен, поиск полным перебором
+    segments: int
+
+
 class AsyncQdrantStore:
     def __init__(self, endpoint: str, collection: str):
         self.client = AsyncQdrantClient(url=endpoint)
@@ -40,9 +50,36 @@ class AsyncQdrantStore:
     async def close(self) -> None:
         await self.client.close()
 
-    async def collection_metadata(self) -> dict[str, Any] | None:
+    async def collection_info(self) -> CollectionInfo:
         info = await self.client.get_collection(self.collection)
-        return info.config.metadata
+        vectors = info.config.params.vectors
+        if not isinstance(vectors, qm.VectorParams):
+            raise ValueError(f"Collection {self.collection!r} must have a single unnamed vector")
+        hnsw = info.config.hnsw_config
+        return CollectionInfo(
+            metadata=info.config.metadata,
+            params={
+                "vector_size": vectors.size,
+                "distance": vectors.distance.value,
+                "hnsw": {"m": hnsw.m, "ef_construct": hnsw.ef_construct},
+            },
+            status=info.status.value,
+            points=info.points_count,
+            indexed_vectors=info.indexed_vectors_count,
+            segments=info.segments_count,
+        )
+
+    async def describe(self) -> dict[str, Any]:
+        server = await self.client.info()
+        info = await self.collection_info()
+        return {
+            "type": "qdrant",
+            "version": server.version,
+            "status": info.status,
+            "points": info.points,
+            "indexed_vectors": info.indexed_vectors,
+            "segments": info.segments,
+        }
 
     async def scroll_payloads(self, limit: int = 256, offset=None, with_payload: Any = True):
         res = await self.client.scroll(

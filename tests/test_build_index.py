@@ -36,6 +36,9 @@ class _Embedder:
     def __init__(self, model_name, normalize=True, revision=None):
         self.revision = revision or "f" * 40
 
+    def compute_info(self):
+        return {"device": "cuda:0", "accelerator": "NVIDIA L4", "torch_threads": 4}
+
     def embed_batch(self, texts):
         return [[0.0, 1.0] for _ in texts]
 
@@ -70,6 +73,8 @@ def test_metadata_written_once_after_all_upserts():
     assert meta["corpus_sha256"] == "893aa67b4bb4c811afb0afc144ac6fc0b081ae724a39c3f6899b789225c71477"
     assert meta["embedding_revision"] == "f" * 40
     assert (meta["storage_mode"], meta["storage_backend_count"]) == ("single", 1)
+    assert meta["build_env"]["compute"] == {"device": "cuda:0", "accelerator": "NVIDIA L4", "torch_threads": 4}
+    assert {"commit", "python", "system"} <= set(meta["build_env"])
 
 
 def test_failed_build_leaves_no_metadata():

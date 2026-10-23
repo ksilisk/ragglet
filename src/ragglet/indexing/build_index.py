@@ -6,6 +6,7 @@ from uuid import NAMESPACE_URL, uuid5
 from rich.progress import track
 
 from ragglet.config.index_profile import IndexProfileConfig
+from ragglet.core.environment import capture_env
 from ragglet.core.issues import Issue
 from ragglet.datasets.beir import document_text, read_corpus
 from ragglet.datasets.checks import validate_dataset
@@ -38,6 +39,7 @@ def build_index(cfg: IndexProfileConfig) -> list[Issue]:
     embedder = SentenceTransformerEmbedder(
         cfg.embedding.model, normalize=cfg.embedding.normalize, revision=cfg.embedding.revision
     )
+    build_env = capture_env(embedder.compute_info())
 
     # We need vector size before creating collection.
     # Easiest: embed a tiny sample.
@@ -113,6 +115,7 @@ def build_index(cfg: IndexProfileConfig) -> list[Issue]:
         embedding_revision=embedder.revision,
         storage_mode=layout.mode,
         storage_backend_count=len(layout.targets),
+        build_env=build_env,
     )
     for indexer in indexers.values():
         indexer.write_metadata(metadata)

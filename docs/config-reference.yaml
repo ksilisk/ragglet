@@ -552,6 +552,12 @@ scenario:
           default: null
           status: implemented
           docs: "Required when rerank.enabled=true and provider=cross_encoder."
+        revision:
+          type: "string|null"
+          default: null
+          status: implemented
+          docs: "Commit of the rerank model repo on HuggingFace Hub (the name is used as is, CrossEncoder does not add an organization). Null = current main."
+          runtime_behavior: "The resolved commit is recorded in run manifest.json (rerank.revision); copy it here to pin."
         input_top_k:
           type: "integer"
           default: 30
