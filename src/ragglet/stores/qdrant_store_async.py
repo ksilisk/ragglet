@@ -50,7 +50,10 @@ class AsyncQdrantStore:
     async def close(self) -> None:
         await self.client.close()
 
-    async def collection_info(self) -> CollectionInfo:
+    async def collection_info(self) -> CollectionInfo | None:
+        """None — коллекции нет."""
+        if not await self.client.collection_exists(self.collection):
+            return None
         info = await self.client.get_collection(self.collection)
         vectors = info.config.params.vectors
         if not isinstance(vectors, qm.VectorParams):
@@ -72,6 +75,8 @@ class AsyncQdrantStore:
     async def describe(self) -> dict[str, Any]:
         server = await self.client.info()
         info = await self.collection_info()
+        if info is None:
+            raise ValueError(f"Collection {self.collection!r} not found")
         return {
             "type": "qdrant",
             "version": server.version,

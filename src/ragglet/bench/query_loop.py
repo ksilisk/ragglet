@@ -32,9 +32,15 @@ class _Launcher:
     первая неожиданная ошибка останавливает всё и выходит наружу как есть, с qid.
     """
 
-    def __init__(self, items: list, run_one: Callable[[Any, float], Awaitable[dict[str, Any]]]):
+    def __init__(
+            self,
+            items: list,
+            run_one: Callable[[Any, float], Awaitable[dict[str, Any]]],
+            on_done: Callable[[], None],
+    ):
         self._items = items
         self._run_one = run_one
+        self._on_done = on_done
         self._rows: list[dict[str, Any] | None] = [None] * len(items)
         self._launched = [False] * len(items)
         self._fatal: Exception | None = None
@@ -50,6 +56,7 @@ class _Launcher:
             if planned_at is None:
                 planned_at = anyio.current_time()
             self._rows[i] = await self._run_one(self._items[i], planned_at)
+            self._on_done()
         except Exception as e:
             if self._fatal is None:
                 if 0 <= i < len(self._items):
@@ -80,6 +87,7 @@ async def run_queries_once(
         caches: CacheManager,
         reranker: Reranker,
         generator: Generator,
+        on_done: Callable[[], None] = lambda: None,
 ) -> pd.DataFrame:
     total_budget = cfg.timeouts.total_ms / 1000.0
 
@@ -220,4 +228,4 @@ async def run_queries_once(
         }
 
     model = build_load_model(cfg.run.load.type, cfg.run.load.params, cfg.seed)
-    return pd.DataFrame(await _Launcher(list(items), run_one).run(model))
+    return pd.DataFrame(await _Launcher(list(items), run_one, on_done).run(model))

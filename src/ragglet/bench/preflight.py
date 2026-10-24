@@ -10,7 +10,7 @@ from ragglet.core.issues import Issue, error, raise_on_errors, warning
 from ragglet.datasets.sources import describe_dataset
 from ragglet.indexing.metadata import extract_index_metadata
 from ragglet.storage.layout import StorageLayout, StorageTarget, build_storage_layout
-from ragglet.stores.qdrant_store_async import AsyncQdrantStore, CollectionInfo
+from ragglet.stores.qdrant_store_async import CollectionInfo
 
 REBUILD_HINT = "Rebuild the index: ragglet index build <index_profile.yaml>"
 
@@ -20,7 +20,7 @@ class IndexContext:
     cfg: ScenarioConfig
     layout: StorageLayout
     dataset: EvalDataset
-    collections: dict[str, CollectionInfo]  # target id -> состояние коллекции
+    collections: dict[str, CollectionInfo | None]  # target id -> состояние коллекции, None — её нет
     metadata: dict[str, dict[str, Any] | None]  # target id -> метаданные ragglet
 
     def complete_targets(self) -> Iterator[tuple[StorageTarget, dict[str, Any]]]:
@@ -37,9 +37,15 @@ def _where(target: StorageTarget) -> str:
     return f"target {target.id} ({target.collection})"
 
 
+def index_collection_exists(ctx: IndexContext) -> Iterator[Issue]:
+    for target in ctx.layout.targets:
+        if ctx.collections[target.id] is None:
+            yield error("index.no_collection", _where(target), "collection does not exist: the index was not built")
+
+
 def index_metadata_present(ctx: IndexContext) -> Iterator[Issue]:
     for target in ctx.layout.targets:
-        if ctx.metadata[target.id] is None:
+        if ctx.collections[target.id] is not None and ctx.metadata[target.id] is None:
             yield error(
                 "index.no_metadata",
                 _where(target),
@@ -96,17 +102,18 @@ def index_embedding(ctx: IndexContext) -> Iterator[Issue]:
 
 def index_optimized(ctx: IndexContext) -> Iterator[Issue]:
     for target in ctx.layout.targets:
-        status = ctx.collections[target.id].status
-        if status != "green":
+        info = ctx.collections[target.id]
+        if info is not None and info.status != "green":
             yield warning(
                 "index.not_green",
                 _where(target),
-                f"collection status is {status}: optimization is running or pending, "
+                f"collection status is {info.status}: optimization is running or pending, "
                 "latency and recall may not be representative",
             )
 
 
 INDEX_CHECKS: list[IndexCheck] = [
+    index_collection_exists,
     index_metadata_present,
     index_same_build,
     index_storage_layout,
@@ -151,7 +158,10 @@ async def preflight(cfg: ScenarioConfig, stores: Mapping[str, Any]) -> Preflight
     layout = build_storage_layout(cfg.storage)
     dataset = load_eval_dataset(cfg.dataset)
     collections = {target.id: await stores[target.id].collection_info() for target in layout.targets}
-    metadata = {target_id: extract_index_metadata(info.metadata) for target_id, info in collections.items()}
+    metadata = {
+        target_id: extract_index_metadata(info.metadata) if info is not None else None
+        for target_id, info in collections.items()
+    }
     ctx = IndexContext(cfg=cfg, layout=layout, dataset=dataset, collections=collections, metadata=metadata)
     index_warnings = raise_on_errors(
         f"Index is not compatible with scenario {cfg.name!r}",
@@ -165,16 +175,3 @@ async def preflight(cfg: ScenarioConfig, stores: Mapping[str, Any]) -> Preflight
         params=collections[primary].params,
         warnings=[*dataset.warnings, *index_warnings],
     )
-
-
-async def validate_scenario(cfg: ScenarioConfig) -> Preflight:
-    """Preflight без прогона запросов (`bench validate`)."""
-    layout = build_storage_layout(cfg.storage)
-    if any(target.type != "qdrant" for target in layout.targets):
-        raise NotImplementedError("Validation is implemented only for qdrant backends")
-    stores = {target.id: AsyncQdrantStore(target.endpoint, target.collection) for target in layout.targets}
-    try:
-        return await preflight(cfg, stores)
-    finally:
-        for store in stores.values():
-            await store.close()
