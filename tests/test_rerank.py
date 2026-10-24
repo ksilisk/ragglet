@@ -125,7 +125,8 @@ def test_summary_includes_rerank_latency_when_requested():
                 "lat_total_ms": 6.0,
                 "emb_hit_rate": 0.0,
                 "ret_hit_rate": 0.0,
-                "timed_out": False,
+                "t_start_ms": 0.0,
+                "outcome": "ok",
                 "timeout_stage": None,
             }
         ]

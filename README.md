@@ -162,7 +162,7 @@ results/runs/<scenario_name>_<utc_timestamp>/
   - `rerank` — ревизия rerank-модели (`null`, если rerank выключен);
   - `env` — окружение прогона: commit ragglet, Python, машина (`system`), устройство эмбеддингов (`compute`), версии и состояние сервисов (`services`: storage, cache);
 - `per_query.repeat0.csv` / `.parquet` — результаты по каждому запросу, если `run.save_per_query: true`;
-- `summary.csv` и `summary.json` — сводка по каждому repeat;
+- `summary.csv` и `summary.json` — сводка по каждому repeat: качество, перцентили задержек, исходы запросов (`ok`, `timeout`, `error`), время повтора `wall_ms` и пропускная способность `throughput_qps`. Правила подсчёта в [docs/metrics.md](docs/metrics.md#задержки-и-пропускная-способность);
 - `summary.aggregate.csv` и `summary.aggregate.json` — агрегация по repeats.
 
 Формат per-query файлов задается через `output.format: csv | parquet | both`. Summary-файлы сейчас всегда пишутся в CSV и JSON.
@@ -290,7 +290,7 @@ flowchart LR
     QDRANT --> KW
 
     RET --> MERGE["Merge: RRF / weighted_sum / interleave"]
-    MERGE --> METRICS["nDCG@K / Recall@K / Hit@K / MRR@K / latency / timeout / cache hit rate"]
+    MERGE --> METRICS["nDCG@K / Recall@K / Hit@K / MRR@K / latency / throughput / timeout / cache hit rate"]
     METRICS --> RES["results/ artifacts"]
 
 ```

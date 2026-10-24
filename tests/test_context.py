@@ -126,7 +126,8 @@ def test_summary_includes_context_latency_and_counts():
                 "context_chunks": 3,
                 "emb_hit_rate": 0.0,
                 "ret_hit_rate": 0.0,
-                "timed_out": False,
+                "t_start_ms": 0.0,
+                "outcome": "ok",
                 "timeout_stage": None,
             }
         ]

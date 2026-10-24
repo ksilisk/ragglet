@@ -16,6 +16,8 @@ _LATENCY_COLUMNS = {
     "merge": "lat_merge_ms",
 }
 
+OUTCOMES = ("ok", "timeout", "error")
+
 
 def _latency_percentiles(cfg: ScenarioConfig, df: pd.DataFrame) -> dict[str, float]:
     out: dict[str, float] = {}
@@ -25,34 +27,48 @@ def _latency_percentiles(cfg: ScenarioConfig, df: pd.DataFrame) -> dict[str, flo
             continue
 
         for percentile in cfg.metrics.percentiles:
-            key = f"lat_{step}_p{percentile}"
-            out[key] = float(df[col].quantile(percentile / 100.0)) if len(df) else 0.0
+            # пустые значения (этап не завершился или выключен) quantile пропускает
+            out[f"lat_{step}_p{percentile}"] = float(df[col].quantile(percentile / 100.0))
+    return out
+
+
+def _outcomes(df: pd.DataFrame) -> dict[str, float]:
+    unknown = set(df["outcome"]) - set(OUTCOMES)
+    if unknown:
+        raise ValueError(f"unknown query outcomes {sorted(unknown)}; known: {list(OUTCOMES)}")
+    counts = df["outcome"].value_counts()
+    out: dict[str, float] = {}
+    for outcome in OUTCOMES:
+        out[f"{outcome}_count"] = int(counts.get(outcome, 0))
+        out[f"{outcome}_rate"] = out[f"{outcome}_count"] / len(df)
     return out
 
 
 def summarize_repeat(cfg: ScenarioConfig, df: pd.DataFrame) -> dict[str, Any]:
+    """
+    Итоги одного повтора, только из строк per_query. Правила (docs/metrics.md):
+    - wall_ms — от начала повтора до конца последнего запроса, t_start_ms + lat_total_ms;
+    - throughput_qps — только ответы (outcome=ok) в секунду: таймаут и ошибка пользователю
+      ничего не дали;
+    - lat_total — по всем запросам, задержка этапа — по строкам, где этап завершился;
+    - запрос без ответа — промах: качество 0 ставит query_loop, в среднее он входит.
+    """
     n = int(len(df))
+    outcomes = _outcomes(df)
+    wall_ms = float((df["t_start_ms"] + df["lat_total_ms"]).max())
 
-    # timeout aggregates
-    if n and "timed_out" in df.columns:
-        timed_out_count = int(df["timed_out"].fillna(False).sum())
-        timeout_rate = float(timed_out_count) / n
-    else:
-        timed_out_count = 0
-        timeout_rate = 0.0
-
-    stage_rates: dict[str, float] = {}
     stage_counts: dict[str, int] = {}
-    if n and timed_out_count and "timeout_stage" in df.columns:
-        # считаем только для таймаутнутых
-        stages = df.loc[df["timed_out"] == True, "timeout_stage"].fillna("unknown")
-        counts = stages.value_counts()
-        stage_counts = {str(k): int(v) for k, v in counts.items()}
-        stage_rates = {k: v / n for k, v in stage_counts.items()}  # rate по всем запросам
+    if outcomes["timeout_count"]:
+        stages = df.loc[df["outcome"] == "timeout", "timeout_stage"].fillna("unknown")
+        stage_counts = {str(k): int(v) for k, v in stages.value_counts().items()}
+    stage_rates = {k: v / n for k, v in stage_counts.items()}  # доля от всех запросов
 
     s: dict[str, Any] = {
         "scenario": cfg.name,
-        "n": int(len(df)),
+        "n": n,
+        **outcomes,
+        "wall_ms": wall_ms,
+        "throughput_qps": outcomes["ok_count"] / (wall_ms / 1000.0) if wall_ms > 0 else 0.0,
         **_latency_percentiles(cfg, df),
         "emb_hit_rate": float(df["emb_hit_rate"].mean()) if len(df) else 0.0,
         "ret_hit_rate": float(df["ret_hit_rate"].mean()) if len(df) else 0.0,
@@ -61,9 +77,6 @@ def summarize_repeat(cfg: ScenarioConfig, df: pd.DataFrame) -> dict[str, Any]:
         "gen_input_tokens_mean": float(df["gen_input_tokens"].mean()) if "gen_input_tokens" in df.columns and len(df) else 0.0,
         "gen_output_tokens_mean": float(df["gen_output_tokens"].mean()) if "gen_output_tokens" in df.columns and len(df) else 0.0,
         "gen_total_tokens_mean": float(df["gen_total_tokens"].mean()) if "gen_total_tokens" in df.columns and len(df) else 0.0,
-        "generation_error_rate": float(df["generation_error"].notna().mean()) if "generation_error" in df.columns and len(df) else 0.0,
-        "timeout_count": timed_out_count,
-        "timeout_rate": timeout_rate,
         "timeout_stage_counts": stage_counts,
         "timeout_stage_rates": stage_rates,
     }

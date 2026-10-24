@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import time
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -23,6 +24,16 @@ from ragglet.rerank.engine import rerank_items
 from ragglet.retrieval.backends import BackendRegistry
 from ragglet.retrieval.engine import retrieve_items
 from ragglet.retrieval.merge import RetrievedItem
+
+STAGES = ("embed", "retrieve", "rerank", "context", "generation")
+
+
+def _lap(lat: dict[str, float], stage: str, start: float, done: bool = True) -> float:
+    """Задержка пишется, только если этап отработал: пустое значение не попадает в перцентили."""
+    now = time.perf_counter()
+    if done:
+        lat[stage] = (now - start) * 1000.0
+    return now
 
 
 class _Launcher:
@@ -92,7 +103,7 @@ async def run_queries_once(
     total_budget = cfg.timeouts.total_ms / 1000.0
 
     async def run_one(it, planned_at: float) -> dict[str, Any]:
-        timed_out = False
+        outcome = "ok"
         timeout_stage = None
         retrieved_ids = []
         reranked_ids = []
@@ -111,14 +122,15 @@ async def run_queries_once(
         gen_output_tokens = 0
         gen_total_tokens = 0
         gen_cost_estimated = None
-        lat_embed_ms = lat_retrieve_ms = lat_rerank_ms = lat_context_ms = lat_generation_ms = lat_total_ms = 0.0
+        lat: dict[str, float] = {}
+        lat_total_ms = 0.0
 
         try:
             # бюджет идёт с планового момента: ожидание старта входит в него
             with anyio.fail_after(max(0.0, planned_at + total_budget - anyio.current_time())):
-                t1 = time.perf_counter()
+                t = time.perf_counter()
                 vec = await caches.get_or_compute_embedding(it.query, embedder.embed_query)
-                t2 = time.perf_counter()
+                t = _lap(lat, "embed", t)
 
                 # retrieval cache
                 key = caches.make_retrieval_key(it.query)
@@ -130,8 +142,7 @@ async def run_queries_once(
                     caches.set_retrieval(key, retrieved_items)
                 retrieved_ids = [item.chunk_id for item in retrieved_items]
                 retrieved_doc_ids = project_to_docs(retrieved_items)
-
-                t3 = time.perf_counter()
+                t = _lap(lat, "retrieve", t)
 
                 if cfg.rerank.enabled:
                     reranked = await rerank_items(cfg, reranker, it.query, retrieved_items)
@@ -142,8 +153,7 @@ async def run_queries_once(
                 else:
                     context_candidates = retrieved_items
                     final_items = retrieved_items
-
-                t4 = time.perf_counter()
+                t = _lap(lat, "rerank", t, cfg.rerank.enabled)
 
                 context = assemble_context(cfg, context_candidates)
                 if cfg.context.enabled:
@@ -154,8 +164,7 @@ async def run_queries_once(
                     final_items = [chunk.item for chunk in context.chunks]
                 else:
                     context = ContextResult(chunks=[], text="", token_count=0)
-
-                t5 = time.perf_counter()
+                t = _lap(lat, "context", t, cfg.context.enabled)
 
                 if cfg.generation.enabled:
                     try:
@@ -173,23 +182,19 @@ async def run_queries_once(
                         raise
                     except Exception as e:
                         generation_error = str(e)
-
-                t6 = time.perf_counter()
-
-                lat_embed_ms = (t2 - t1) * 1000.0
-                lat_retrieve_ms = (t3 - t2) * 1000.0
-                lat_rerank_ms = (t4 - t3) * 1000.0
-                lat_context_ms = (t5 - t4) * 1000.0
-                lat_generation_ms = (t6 - t5) * 1000.0
+                        outcome = "error"
+                _lap(lat, "generation", t, cfg.generation.enabled and outcome == "ok")
         except StageTimeout as e:
-            timed_out = True
+            outcome = "timeout"
             timeout_stage = e.stage
         except TimeoutError:
-            timed_out = True
+            outcome = "timeout"
             timeout_stage = "total"
         finally:
             lat_total_ms = (anyio.current_time() - planned_at) * 1000.0
 
+        if outcome != "ok":
+            final_items = []  # ответа нет — промах, на каком бы этапе запрос ни остановился
         quality = evaluate_quality(cfg.metrics.quality, final_items, it.qrels)
 
         return {
@@ -215,17 +220,16 @@ async def run_queries_once(
             "final_doc_ids": project_to_docs(final_items),
             "rerank_scores": rerank_scores,
             **quality,
-            "lat_embed_ms": lat_embed_ms,
-            "lat_retrieve_ms": lat_retrieve_ms,
-            "lat_rerank_ms": lat_rerank_ms,
-            "lat_context_ms": lat_context_ms,
-            "lat_generation_ms": lat_generation_ms,
+            "t_start_ms": (planned_at - t0) * 1000.0,
+            **{f"lat_{stage}_ms": lat.get(stage, math.nan) for stage in STAGES},
             "lat_total_ms": lat_total_ms,
             "emb_hit_rate": caches.stats.emb_hit_rate,
             "ret_hit_rate": caches.stats.ret_hit_rate,
-            "timed_out": timed_out,
+            "outcome": outcome,
             "timeout_stage": timeout_stage,
         }
 
     model = build_load_model(cfg.run.load.type, cfg.run.load.params, cfg.seed)
-    return pd.DataFrame(await _Launcher(list(items), run_one, on_done).run(model))
+    launcher = _Launcher(list(items), run_one, on_done)
+    t0 = anyio.current_time()  # начало повтора; конец запроса = t_start_ms + lat_total_ms
+    return pd.DataFrame(await launcher.run(model))
