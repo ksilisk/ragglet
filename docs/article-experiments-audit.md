@@ -32,7 +32,7 @@ Config: `configs/scenarios/s0_baseline_rag.yaml`.
 Запуск:
 
 ```bash
-uv run ragglet bench validate configs/scenarios/s0_baseline_rag.yaml
+uv run ragglet bench run configs/scenarios/s0_baseline_rag.yaml --dry-run
 uv run ragglet bench run configs/scenarios/s0_baseline_rag.yaml
 ```
 
@@ -50,7 +50,7 @@ Config: `configs/scenarios/s3_adaptive_context.yaml`.
 Запуск:
 
 ```bash
-uv run ragglet bench validate configs/scenarios/s3_adaptive_context.yaml
+uv run ragglet bench run configs/scenarios/s3_adaptive_context.yaml --dry-run
 uv run ragglet bench run configs/scenarios/s3_adaptive_context.yaml
 ```
 
@@ -86,7 +86,7 @@ Config: `configs/scenarios/s4_cache.yaml`.
 Запуск:
 
 ```bash
-uv run ragglet bench validate configs/scenarios/s4_cache.yaml
+uv run ragglet bench run configs/scenarios/s4_cache.yaml --dry-run
 uv run ragglet bench run configs/scenarios/s4_cache.yaml
 ```
 
@@ -317,9 +317,9 @@ uv run ragglet index build configs/indexes/demo.yaml
 После построения индекса:
 
 ```bash
-uv run ragglet bench validate configs/scenarios/s0_baseline_rag.yaml
-uv run ragglet bench validate configs/scenarios/s3_adaptive_context.yaml
-uv run ragglet bench validate configs/scenarios/s4_cache.yaml
+uv run ragglet bench run configs/scenarios/s0_baseline_rag.yaml --dry-run
+uv run ragglet bench run configs/scenarios/s3_adaptive_context.yaml --dry-run
+uv run ragglet bench run configs/scenarios/s4_cache.yaml --dry-run
 ```
 
 ### После добавления только YAML и analyzer

@@ -104,6 +104,13 @@ uv run ragglet index build configs/indexes/demo.yaml
 релевантные документы. Нарушения печатаются все сразу, с файлом и строкой; есть ошибка —
 индекс не собирается.
 
+Только эти проверки, без загрузки модели и без пересоздания коллекций (команда печатает,
+какие коллекции будут пересозданы):
+
+```bash
+uv run ragglet index build configs/indexes/demo.yaml --dry-run
+```
+
 Метаданные индекса (хэш корпуса, ревизия модели эмбеддингов, chunking, storage layout)
 записываются в Qdrant collection **после** последнего upsert: коллекция без них считается
 недособранной.
@@ -116,11 +123,13 @@ uv run ragglet index build configs/indexes/demo.yaml
 каталог результатов не создаётся. Модель эмбеддингов загружается ровно той ревизии, которой
 собран индекс.
 
-Тот же preflight без прогона запросов:
+Тот же preflight без загрузки моделей и прогона запросов:
 
 ```bash
-uv run ragglet bench validate configs/scenarios/baseline_qdrant.yaml
+uv run ragglet bench run configs/scenarios/baseline_qdrant.yaml --dry-run
 ```
+
+Ошибки конфига, датасета и индекса команды печатают списком и выходят с кодом 2.
 
 Базовый сценарий: один vector source, без кэша.
 
@@ -202,7 +211,7 @@ docs/config-reference.yaml
 uv run ragglet --help
 uv run ragglet index --help
 uv run ragglet bench --help
-uv run ragglet bench validate configs/scenarios/baseline_qdrant.yaml
+uv run ragglet bench run configs/scenarios/baseline_qdrant.yaml --dry-run
 ```
 
 Остановить сервисы:
