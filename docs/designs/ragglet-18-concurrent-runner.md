@@ -304,8 +304,10 @@ ragglet-26.
 12. Существующие тесты проходят.
 
 E2E на ноде: CPU-torch и Qdrant в local-режиме, как в ragglet-21. Прогон nfcorpus с
-`concurrency: 1` и `concurrency: 4` должен дать одинаковые метрики качества
-(ndcg@10 = 0.31589). Latency local-режима для выводов не годится. Прошу smoke на Mac с
+`concurrency: 1` и `concurrency: 4` должен дать построчно одинаковые результаты между
+собой и с кодом master на том же окружении. Точное значение ndcg@10 зависит от версий
+библиотек в venv, поэтому сравнивается с master, а не с числом из ragglet-21. Latency
+local-режима для выводов не годится. Прошу smoke на Mac с
 настоящим Qdrant: `nfcorpus_hf` с `concurrency` 1 и 8, качество одинаковое, latency
 растёт, на MPS нет ошибок.
 
