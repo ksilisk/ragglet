@@ -111,7 +111,8 @@ def test_summary_includes_generation_latency_and_tokens():
                 "gen_output_tokens": 3,
                 "gen_total_tokens": 14,
                 "generation_error": None,
-                "timed_out": False,
+                "t_start_ms": 0.0,
+                "outcome": "ok",
                 "timeout_stage": None,
             }
         ]
@@ -121,4 +122,4 @@ def test_summary_includes_generation_latency_and_tokens():
 
     assert summary["lat_generation_p50"] == 5.0
     assert summary["gen_input_tokens_mean"] == 11.0
-    assert summary["generation_error_rate"] == 0.0
+    assert summary["error_rate"] == 0.0

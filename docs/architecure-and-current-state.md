@@ -8,7 +8,7 @@ Focus: quality–performance tradeoffs in distributed / multi-source retrieval:
 - merge algorithms: currently `rrf`, in progress: `weighted_sum`, `interleave`
 - caching: embedding cache (Redis), retrieval cache (in-memory LRU)
 - timeouts: per-query `total_ms` + per-stage (retrieval/rerank/llm) using AnyIO cancel scopes
-- evaluation: document-level nDCG@k / Recall@k / R_cap@k / Hit@k / MRR@k (optional chunk-level MRR@k / Precision@k), latency percentiles, timeout rate; semantics in `docs/metrics.md`
+- evaluation: document-level nDCG@k / Recall@k / R_cap@k / Hit@k / MRR@k (optional chunk-level MRR@k / Precision@k), latency percentiles, query outcomes (ok/timeout/error), repeat wall time and throughput; semantics in `docs/metrics.md`
 - indexing: build vector DB index (Qdrant) from a directory corpus; payload carries `external_id` for ground truth
 RAG generation can be enabled as an optional post-context stage; retrieval-only benchmarks remain the default.
 ---
@@ -98,8 +98,10 @@ Key sections:
 - `metrics`:
   - `quality.k`, `quality.doc`, `quality.chunk`
   - `percentiles` from YAML for emitted latency fields
-  - step latency fields measured in per-query table (embed/retrieve/rerank/context/total)
-  - `timed_out`, `timeout_stage` fields are recorded per-query; summary stores timeout rates/cnts.
+  - step latency fields measured in per-query table (embed/retrieve/rerank/context/generation/total); a step that did not complete (timed out, failed, not reached or disabled) is empty and skipped by percentiles; `lat_total` covers every query
+  - `outcome` (`ok`/`timeout`/`error`) and `timeout_stage` are recorded per-query; summary stores `<outcome>_count`/`<outcome>_rate` and timeout stage distribution
+  - `t_start_ms` per query (start from the repeat start); summary `wall_ms` = last query end, `throughput_qps` = answers (`ok`) per second
+  - a query without an answer is a miss: empty final list, all quality metrics 0
 ### index_profile.yaml
 Current “scenario 1” indexing (directory corpus):
 ```yaml
@@ -240,14 +242,15 @@ What is implemented today (core)
 * retrieval_ms is enforced at retrieval stage.
 * total_ms is intended at per-query wrapper.
 * Timeouts are handled without crashing the whole run:
-    * per-query row: timed_out, timeout_stage
-    * summary: timeout rate and stage distribution
+    * per-query row: outcome, timeout_stage
+    * summary: outcome counts/rates and timeout stage distribution
 
 ✅ Evaluation:
 
 * document-level nDCG@k / Recall@k / R_cap@k / Hit@k / MRR@k, optional chunk-level MRR@k / Precision@k
 * latency step times (lat_embed_ms, lat_retrieve_ms, lat_rerank_ms, lat_context_ms, lat_generation_ms, lat_total_ms)
 * configurable latency percentiles from YAML for emitted latency steps (embed/retrieve/total)
+* per repeat: wall_ms, throughput_qps, ok/timeout/error counts and rates; rules in `docs/metrics.md`
 
 ⸻
 
