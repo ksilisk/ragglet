@@ -1,18 +1,22 @@
 from __future__ import annotations
 
+import math
 import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
 
 import anyio
+import pandas as pd
 import pytest
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from ragglet.bench import run_scenario as run_module
 from ragglet.bench.dataset import QueryItem
+from ragglet.bench.evaluation import evaluate_quality
 from ragglet.bench.load import LOAD_MODELS
 from ragglet.bench.query_loop import run_queries_once
+from ragglet.bench.summarize import summarize_repeat
 from ragglet.cache.manager import CacheManager
 from ragglet.config.scenario import ScenarioConfig
 from ragglet.core.lanes import Lane
@@ -300,6 +304,48 @@ async def test_cancelled_run_closes_stores_and_writes_no_summary(tmp_path, runti
     assert not _summaries(tmp_path)
 
 
+def _example_rows(cfg: ScenarioConfig) -> pd.DataFrame:
+    """Пример из docs/metrics.md: c=2, бюджет 300 мс, D завис на поиске."""
+    rows = [  # запрос, старт, эмбеддинг, поиск, реранк
+        ("A", 0, 10, 20, 70),
+        ("B", 0, 20, 30, 70),
+        ("C", 100, 10, 20, 120),
+        ("D", 120, 20, math.nan, math.nan),
+        ("E", 250, 10, 20, 90),
+        ("F", 370, 10, 20, 60),
+    ]
+    miss = evaluate_quality(cfg.metrics.quality, [], {"d1": 1})
+    return pd.DataFrame([
+        {
+            **miss, "qid": qid, "t_start_ms": float(start),
+            "lat_embed_ms": float(embed), "lat_retrieve_ms": retrieve, "lat_rerank_ms": rerank,
+            "lat_total_ms": 300.0 if qid == "D" else float(embed + retrieve + rerank),
+            "emb_hit_rate": 0.0, "ret_hit_rate": 0.0,
+            "outcome": "timeout" if qid == "D" else "ok",
+            "timeout_stage": "total" if qid == "D" else None,
+        }
+        for qid, start, embed, retrieve, rerank in rows
+    ])
+
+
+def test_summary_of_the_example():
+    cfg = _scenario(metrics={
+        "latency_steps": ["embed", "rerank", "total"], "percentiles": [50, 95], "quality": {"k": [1]},
+    })
+    s = summarize_repeat(cfg, _example_rows(cfg))
+
+    assert (s["n"], s["ok_count"], s["timeout_count"], s["error_count"]) == (6, 5, 1, 0)
+    assert s["timeout_rate"] == pytest.approx(1 / 6)
+    assert s["timeout_stage_counts"] == {"total": 1}
+    assert s["wall_ms"] == 460
+    assert s["throughput_qps"] == pytest.approx(5 / 0.46)  # таймаут D не ответ
+    assert s["lat_total_p50"] == 120
+    assert s["lat_total_p95"] == pytest.approx(262.5)  # D входит со своими 300 мс
+    assert s["lat_embed_p50"] == 10
+    assert s["lat_rerank_p50"] == 70
+    assert s["lat_rerank_p95"] == pytest.approx(114)  # по пяти строкам; с нулём у D было бы 112.5
+
+
 async def test_timeout_keeps_finished_stages_and_is_a_miss():
     df = await _run(_scenario(timeouts={"total_ms": 50}), _items(2), store=_Store(delay=1.0))
 
@@ -342,6 +388,45 @@ async def test_query_without_answer_is_a_miss_at_any_stage():
 
 
 async def test_disabled_stage_has_no_latency():
-    df = await _run(_scenario(), _items(2))
+    cfg = _scenario(metrics={"latency_steps": ["rerank", "total"], "quality": {"k": [1]}})
+    df = await _run(cfg, _items(2))
 
     assert df[["lat_rerank_ms", "lat_context_ms", "lat_generation_ms"]].isna().all().all()
+    s = summarize_repeat(cfg, df)
+    assert math.isnan(s["lat_rerank_p50"])  # в summary.json это null, а не ~0 мс
+    assert s["lat_total_p50"] > 0
+
+
+async def test_rows_show_real_concurrency_and_wall_time():
+    cfg = _scenario({"concurrency": 4})
+    started = anyio.current_time()
+    df = await _run(cfg, _items(10), store=_Store(delay=0.03))
+    elapsed_ms = (anyio.current_time() - started) * 1000
+
+    ends = df["t_start_ms"] + df["lat_total_ms"]
+    in_flight = [int(((df["t_start_ms"] <= t) & (ends > t)).sum()) for t in df["t_start_ms"]]
+    assert max(in_flight) == 4
+
+    wall_ms = summarize_repeat(cfg, df)["wall_ms"]
+    assert elapsed_ms - 15 < wall_ms <= elapsed_ms
+
+
+async def test_concurrency_levels_are_compared_on_the_same_queries():
+    items = _items(12)
+    s = {}
+    for c in (1, 4):
+        cfg = _scenario({"concurrency": c})
+        s[c] = summarize_repeat(cfg, await _run(cfg, items, store=_Store(delay=0.03)))
+
+    for c in (1, 4):
+        assert s[c]["ok_count"] + s[c]["timeout_count"] + s[c]["error_count"] == s[c]["n"] == 12
+    assert s[1]["doc_hit@1_mean"] == s[4]["doc_hit@1_mean"] == 1.0
+    assert s[4]["throughput_qps"] > 2.5 * s[1]["throughput_qps"]
+
+
+def test_unknown_outcome_fails_loudly():
+    cfg = _scenario()
+    df = _example_rows(cfg)
+    df.loc[0, "outcome"] = "partial"
+    with pytest.raises(ValueError, match=r"unknown query outcomes \['partial'\]"):
+        summarize_repeat(cfg, df)
