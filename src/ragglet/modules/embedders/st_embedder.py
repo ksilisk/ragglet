@@ -6,6 +6,7 @@ from typing import Any
 import numpy as np
 from sentence_transformers import SentenceTransformer
 
+from ragglet.core.lanes import Lane
 from ragglet.modules.hub import cached_model_revision
 
 
@@ -21,6 +22,7 @@ class SentenceTransformerEmbedder:
         self.model = SentenceTransformer(model_name, revision=revision)
         self.normalize = normalize
         self.revision = cached_model_revision(hub_model_id(model_name), revision)
+        self._lane = Lane()
 
     def compute_info(self) -> dict[str, Any]:
         import torch
@@ -32,9 +34,8 @@ class SentenceTransformerEmbedder:
             "torch_threads": torch.get_num_threads(),
         }
 
-    def embed_one(self, text: str) -> list[float]:
-        v = self.model.encode([text], normalize_embeddings=self.normalize)[0]
-        return v.astype(np.float32).tolist()
+    async def embed_query(self, text: str) -> list[float]:
+        return (await self._lane.run(self.embed_batch, [text]))[0]
 
     def embed_batch(self, texts: list[str]) -> list[list[float]]:
         v = self.model.encode(

@@ -55,7 +55,7 @@ class CacheManager:
 
     async def get_or_compute_embedding(self, query: str, embed_fn) -> list[float]:
         """
-        embed_fn: sync callable(query)->vector or callable producing vector.
+        embed_fn: async callable(query) -> vector.
         """
         vec = None
         if self.emb_cache is not None:
@@ -66,7 +66,7 @@ class CacheManager:
                 self.stats.emb_misses += 1
 
         if vec is None:
-            vec = embed_fn(query)
+            vec = await embed_fn(query)
             if self.emb_cache is not None:
                 await self.emb_cache.set(query, vec)
 

@@ -6,6 +6,7 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator
 
+from ragglet.bench.load import load_params
 from ragglet.bench.metrics import METRICS
 from ragglet.datasets.sources import check_source
 
@@ -34,6 +35,29 @@ class TimeoutsConfig(BaseModel):
     llm_ms: int = 3500
 
 
+class LoadConfig(BaseModel):
+    """
+    `type` выбирает модель нагрузки из LOAD_MODELS, остальные поля — её параметры.
+    Параметры проверяет сама модель; в snapshot попадают вместе с дефолтами.
+    """
+    model_config = ConfigDict(extra="allow")
+
+    type: str = "closed"
+
+    @model_validator(mode="before")
+    @classmethod
+    def _validate_params(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        raw = dict(data)
+        load_type = raw.pop("type", "closed")
+        return {"type": load_type, **load_params(load_type, raw).model_dump()}
+
+    @property
+    def params(self) -> dict[str, Any]:
+        return dict(self.model_extra or {})
+
+
 class RunConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -41,6 +65,7 @@ class RunConfig(BaseModel):
     shuffle: bool = Field(True, description="Shuffle dataset items before running")
     save_per_query: bool = Field(True, description="Save per-query raw results")
     artifacts_dir: str = Field("results/runs", description="Directory for run artifacts")
+    load: LoadConfig = Field(default_factory=LoadConfig, description="When to launch each query")
 
 
 class OutputConfig(BaseModel):

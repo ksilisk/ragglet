@@ -270,6 +270,9 @@ class _FakeEmbedder:
     def embed_batch(self, texts):
         return [[0.0] for _ in texts]
 
+    async def embed_query(self, text):
+        return self.embed_batch([text])[0]
+
 
 async def test_query_loop_rows_and_retrieval_cache_hit():
     from ragglet.bench.dataset import QueryItem

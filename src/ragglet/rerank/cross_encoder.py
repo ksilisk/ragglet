@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-import anyio
-
+from ragglet.core.lanes import Lane
 from ragglet.modules.hub import cached_model_revision
 from ragglet.rerank.base import RerankedItem
 from ragglet.retrieval.merge import RetrievedItem
@@ -14,6 +13,7 @@ class CrossEncoderReranker:
         self.model = CrossEncoder(model_name, revision=revision)
         # CrossEncoder, в отличие от SentenceTransformer, не дописывает организацию к короткому имени
         self.revision = cached_model_revision(model_name, revision)
+        self._lane = Lane()
 
     async def rerank(
         self,
@@ -27,11 +27,7 @@ class CrossEncoderReranker:
             return []
 
         pairs = [(query, _text_for_item(item)) for item in candidates]
-        scores = await anyio.to_thread.run_sync(
-            self.model.predict,
-            pairs,
-            abandon_on_cancel=True,
-        )
+        scores = await self._lane.run(self.model.predict, pairs)
         reranked = [
             RerankedItem(item=item, score=float(score))
             for item, score in zip(candidates, scores, strict=True)

@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from ragglet.core.lanes import Lane
 from ragglet.keyword.bm25 import BM25Index, BM25Params, tokenize
 
 
@@ -30,8 +31,13 @@ class KeywordBm25Store:
         self.docs = docs
         docs_tokens = [tokenize(d.get("text", "")) for d in docs]
         self.index = BM25Index(docs_tokens, BM25Params(k1=k1, b=b))
+        self._lane = Lane()
 
-    def search(self, query: str, top_k: int) -> list[Candidate]:
+    async def search(self, query: str, top_k: int) -> list[Candidate]:
+        # перебор корпуса на чистом Python: в event loop он остановил бы остальные запросы
+        return await self._lane.run(self._search, query, top_k)
+
+    def _search(self, query: str, top_k: int) -> list[Candidate]:
         pairs = self.index.top_k(query, top_k)
         out: list[Candidate] = []
         for doc_idx, sc in pairs:

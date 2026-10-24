@@ -209,6 +209,9 @@ class _Embedder:
     def embed_batch(self, texts):
         return [[0.0] for _ in texts]
 
+    async def embed_query(self, text):
+        return self.embed_batch([text])[0]
+
 
 @pytest.fixture
 def fake_runtime(monkeypatch):

@@ -43,7 +43,8 @@ Suggested / partially implemented modular split:
   - dataset loader: JSONL (`load_jsonl_dataset`)
   - dataset/index validation: compare JSONL relevant[] ids with indexed payload external_id values
   - metrics: nDCG@k / Recall@k / R_cap@k / Hit@k / MRR@k / Precision@k on document and chunk levels (`metrics.py`, `evaluation.py`)
-  - query loop: run per-query (embed -> retrieval -> metrics) and collect per-query rows
+  - load models (`load.py`): registry `LOAD_MODELS`; a load model only decides when to launch each query (`closed` = N workers)
+  - query loop: the core runs one query per launch (embed -> retrieval -> rerank -> context -> generation -> metrics), keeps rows in repeat order and stops on the first unexpected error
   - summarize: per-repeat summary + aggregate over repeats
   - artifacts: run folder + scenario snapshot + per-query outputs + summaries
 ---
@@ -60,6 +61,7 @@ Key sections:
   - `shuffle`: shuffle dataset between repeats (deterministic using `seed`)
   - `save_per_query`: store per-query CSV/Parquet per repeat
   - `artifacts_dir`: directory where run artifacts are created
+  - `load`: load model, `{type: closed, concurrency: N}` by default with N=1. Concurrency covers the whole query: Redis, Qdrant and generation calls run concurrently, while local CPU models (embedding, BM25, rerank) go through `core/lanes.py`: one call at a time in a worker thread, so the event loop keeps serving network replies. A timed-out model call finishes before the timeout fires.
 - `output`:
   - `format`: `csv | parquet | both`
   - `include_debug_fields`: reserved

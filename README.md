@@ -191,7 +191,8 @@ docs/config-reference.yaml
 - `storage.backend.type` реально поддерживает только `qdrant`;
 - `rerank` поддерживает локальный `cross_encoder` provider из `sentence-transformers`;
 - `context` поддерживает сбор retrieved/reranked чанков по политикам `top_n`, `threshold` и `adaptive`;
-- `generation` поддерживает `noop` и `openai_compatible`; при `enabled: true` question/context могут быть отправлены во внешний provider.
+- `generation` поддерживает `noop` и `openai_compatible`; при `enabled: true` question/context могут быть отправлены во внешний provider;
+- `run.load` задает, когда запускать запросы. Модель `closed` держит `concurrency` запросов одновременно в работе, от эмбеддинга до ответа LLM (по умолчанию 1). Сетевые этапы идут конкурентно, а локальные модели на CPU (эмбеддинг, BM25, rerank) обрабатывают один вызов за раз, и ожидание своей очереди видно в `lat_*_ms`. Своя схема подачи запросов — класс в `src/ragglet/bench/load.py` и строка в `LOAD_MODELS`. При `concurrency > 1` доля попаданий кэша в строке зависит от порядка завершения запросов.
 
 ## Полезные команды
 
