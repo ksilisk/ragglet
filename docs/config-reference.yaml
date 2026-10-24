@@ -246,30 +246,31 @@ scenario:
       docs: "Base seed for deterministic per-repeat shuffling."
     timeouts:
       type: "object"
-      status: partial
+      status: implemented
       fields:
         total_ms:
           type: "integer"
           default: 6000
-          status: partial
-          docs: "Per-query end-to-end timeout around embedding and retrieval."
-          caveat: "Embedding is synchronous SentenceTransformer work, so cancellation is not reliable until control returns to the event loop."
+          status: implemented
+          docs: "Per-query end-to-end budget, from the planned start of the query to the answer. For run.load.type=closed the planned start is when a worker takes the query."
+          caveat: "A local model call (embedding, BM25, rerank) is not interrupted midway; the timeout fires right after it returns, so lat_total_ms of a timed-out query can exceed the budget by one such call."
         retrieval_ms:
           type: "integer"
           default: 1500
-          status: partial
+          status: implemented
           docs: "Timeout around retrieval stage."
-          caveat: "Async Qdrant can be cancelled. Local BM25 is synchronous and may block cancellation."
+          caveat: "Qdrant requests are cancelled at the deadline. Local BM25 runs in a worker thread, one search at a time; the timeout fires after the current search returns."
         rerank_ms:
           type: "integer"
           default: 800
           status: implemented
           docs: "Timeout around rerank stage when scenario.rerank.enabled=true."
+          caveat: "The cross-encoder call is not abandoned: the timeout fires right after it returns, and nothing keeps running in the background."
         llm_ms:
           type: "integer"
           default: 3500
-          status: reserved
-          docs: "Reserved; generation stage is not implemented."
+          status: implemented
+          docs: "Timeout around generation when scenario.generation.enabled=true."
     run:
       type: "object"
       status: implemented
@@ -296,6 +297,27 @@ scenario:
           default: "results/runs"
           status: implemented
           docs: "Base directory for run folders. Runtime writes to <artifacts_dir>/<scenario.name>_<utc_timestamp>/"
+        load:
+          type: "object"
+          default: {type: "closed", concurrency: 1}
+          status: implemented
+          docs: "Load model: decides only when each query of a repeat is launched. `type` selects a model from LOAD_MODELS in src/ragglet/bench/load.py; the other fields are its params, validated by that model and saved to the snapshot with defaults. Whatever the model, the runtime core runs every query exactly once, writes per-query rows in repeat order, and stops the run on the first unexpected error."
+          fields:
+            type:
+              type: "enum"
+              default: "closed"
+              allowed_values:
+                - "closed"
+              status: implemented
+              docs: "closed = N users; each sends the next query only after getting the answer to the previous one. A new model is a class with Params and drive(n, launch) plus one LOAD_MODELS entry."
+            concurrency:
+              type: "integer"
+              default: 1
+              constraints:
+                schema_enforced: ">= 1"
+              status: implemented
+              docs: "closed: how many queries are in flight at once, end to end from embedding to the LLM answer. Network stages (Redis, Qdrant, generation) run concurrently. Local CPU models (embedding, BM25, rerank) take one call at a time in a worker thread; waiting for them is part of lat_embed_ms, lat_retrieve_ms and lat_rerank_ms."
+              caveat: "Per-query emb_hit_rate/ret_hit_rate are cumulative, so with concurrency > 1 they depend on completion order; summary averages them."
     output:
       type: "object"
       status: partial
