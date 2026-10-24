@@ -22,8 +22,8 @@ from ragglet.rerank.noop import NoopReranker
 from ragglet.retrieval.backends import BackendRegistry
 from ragglet.stores.qdrant_store_async import Candidate
 
-LATENCY = [
-    "lat_embed_ms", "lat_retrieve_ms", "lat_rerank_ms", "lat_context_ms",
+TIMING = [
+    "t_start_ms", "lat_embed_ms", "lat_retrieve_ms", "lat_rerank_ms", "lat_context_ms",
     "lat_generation_ms", "lat_total_ms",
 ]
 
@@ -143,7 +143,7 @@ async def test_concurrency_changes_only_latency_not_rows():
     four = await _run(_scenario({"concurrency": 4}), items)
 
     assert list(one["qid"]) == [it.qid for it in items]
-    assert one.drop(columns=LATENCY).equals(four.drop(columns=LATENCY))
+    assert one.drop(columns=TIMING).equals(four.drop(columns=TIMING))
     assert (one["doc_hit@1"] == 1.0).all()
 
 
@@ -175,10 +175,10 @@ async def test_broken_load_models_fail_loudly(test_load):
 async def test_query_clock_starts_at_planned_moment(test_load):
     df = await _run(_scenario({"type": "late"}), _items(2))
     assert (df["lat_total_ms"] >= 200).all()
-    assert not df["timed_out"].any()
+    assert (df["outcome"] == "ok").all()
 
     df = await _run(_scenario({"type": "late"}, timeouts={"total_ms": 100}), _items(2))
-    assert df["timed_out"].all()
+    assert (df["outcome"] == "timeout").all()
     assert set(df["timeout_stage"]) == {"total"}
 
 
@@ -298,3 +298,50 @@ async def test_cancelled_run_closes_stores_and_writes_no_summary(tmp_path, runti
     assert [s.closed for s in runtime.stores] == [True]
     assert runtime.stores[0].in_flight == 0
     assert not _summaries(tmp_path)
+
+
+async def test_timeout_keeps_finished_stages_and_is_a_miss():
+    df = await _run(_scenario(timeouts={"total_ms": 50}), _items(2), store=_Store(delay=1.0))
+
+    assert list(df["outcome"]) == ["timeout", "timeout"]
+    assert df["lat_embed_ms"].notna().all()  # эмбеддинг успел, это видно по строке
+    assert df["lat_retrieve_ms"].isna().all() and df["lat_rerank_ms"].isna().all()
+    assert (df["doc_hit@1"] == 0).all() and df["final_ids"].map(len).eq(0).all()
+
+
+async def test_query_without_answer_is_a_miss_at_any_stage():
+    class _Llm:
+        def __init__(self, behaviour):
+            self.behaviour = behaviour
+
+        async def generate(self, request):
+            if self.behaviour == "slow":
+                await anyio.sleep(1)
+            if self.behaviour == "broken":
+                raise RuntimeError("llm 500")
+            return GenerationResult("ok", 1, 1, 2, None, "fake", request.model)
+
+    cfg = _scenario(
+        context={"enabled": True},
+        generation={"enabled": True, "provider": "openai_compatible", "model": "m"},
+        timeouts={"llm_ms": 20},
+    )
+    ok = await _run(cfg, _items(2), generator=_Llm("ok"))
+    slow = await _run(cfg, _items(2), generator=_Llm("slow"))
+    broken = await _run(cfg, _items(2), generator=_Llm("broken"))
+
+    assert (ok["outcome"] == "ok").all() and (ok["doc_hit@1"] == 1).all()
+    assert ok["lat_generation_ms"].notna().all()
+    assert list(slow["timeout_stage"]) == ["generation", "generation"]
+    assert list(broken["generation_error"]) == ["llm 500", "llm 500"]
+    for df, outcome in ((slow, "timeout"), (broken, "error")):
+        assert list(df["outcome"]) == [outcome, outcome]
+        assert list(df["retrieved_doc_ids"]) == list(ok["final_doc_ids"])  # поиск нашёл нужное
+        assert (df["doc_hit@1"] == 0).all() and df["final_ids"].map(len).eq(0).all()
+        assert df["lat_retrieve_ms"].notna().all() and df["lat_generation_ms"].isna().all()
+
+
+async def test_disabled_stage_has_no_latency():
+    df = await _run(_scenario(), _items(2))
+
+    assert df[["lat_rerank_ms", "lat_context_ms", "lat_generation_ms"]].isna().all().all()
