@@ -15,7 +15,7 @@ RAG generation can be enabled as an optional post-context stage; retrieval-only 
 ## Repo layout (current direction)
 Suggested / partially implemented modular split:
 - `src/ragglet/cli/`  
-  Typer CLI: `ragglet bench run ...`, `ragglet index build ...`, `ragglet serve` (serve is stub)
+  Typer CLI: `ragglet bench run ... [--dry-run]`, `ragglet index build ... [--dry-run]`, `ragglet dataset import ...`
 - `src/ragglet/config/`  
   Pydantic v2 schemas:
   - `scenario.py` for `scenario.yaml`
@@ -47,6 +47,17 @@ Suggested / partially implemented modular split:
   - query loop: the core runs one query per launch (embed -> retrieval -> rerank -> context -> generation -> metrics), keeps rows in repeat order and stops on the first unexpected error
   - summarize: per-repeat summary + aggregate over repeats
   - artifacts: run folder + scenario snapshot + per-query outputs + summaries
+---
+## Single API surface (stage 3)
+Frame: `docs/designs/ragglet-38-api-surface.md`. Everything that touches the stand (run, dry-run, index build)
+goes through one REST API; CLI, web UI and curl are its clients. Until the API (ragglet-28) and the job manager
+(ragglet-29) exist, the CLI calls the core directly; then it switches to an API client in one step (ragglet-37).
+- The core is a library. Operations share one shape: `op(cfg, *, dry_run=False, progress=...) -> Result`
+  (`run_scenario -> RunResult`, `build_index -> BuildResult`). `dry_run` only checks: no run dir, no collection
+  recreate, no model load. `progress(stage, done, total)` reports `queries` / `corpus`.
+- Config, dataset and index problems are `ValidationError` with a list of `Issue`, raised before side effects:
+  CLI exit code 2, API 422. Anything else is a job failure.
+- New operations follow this shape plus a job type and an endpoint; no extra CLI commands or validate endpoints.
 ---
 ## Configs
 ### scenario.yaml (v1)
@@ -281,7 +292,7 @@ Current limitations / TODO
 Notes from recent debugging
 
 * Qdrant requires point IDs be UUID or uint64; human-readable IDs must be stored in payload (external_id) for evaluation.
-* If `bench run` reports `Index is not compatible with scenario`: the index was built from another corpus, with another embedding model or storage layout, or the build did not finish; rebuild it. `ragglet bench validate` prints the same preflight report without running queries.
+* If `bench run` reports `Index is not compatible with scenario`: the index was built from another corpus, with another embedding model or storage layout, or the build did not finish; rebuild it. `ragglet bench run <scenario> --dry-run` prints the same preflight report without running queries.
 * AnyIO timeouts don’t work with sync clients; async Qdrant store is required for correct per-query and per-stage timeouts.
 
 ⸻

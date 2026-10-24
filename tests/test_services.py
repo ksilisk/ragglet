@@ -7,6 +7,9 @@ from ragglet.stores.qdrant_store_async import AsyncQdrantStore
 
 
 class _QdrantClient:
+    async def collection_exists(self, name):
+        return name == "chunks_v1"
+
     async def get_collection(self, name):
         return qm.CollectionInfo(
             status=qm.CollectionStatus.YELLOW,
@@ -47,6 +50,13 @@ async def test_qdrant_store_reports_actual_collection_state():
         "indexed_vectors": 0,
         "segments": 2,
     }
+
+
+async def test_qdrant_store_reports_missing_collection_as_none():
+    store = AsyncQdrantStore("http://q:6333", "chunks_v2")
+    store.client = _QdrantClient()
+
+    assert await store.collection_info() is None
 
 
 class _Redis:

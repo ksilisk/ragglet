@@ -4,10 +4,13 @@ import json
 from pathlib import Path
 
 import pytest
+import yaml
+from typer.testing import CliRunner
 
 from ragglet.bench import run_scenario as run_module
 from ragglet.bench.compare import section_kind
 from ragglet.bench.preflight import preflight
+from ragglet.cli.app import app
 from ragglet.config.index_profile import IndexProfileConfig
 from ragglet.config.scenario import ScenarioConfig
 from ragglet.core.issues import ValidationError
@@ -21,8 +24,8 @@ BUILD_ENV = {"commit": "c" * 40, "python": "3.12.7", "system": {}, "compute": {"
 PARAMS = {"vector_size": 384, "distance": "Cosine", "hnsw": {"m": 16, "ef_construct": 128}}
 
 
-def _scenario(tmp_path: Path | None = None, **overrides) -> ScenarioConfig:
-    data = {
+def _scenario_data(tmp_path: Path | None = None, **overrides) -> dict:
+    return {
         "name": "s",
         "dataset": {"id": str(DEMO)},
         "storage": {
@@ -33,7 +36,10 @@ def _scenario(tmp_path: Path | None = None, **overrides) -> ScenarioConfig:
         "run": {"repeats": 1, "shuffle": False, "artifacts_dir": str(tmp_path or "results/runs")},
         **overrides,
     }
-    return ScenarioConfig.model_validate(data)
+
+
+def _scenario(tmp_path: Path | None = None, **overrides) -> ScenarioConfig:
+    return ScenarioConfig.model_validate(_scenario_data(tmp_path, **overrides))
 
 
 def _meta(**overrides) -> dict:
@@ -117,6 +123,18 @@ async def test_incomplete_or_outdated_index_is_rejected(metadata):
     with pytest.raises(ValidationError) as exc:
         await preflight(_scenario(), {"default": _Store(metadata)})
     assert _codes(exc) == [("index.no_metadata", "target default (chunks_v1)")]
+    assert "Rebuild the index" in str(exc.value)
+
+
+class _MissingStore:
+    async def collection_info(self):
+        return None
+
+
+async def test_missing_collection_is_rejected_once():
+    with pytest.raises(ValidationError) as exc:
+        await preflight(_scenario(), {"default": _MissingStore()})
+    assert _codes(exc) == [("index.no_collection", "target default (chunks_v1)")]
     assert "Rebuild the index" in str(exc.value)
 
 
@@ -243,11 +261,11 @@ async def test_run_writes_manifest_and_loads_index_model_revision(tmp_path, fake
 
     res = await run_module.run_scenario(cfg)
 
-    manifest = json.loads((Path(res["run_dir"]) / "manifest.json").read_text(encoding="utf-8"))
+    manifest = json.loads((res.run_dir / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["dataset"]["corpus_sha256"] == DEMO_SHA
     assert manifest["index"]["embedding_revision"] == MODEL_SHA
     assert _Embedder.created == [MODEL_SHA]
-    assert (Path(res["run_dir"]) / "scenario.snapshot.json").exists()
+    assert (res.run_dir / "scenario.snapshot.json").exists()
     assert manifest["index"]["build_env"] == BUILD_ENV
     assert manifest["rerank"] is None
     env = manifest["env"]
@@ -256,3 +274,62 @@ async def test_run_writes_manifest_and_loads_index_model_revision(tmp_path, fake
     assert env["services"] == {"storage": {"default": {"type": "qdrant", "version": "1.17.0", "status": "green"}}}
     for section in manifest:
         section_kind(section)  # каждая секция участвует в compare_runs
+
+
+async def test_dry_run_checks_index_without_models_or_run_dir(tmp_path, fake_runtime):
+    fake_runtime.metadata_for = {"chunks_v1": _meta()}
+
+    res = await run_module.run_scenario(_scenario(tmp_path / "runs"), dry_run=True)
+
+    assert res.preflight.index["embedding_revision"] == MODEL_SHA
+    assert (res.run_dir, res.summary, res.repeats) == (None, None, [])
+    assert _Embedder.created == []
+    assert not (tmp_path / "runs").exists()
+
+
+async def test_progress_counts_queries_over_all_repeats(tmp_path, fake_runtime):
+    fake_runtime.metadata_for = {"chunks_v1": _meta()}
+    cfg = _scenario(
+        dataset={"id": str(DEMO), "limit": 3},
+        run={"repeats": 2, "shuffle": False, "artifacts_dir": str(tmp_path / "runs")},
+    )
+    calls = []
+
+    await run_module.run_scenario(cfg, progress=lambda *a: calls.append(a))
+
+    assert calls == [("queries", n, 6) for n in range(1, 7)]
+
+
+async def test_unsupported_backend_is_a_validation_error(fake_runtime):
+    backend = {"type": "pgvector", "endpoint": "http://pg:5432", "collection": "chunks_v1"}
+
+    with pytest.raises(ValidationError) as exc:
+        await run_module.run_scenario(_scenario(storage={"mode": "single", "backend": backend}), dry_run=True)
+    assert _codes(exc) == [("storage.not_implemented", "target default")]
+
+
+def _scenario_file(tmp_path: Path) -> Path:
+    path = tmp_path / "scenario.yaml"
+    path.write_text(yaml.safe_dump(_scenario_data(tmp_path / "runs")), encoding="utf-8")
+    return path
+
+
+def test_cli_dry_run_prints_preflight_report(tmp_path, fake_runtime):
+    fake_runtime.metadata_for = {"chunks_v1": _meta()}
+
+    result = CliRunner().invoke(app, ["bench", "run", str(_scenario_file(tmp_path)), "--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    assert "Preflight: OK" in result.output
+    assert f"corpus sha256: {DEMO_SHA}" in result.output
+    assert f"embedding: all-MiniLM-L6-v2@{MODEL_SHA}" in result.output
+    assert not (tmp_path / "runs").exists()
+
+
+def test_cli_validation_error_exits_with_code_2(tmp_path, fake_runtime):
+    fake_runtime.metadata_for = {}
+
+    result = CliRunner().invoke(app, ["bench", "run", str(_scenario_file(tmp_path)), "--dry-run"])
+
+    assert result.exit_code == 2
+    assert "index.no_metadata" in result.output

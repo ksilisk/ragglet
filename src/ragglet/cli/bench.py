@@ -1,49 +1,37 @@
+from functools import partial
 from pathlib import Path
 
 import anyio
 import typer
 from rich import print as rprint
 
-from ragglet.bench.preflight import validate_scenario
+from ragglet.bench.preflight import Preflight
 from ragglet.bench.run_scenario import run_scenario
-from ragglet.config.scenario import load_scenario
-from ragglet.core.issues import ValidationError, render_issues
+from ragglet.cli.render import echo_warnings, exit_on_validation_error, progress_bar
+from ragglet.config.scenario import ScenarioConfig, load_scenario
 from ragglet.datasets.sources import describe_dataset
 
 bench_app = typer.Typer(help="Run benchmarks and evaluate scenarios.")
 
 
 @bench_app.command("run")
-def run(scenario: Path = typer.Argument(..., exists=True, dir_okay=False)) -> None:
+def run(
+    scenario: Path = typer.Argument(..., exists=True, dir_okay=False),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Only check the dataset and the index, run no queries"),
+) -> None:
     cfg = load_scenario(scenario)
-    try:
-        res = anyio.run(run_scenario, cfg)
-    except ValidationError as e:
-        typer.echo(str(e), err=True)
-        raise typer.Exit(2) from e
-    rprint("[bold green]Done[/bold green]")
-    rprint(res["summary"])
-    rprint(f"Artifacts: {res['run_dir']}")
-    if res["warnings"]:
-        typer.echo(render_issues("Preflight warnings", res["warnings"]))
+    with exit_on_validation_error(), progress_bar() as progress:
+        res = anyio.run(partial(run_scenario, cfg, dry_run=dry_run, progress=progress))
+    if dry_run:
+        _echo_preflight(cfg, res.preflight)
+    else:
+        rprint("[bold green]Done[/bold green]")
+        rprint(res.summary)
+        rprint(f"Artifacts: {res.run_dir}")
+    echo_warnings("Preflight warnings", res.preflight.warnings)
 
 
-@bench_app.command("validate")
-def validate(scenario: Path = typer.Argument(..., exists=True, dir_okay=False)) -> None:
-    """Проверки датасета и индекса, которые `bench run` делает перед прогоном."""
-    cfg = load_scenario(scenario)
-    try:
-        checked = anyio.run(validate_scenario, cfg)
-    except ValidationError as e:
-        typer.echo(str(e), err=True)
-        raise typer.Exit(1) from e
-    except NotImplementedError as e:
-        rprint(f"[bold yellow]Validation skipped[/bold yellow]: {e}")
-        raise typer.Exit(2) from e
-    except Exception as e:
-        rprint(f"[bold red]Validation failed[/bold red]: {e}")
-        raise typer.Exit(2) from e
-
+def _echo_preflight(cfg: ScenarioConfig, checked: Preflight) -> None:
     dataset, index = checked.dataset, checked.index
     chunking = index["chunking_method"]
     if index["chunk_size"] is not None:
@@ -57,5 +45,3 @@ def validate(scenario: Path = typer.Argument(..., exists=True, dir_okay=False)) 
     typer.echo(f"index: {index['index_profile_id']}, built {index['built_at']}")
     typer.echo(f"embedding: {index['embedding_model']}@{index['embedding_revision']}")
     typer.echo(f"chunking: {chunking}")
-    if checked.warnings:
-        typer.echo(render_issues("Preflight warnings", checked.warnings))

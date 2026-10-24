@@ -2,28 +2,45 @@ from __future__ import annotations
 
 import random
 from collections.abc import Mapping
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
 from ragglet.bench.artifacts import make_artifact_paths, save_config_snapshot, save_manifest
-from ragglet.bench.preflight import preflight
+from ragglet.bench.preflight import Preflight, preflight
 from ragglet.bench.query_loop import run_queries_once
 from ragglet.bench.summarize import summarize_repeat, aggregate_over_repeats
 from ragglet.cache.manager import CacheManager
 from ragglet.config.scenario import ScenarioConfig
 from ragglet.core.environment import Service, capture_env, describe_services
+from ragglet.core.progress import Progress, no_progress
 from ragglet.generation.engine import build_generator
 from ragglet.modules.embedders.st_embedder import SentenceTransformerEmbedder
 from ragglet.rerank.engine import build_reranker
 from ragglet.retrieval.backends import BackendRegistry
-from ragglet.storage.layout import build_storage_layout
+from ragglet.storage.layout import build_storage_layout, require_implemented
 from ragglet.stores.qdrant_store_async import AsyncQdrantStore
 
 
-async def run_scenario(cfg: ScenarioConfig) -> dict:
+@dataclass(frozen=True)
+class RunResult:
+    preflight: Preflight
+    run_dir: Path | None = None  # у dry_run прогона нет
+    summary: dict[str, Any] | None = None  # агрегат по повторам
+    repeats: list[dict[str, Any]] = field(default_factory=list)
+
+
+async def run_scenario(
+        cfg: ScenarioConfig,
+        *,
+        dry_run: bool = False,
+        progress: Progress = no_progress,
+) -> RunResult:
+    """Прогон сценария; `dry_run` — только preflight: без моделей, каталога прогона и запросов."""
     layout = build_storage_layout(cfg.storage)
-    if any(target.type != "qdrant" for target in layout.targets):
-        raise NotImplementedError("Only qdrant backend is implemented in the first iteration")
+    require_implemented(layout)
 
     stores = {
         target.id: AsyncQdrantStore(target.endpoint, target.collection)
@@ -34,6 +51,8 @@ async def run_scenario(cfg: ScenarioConfig) -> dict:
 
     try:
         checked = await preflight(cfg, stores)
+        if dry_run:
+            return RunResult(preflight=checked)
         items = checked.dataset.items
 
         backends = await BackendRegistry.build(cfg, async_store, stores)
@@ -67,6 +86,12 @@ async def run_scenario(cfg: ScenarioConfig) -> dict:
 
         all_summaries: list[dict] = []
         base_rng = random.Random(cfg.seed)
+        done, total = 0, len(items) * cfg.run.repeats
+
+        def query_done() -> None:
+            nonlocal done
+            done += 1
+            progress("queries", done, total)
 
         for r in range(cfg.run.repeats):
             run_items = list(items)
@@ -75,7 +100,9 @@ async def run_scenario(cfg: ScenarioConfig) -> dict:
                 random.Random(seed_r).shuffle(run_items)
 
             caches.reset_stats()
-            df = await run_queries_once(cfg, run_items, backends, embedder, caches, reranker, generator)
+            df = await run_queries_once(
+                cfg, run_items, backends, embedder, caches, reranker, generator, on_done=query_done
+            )
 
             summary = summarize_repeat(cfg, df)
             summary["repeat_idx"] = r
@@ -98,12 +125,7 @@ async def run_scenario(cfg: ScenarioConfig) -> dict:
         (paths.run_dir / "summary.aggregate.json").write_text(pd.Series(agg).to_json(indent=2), encoding="utf-8")
         pd.DataFrame([agg]).to_csv(paths.run_dir / "summary.aggregate.csv", index=False)
 
-        return {
-            "summary": agg,
-            "run_dir": str(paths.run_dir),
-            "repeats": all_summaries,
-            "warnings": checked.warnings,
-        }
+        return RunResult(preflight=checked, run_dir=paths.run_dir, summary=agg, repeats=all_summaries)
 
     finally:
         if caches is not None:

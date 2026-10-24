@@ -4,6 +4,11 @@ from dataclasses import dataclass
 from hashlib import sha1
 from typing import Any
 
+from ragglet.core.issues import error, raise_on_errors
+
+# схема конфига знает и другие типы, но реализован только qdrant
+IMPLEMENTED_BACKENDS = {"qdrant"}
+
 
 @dataclass(frozen=True)
 class StorageTarget:
@@ -82,4 +87,19 @@ def build_storage_layout(storage: Any) -> StorageLayout:
         primary=targets[0] if mode != "single" else primary,
         targets=targets,
         routing_key=routing_key,
+    )
+
+
+def require_implemented(layout: StorageLayout) -> None:
+    raise_on_errors(
+        "Storage is not supported",
+        (
+            error(
+                "storage.not_implemented",
+                f"target {target.id}",
+                f"backend {target.type!r} is not implemented, use one of {sorted(IMPLEMENTED_BACKENDS)}",
+            )
+            for target in layout.targets
+            if target.type not in IMPLEMENTED_BACKENDS
+        ),
     )
