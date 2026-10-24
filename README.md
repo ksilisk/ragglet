@@ -261,7 +261,6 @@ flowchart LR
     U["Пользователь / CLI"] --> CLI["Typer CLI: ragglet"]
     CLI --> IDX["index build"]
     CLI --> BENCH["bench run"]
-    CLI --> SERVE["serve (stub)"]
 
     IDX --> IPROF["Index profile YAML"]
     IPROF --> PARSE["BEIR corpus (local / HF)"]
