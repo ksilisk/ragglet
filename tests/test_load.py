@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -13,6 +15,7 @@ from ragglet.bench.load import LOAD_MODELS
 from ragglet.bench.query_loop import run_queries_once
 from ragglet.cache.manager import CacheManager
 from ragglet.config.scenario import ScenarioConfig
+from ragglet.core.lanes import Lane
 from ragglet.generation.base import GenerationResult
 from ragglet.generation.noop import NoopGenerator
 from ragglet.rerank.noop import NoopReranker
@@ -43,13 +46,28 @@ def _items(n: int) -> list[QueryItem]:
 
 
 class _Embedder:
-    def __init__(self, fail_on: str | None = None):
+    def __init__(self, fail_on: str | None = None, delay: float = 0.0):
         self.fail_on = fail_on
+        self.delay = delay
+        self.active = self.peak = 0
+        self._count = threading.Lock()
+        self._lane = Lane()
 
     def embed_batch(self, texts):
-        if self.fail_on in texts:
-            raise ValueError("embedder exploded")
-        return [[float(len(t))] for t in texts]
+        with self._count:
+            self.active += 1
+            self.peak = max(self.peak, self.active)
+        try:
+            time.sleep(self.delay)
+            if self.fail_on in texts:
+                raise ValueError("embedder exploded")
+            return [[float(len(t))] for t in texts]
+        finally:
+            with self._count:
+                self.active -= 1
+
+    async def embed_query(self, text):
+        return (await self._lane.run(self.embed_batch, [text]))[0]
 
 
 class _Store:
@@ -193,6 +211,16 @@ async def test_generation_runs_concurrently_too():
     df = await _run(cfg, _items(8), generator=_Llm())
     assert _Llm.peak == 4
     assert list(df["answer"]) == ["ok"] * 8
+
+
+async def test_embedding_does_not_block_other_queries():
+    embedder = _Embedder(delay=0.05)
+    df = await _run(_scenario({"concurrency": 2}), _items(4), store=_Store(delay=0.02), embedder=embedder)
+
+    assert embedder.peak == 1  # одна модель — один вызов за раз
+    # пока считается эмбеддинг соседа, ответ store принимается сразу; в event loop было бы ~50 мс
+    assert df["lat_retrieve_ms"].max() < 40
+    assert df["lat_embed_ms"].max() > 90  # ожидание своей очереди к модели видно в latency
 
 
 async def test_unexpected_error_stops_run_with_original_exception():

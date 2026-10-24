@@ -65,7 +65,7 @@ async def retrieve_items(
                     store = backends.vector_for(_backend_ref(src.params))
                     candidates = await store.search(vec, top_k=top_k, params=_search_params(src.params))
                 elif src.kind == "keyword":
-                    candidates = backends.keyword.search(query_text, top_k=top_k)
+                    candidates = await backends.keyword.search(query_text, top_k=top_k)
                 else:
                     raise NotImplementedError("Only 'vector' or 'keyword' source is implemented yet")
 
@@ -82,7 +82,7 @@ async def retrieve_items(
                         store = backends.vector_for(_backend_ref(s.params))
                         return await store.search(vec, top_k=top_k, params=_search_params(s.params))
                     elif s.kind == "keyword":
-                        return backends.keyword.search(query_text, top_k=top_k)
+                        return await backends.keyword.search(query_text, top_k=top_k)
                     else:
                         raise NotImplementedError("Only 'vector' or 'keyword' sources are implemented yet")
 

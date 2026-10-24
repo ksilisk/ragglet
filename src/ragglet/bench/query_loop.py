@@ -81,9 +81,6 @@ async def run_queries_once(
         reranker: Reranker,
         generator: Generator,
 ) -> pd.DataFrame:
-    def embed_one(q: str) -> list[float]:
-        return embedder.embed_batch([q])[0]
-
     total_budget = cfg.timeouts.total_ms / 1000.0
 
     async def run_one(it, planned_at: float) -> dict[str, Any]:
@@ -112,7 +109,7 @@ async def run_queries_once(
             # бюджет идёт с планового момента: ожидание старта входит в него
             with anyio.fail_after(max(0.0, planned_at + total_budget - anyio.current_time())):
                 t1 = time.perf_counter()
-                vec = await caches.get_or_compute_embedding(it.query, embed_one)
+                vec = await caches.get_or_compute_embedding(it.query, embedder.embed_query)
                 t2 = time.perf_counter()
 
                 # retrieval cache
