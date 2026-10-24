@@ -743,7 +743,8 @@ scenario:
             - "retrieve"
             - "total"
           status: implemented
-          docs: "Latency steps to summarize. Runtime currently emits lat_embed_ms, lat_retrieve_ms, lat_rerank_ms, lat_context_ms, lat_generation_ms, and lat_total_ms; merge is reserved until a separate merge timer exists."
+          docs: "Latency steps to summarize. Runtime currently emits lat_embed_ms, lat_retrieve_ms, lat_rerank_ms, lat_context_ms, lat_generation_ms, and lat_total_ms; merge is reserved until a separate merge timer exists. total covers every query including timeouts and errors; a step covers only the queries where it completed, its cell is empty otherwise. See docs/metrics.md."
+          caveat: "A step disabled in the scenario (for example rerank with rerank.enabled=false) has no values and gives null percentiles."
         percentiles:
           type: "list[integer]"
           default:
