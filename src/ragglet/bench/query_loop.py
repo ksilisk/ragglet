@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import anyio
+import anyio.lowlevel
 import pandas as pd
 
 from ragglet.bench.evaluation import evaluate_quality, project_to_docs
+from ragglet.bench.load import LoadModel, build_load_model
 from ragglet.cache.manager import CacheManager
 from ragglet.config.scenario import ScenarioConfig
 from ragglet.context.base import ContextResult
@@ -22,6 +25,53 @@ from ragglet.retrieval.engine import retrieve_items
 from ragglet.retrieval.merge import RetrievedItem
 
 
+class _Launcher:
+    """
+    Ядро прогона: выполняет запросы по вызовам модели нагрузки и ведёт учёт. Гарантии не
+    зависят от модели: каждый запрос запущен ровно один раз, строки в порядке списка,
+    первая неожиданная ошибка останавливает всё и выходит наружу как есть, с qid.
+    """
+
+    def __init__(self, items: list, run_one: Callable[[Any, float], Awaitable[dict[str, Any]]]):
+        self._items = items
+        self._run_one = run_one
+        self._rows: list[dict[str, Any] | None] = [None] * len(items)
+        self._launched = [False] * len(items)
+        self._fatal: Exception | None = None
+        self._scope: anyio.CancelScope | None = None
+
+    async def __call__(self, i: int, planned_at: float | None = None) -> None:
+        try:
+            if not 0 <= i < len(self._items):
+                raise IndexError(f"load model launched query #{i} of {len(self._items)}")
+            if self._launched[i]:
+                raise RuntimeError(f"load model launched query #{i} twice")
+            self._launched[i] = True
+            if planned_at is None:
+                planned_at = anyio.current_time()
+            self._rows[i] = await self._run_one(self._items[i], planned_at)
+        except Exception as e:
+            if self._fatal is None:
+                if 0 <= i < len(self._items):
+                    e.add_note(f"qid={self._items[i].qid}")
+                self._fatal = e
+            self._scope.cancel()
+            await anyio.lowlevel.checkpoint()
+
+    async def run(self, model: LoadModel) -> list[dict[str, Any]]:
+        with anyio.CancelScope() as self._scope:
+            await model.drive(len(self._items), self)
+        if self._fatal is not None:
+            raise self._fatal
+        missing = [self._items[i].qid for i, row in enumerate(self._rows) if row is None]
+        if missing:
+            raise RuntimeError(
+                f"load model {type(model).__name__} finished without launching "
+                f"{len(missing)} queries, e.g. {missing[:3]}"
+            )
+        return self._rows
+
+
 async def run_queries_once(
         cfg: ScenarioConfig,
         items,
@@ -31,13 +81,12 @@ async def run_queries_once(
         reranker: Reranker,
         generator: Generator,
 ) -> pd.DataFrame:
-    rows: list[dict[str, Any]] = []
-
     def embed_one(q: str) -> list[float]:
         return embedder.embed_batch([q])[0]
 
-    for it in items:
-        t0 = time.perf_counter()
+    total_budget = cfg.timeouts.total_ms / 1000.0
+
+    async def run_one(it, planned_at: float) -> dict[str, Any]:
         timed_out = False
         timeout_stage = None
         retrieved_ids = []
@@ -60,7 +109,8 @@ async def run_queries_once(
         lat_embed_ms = lat_retrieve_ms = lat_rerank_ms = lat_context_ms = lat_generation_ms = lat_total_ms = 0.0
 
         try:
-            with anyio.fail_after(cfg.timeouts.total_ms / 1000.0):
+            # бюджет идёт с планового момента: ожидание старта входит в него
+            with anyio.fail_after(max(0.0, planned_at + total_budget - anyio.current_time())):
                 t1 = time.perf_counter()
                 vec = await caches.get_or_compute_embedding(it.query, embed_one)
                 t2 = time.perf_counter()
@@ -133,45 +183,44 @@ async def run_queries_once(
             timed_out = True
             timeout_stage = "total"
         finally:
-            lat_total_ms = (time.perf_counter() - t0) * 1000.0
+            lat_total_ms = (anyio.current_time() - planned_at) * 1000.0
 
         quality = evaluate_quality(cfg.metrics.quality, final_items, it.qrels)
 
-        rows.append(
-            {
-                "qid": it.qid,
-                "query": it.query,
-                "truth_ids": it.truth_ids,
-                "retrieved_ids": retrieved_ids,
-                "retrieved_doc_ids": retrieved_doc_ids,
-                "reranked_ids": reranked_ids,
-                "context_ids": context_ids,
-                "context_text": context_text,
-                "context_tokens": context_tokens,
-                "context_chunks": context_chunks,
-                "answer": answer,
-                "prompt_text": prompt_text,
-                "raw_generation_response": raw_generation_response,
-                "generation_error": generation_error,
-                "gen_input_tokens": gen_input_tokens,
-                "gen_output_tokens": gen_output_tokens,
-                "gen_total_tokens": gen_total_tokens,
-                "gen_cost_estimated": gen_cost_estimated,
-                "final_ids": [item.chunk_id for item in final_items],
-                "final_doc_ids": project_to_docs(final_items),
-                "rerank_scores": rerank_scores,
-                **quality,
-                "lat_embed_ms": lat_embed_ms,
-                "lat_retrieve_ms": lat_retrieve_ms,
-                "lat_rerank_ms": lat_rerank_ms,
-                "lat_context_ms": lat_context_ms,
-                "lat_generation_ms": lat_generation_ms,
-                "lat_total_ms": lat_total_ms,
-                "emb_hit_rate": caches.stats.emb_hit_rate,
-                "ret_hit_rate": caches.stats.ret_hit_rate,
-                "timed_out": timed_out,
-                "timeout_stage": timeout_stage,
-            }
-        )
+        return {
+            "qid": it.qid,
+            "query": it.query,
+            "truth_ids": it.truth_ids,
+            "retrieved_ids": retrieved_ids,
+            "retrieved_doc_ids": retrieved_doc_ids,
+            "reranked_ids": reranked_ids,
+            "context_ids": context_ids,
+            "context_text": context_text,
+            "context_tokens": context_tokens,
+            "context_chunks": context_chunks,
+            "answer": answer,
+            "prompt_text": prompt_text,
+            "raw_generation_response": raw_generation_response,
+            "generation_error": generation_error,
+            "gen_input_tokens": gen_input_tokens,
+            "gen_output_tokens": gen_output_tokens,
+            "gen_total_tokens": gen_total_tokens,
+            "gen_cost_estimated": gen_cost_estimated,
+            "final_ids": [item.chunk_id for item in final_items],
+            "final_doc_ids": project_to_docs(final_items),
+            "rerank_scores": rerank_scores,
+            **quality,
+            "lat_embed_ms": lat_embed_ms,
+            "lat_retrieve_ms": lat_retrieve_ms,
+            "lat_rerank_ms": lat_rerank_ms,
+            "lat_context_ms": lat_context_ms,
+            "lat_generation_ms": lat_generation_ms,
+            "lat_total_ms": lat_total_ms,
+            "emb_hit_rate": caches.stats.emb_hit_rate,
+            "ret_hit_rate": caches.stats.ret_hit_rate,
+            "timed_out": timed_out,
+            "timeout_stage": timeout_stage,
+        }
 
-    return pd.DataFrame(rows)
+    model = build_load_model(cfg.run.load.type, cfg.run.load.params, cfg.seed)
+    return pd.DataFrame(await _Launcher(list(items), run_one).run(model))
