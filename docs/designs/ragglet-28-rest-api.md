@@ -38,23 +38,27 @@ in-memory заглушками. После этой задачи 29 и 30 иду
    Файл сохранён как черновик: работа не теряется, а запустить его нельзя.
 4. **Конфликт.** Тем временем файл поправили в IDE. Следующий `PUT` с прежним `etag` →
    409 `library.conflict`, UI предлагает перезагрузить.
-5. **Проверить.** После правки `POST /v1/runs {"scenario_id": "nfcorpus_rerank", "dry_run": true}`
+5. **Проверить.** После правки UI шлёт только что сохранённый текст:
+   `POST /v1/runs {"scenario": "…", "scenario_id": "nfcorpus_rerank", "dry_run": true}`
    → 200: датасет `hf:BeIR/nfcorpus@b5026a0e…`, 323 запроса × 1 повтор, concurrency 16,
    цели storage со статусом и `points` и одно предупреждение `index.not_green` с
    `path: null` и `where: "target default (nfcorpus_v1)"`. Это `run_scenario(cfg,
-   dry_run=True)`, вызванный в отдельном потоке.
-6. **Запустить.** `POST /v1/runs {"scenario_id": "nfcorpus_rerank"}` → 202
+   dry_run=True)`, вызванный в отдельном потоке. `scenario_id` — только ссылка на
+   библиотеку для реестра, файл сервер не читает.
+6. **Запустить.** `POST /v1/runs {"scenario": "…", "scenario_id": "nfcorpus_rerank"}` → 202
    `{"id": "nfcorpus_rerank_20261125T101540Z", "state": "queued", "position": 1, "warnings": […]}`
    и заголовок `Location: /v1/runs/nfcorpus_rerank_20261125T101540Z`. Сервер ещё раз
    сделал preflight, реестр выдал id (оно же имя каталога прогона), менеджер задач
-   поставил задачу за идущей сборкой `demo_sharded`.
+   поставил задачу за идущей сборкой `demo_sharded`. Если тот же сценарий поставить ещё
+   раз в ту же секунду, id второго прогона — `nfcorpus_rerank_20261125T101540Z-2`.
 7. **Следить.** `GET /v1/runs/nfcorpus_rerank_20261125T101540Z` раз в секунду: `queued,
    position 1` → `running, phase preparing` → `running, phase progress, progress {stage:
    queries, done: 120, total: 323}` → `completed`. С `?include=summary` приходит агрегат
    по повторам.
-8. **То же из терминала.** `curl -X POST localhost:8000/v1/runs -H 'content-type:
-   application/json' -d '{"scenario_id": "nfcorpus_rerank", "dry_run": true}'` даёт тот
-   же отчёт. CLI из ragglet-37 шлёт тот же запрос через httpx.
+8. **То же из терминала.**
+   `jq -n --rawfile s nfcorpus_rerank.yaml '{scenario: $s, dry_run: true}' | curl -X POST
+   localhost:8000/v1/runs -H 'content-type: application/json' -d @-` даёт тот же отчёт:
+   файл клиента уходит содержимым. CLI из ragglet-37 шлёт тот же запрос через httpx.
 
 Ни на одном шаге API не решал сам, валиден ли конфиг и совместим ли индекс. На шаге 3
 это решила схема `ScenarioConfig`, на шаге 5 — preflight ядра.
@@ -65,9 +69,10 @@ in-memory заглушками. После этой задачи 29 и 30 иду
 
 - Всё под `/v1`. OpenAPI лежит в `/v1/openapi.json`, Swagger UI — в `/v1/docs`: корень
   `/` остаётся за UI.
-- Конфиг передаётся содержимым: YAML-текстом в поле `scenario` / `profile`. Либо это id
-  из библиотеки сервера (`scenario_id` / `profile_id`), то есть файл на сервере, а не
-  путь клиента.
+- Конфиг передаётся только содержимым: YAML-текстом в поле `scenario` / `profile`, как
+  требует рамка 38. Рядом может стоять `scenario_id` / `profile_id`, но это ссылка на
+  сценарий библиотеки для реестра, а не способ передать конфиг: файл по нему сервер не
+  читает.
 - **API не проверяет конфиг сам.** Ошибки дают только схема (pydantic) и ядро
   (`ValidationError`). К результатам ядра API добавляет данные (состояние коллекций, кто
   их использует), но не новые ошибки. Если нужна новая проверка, она идёт в preflight
@@ -131,6 +136,7 @@ class Problem(BaseModel):
 | корень YAML не mapping, пустой текст | `config.yaml` | null | null | то же | 422 |
 | `ragglet.core.issues.ValidationError` | `Issue.code` | `Issue.path` (новое поле, п. 10) | `Issue.where` | `title` и `hint` исключения | 422 |
 | ошибка тела запроса (`RequestValidationError` FastAPI) | `request.<type>` | `loc` без `body` | null | `Request is invalid` | 422 |
+| `scenario_id` / `profile_id` не равен `name` / `id` в содержимом | `request.library_ref` | `scenario_id` / `profile_id` | null | `Request is invalid` | 422 |
 | нет сценария, прогона, сборки | `library.not_found`, `run.not_found`, `build.not_found` | null | `scenarios/x` | | 404 |
 | конфликт версий, отмена завершённой задачи | `library.conflict`, `task.finished` | null | | | 409 |
 | любое другое исключение | `server.error` | null | null | `Internal error`; в `message` — `Type: message`, трейсбек — в лог сервера | 500 |
@@ -219,7 +225,7 @@ class ScenarioItem(BaseModel):
     dataset: str | None                    # "hf:BeIR/nfcorpus"; None у черновика без dataset
     collections: list[CollectionRef]       # цели storage
     pipeline: Pipeline | None              # чипы: strategy, sources, rerank, context, generation, cache, concurrency, repeats
-    last_run: RunBrief | None              # Registry.list_runs(scenario=id, limit=1)
+    last_run: RunBrief | None              # Registry.list_runs(scenario_id=id, limit=1)
 
 class IndexProfileItem(BaseModel):
     id: str
@@ -416,9 +422,9 @@ class HfDataset(BaseModel):
 200 с отчётом или 422.
 
 ```python
-class RunRequest(BaseModel):               # ровно одно из scenario / scenario_id
-    scenario: str | None = None            # YAML-текст
-    scenario_id: ConfigId | None = None    # сценарий библиотеки: сервер читает файл сам
+class RunRequest(BaseModel):
+    scenario: str                          # YAML-текст сценария: конфиг только содержимым
+    scenario_id: ConfigId | None = None    # ссылка для реестра: из какого сценария библиотеки прогон
     dry_run: bool = False
     tags: list[str] = []                   # метки прогона в реестре, сверх scenario.tags
 
@@ -437,9 +443,9 @@ class RunCheck(BaseModel):
     plan: RunPlan
     warnings: list[ProblemIssue]
 
-class BuildRequest(BaseModel):             # ровно одно из profile / profile_id
-    profile: str | None = None
-    profile_id: ConfigId | None = None
+class BuildRequest(BaseModel):
+    profile: str                           # YAML-текст профиля
+    profile_id: ConfigId | None = None     # ссылка для реестра: из какого профиля библиотеки сборка
     dry_run: bool = False
 
 class BuildCheck(BaseModel):
@@ -464,6 +470,14 @@ class BuildTargetCheck(BaseModel):
     used_by: list[str]                     # сценарии библиотеки
 ```
 
+- **`scenario_id` / `profile_id`** не заменяют содержимое: сервер по ним файл не читает,
+  а только кладёт ссылку в запись реестра (страница прогона ведёт на сценарий,
+  `last_run` в списке библиотеки ищется по ней). По правилу библиотеки id равен `name`
+  сценария или `id` профиля, поэтому несовпадение — 422 `request.library_ref` с
+  `path: "scenario_id"`. Существование файла не проверяется: сценарий могут удалить и
+  позже, а ссылка в реестре останется. UI перед запуском и так сохраняет сценарий, текст
+  у него на руках; «Запустить выбранные» сначала читает тексты через
+  `GET /v1/scenarios/{id}`.
 - **`RunCheck`** — это `Preflight` ядра плюс план. План считает ядро: новая
   `run_plan(cfg, n_queries)` в `bench/run_scenario.py`, ею же `run_scenario` считает
   `total` для прогресса. Для `targets` `Preflight` должен отдавать состояние всех целей,
@@ -490,8 +504,11 @@ class BuildTargetCheck(BaseModel):
   нигде API ядро не вызывает.
 - **`run.artifacts_dir`** клиента сервер до preflight заменяет на
   `settings.artifacts_dir`: это серверный путь, и назначает его сервер (ragglet-15).
-- Dry-run во время идущего прогона делит с ним CPU. Для nfcorpus хэш корпуса занимает
-  доли секунды, для больших корпусов это шум в замерах, см. открытые вопросы.
+- **Известное ограничение: dry-run во время идущего прогона делит с ним CPU.** В v1
+  ничего с этим не делаем. Dry-run лёгкий: чтение и хэш корпуса, для nfcorpus это доли
+  секунды. Тяжёлое в нём только первое скачивание датасета с Hub, а к моменту прогона
+  датасет уже в кэше после сборки индекса. Если это станет шумом в замерах на больших
+  корпусах, dry-run можно будет ставить в очередь менеджера за текущей задачей.
 
 ### 9. Постановка, статус, отмена, лог
 
@@ -499,14 +516,14 @@ class BuildTargetCheck(BaseModel):
 
 ```python
 async def post_run(req: RunRequest, response: Response, ...) -> RunCheck | RunAccepted:
-    text = req.scenario if req.scenario is not None else library.read(req.scenario_id).yaml
-    cfg = parse_scenario(text)                              # 422: config.yaml, config.*
+    cfg = parse_scenario(req.scenario)                      # 422: config.yaml, config.*
+    check_library_ref(req.scenario_id, cfg.name)            # 422: request.library_ref
     cfg = with_artifacts_dir(cfg, settings.artifacts_dir)
     checked = await check_run(cfg)                          # preflight №1 в потоке; 422: ValidationError
     if req.dry_run:
         response.status_code = 200
         return RunCheck.build(cfg, checked)
-    record = await registry.create_run(NewRun.build(cfg, text, checked, req.tags))  # id и run_dir
+    record = await registry.create_run(NewRun.build(cfg, req, checked))  # id и run_dir
     status = await jobs.submit(TaskSpec(
         ref=TaskRef(TaskKind.RUN, record.id),
         name=cfg.name,
@@ -526,11 +543,12 @@ async def post_run(req: RunRequest, response: Response, ...) -> RunCheck | RunAc
 **id.** У прогона это `<name>_<UTC постановки>`, например
 `nfcorpus_rerank_20261125T101540Z`, и это же имя каталога прогона (ragglet-15). У
 сборки — `<id профиля>_<UTC постановки>`. id выдаёт `Registry.create_*`, и он
-гарантирует уникальность: если id занят, время в нём сдвигается на секунду вперёд, пока
-не найдётся свободное. Занят он бывает, когда тот же сценарий поставили дважды за
-секунду, например двойным кликом по «Повторить». Решение ragglet-15 «два прогона в одну
-секунду невозможны» верно для старта, но id выдаётся при постановке, а ставить можно
-сколько угодно быстро.
+гарантирует уникальность: если id занят, к нему добавляется суффикс `-2`, `-3` и так
+далее до свободного: `nfcorpus_rerank_20261125T101540Z-2`. Время в id всегда настоящее,
+сдвигать его нельзя. Занят id бывает, когда тот же сценарий поставили дважды за секунду,
+например двойным кликом по «Повторить». Решение ragglet-15 «два прогона в одну секунду
+невозможны» верно для старта, но id выдаётся при постановке, а ставить можно сколько
+угодно быстро. Полный формат: `<name>_<YYYYMMDDTHHMMSSZ>[-N]`.
 
 У сущности один id. Задача менеджера адресуется `TaskRef(kind, id)` того же прогона или
 сборки, своих id у задач нет. Пространства id прогонов и сборок разные (`nfcorpus_hf`
@@ -616,6 +634,7 @@ class JobManager(Protocol):
 @dataclass(frozen=True)
 class NewRun:
     name: str
+    scenario_id: str | None                # ссылка на сценарий библиотеки из запроса
     scenario: dict[str, Any]               # cfg.model_dump(): ровно то, что ляжет в scenario.snapshot
     etag: str                              # sha256 текста сценария: для «изменился после прогона»
     tags: list[str]
@@ -629,6 +648,7 @@ class RunRecord:
     id: str
     run_dir: Path
     name: str
+    scenario_id: str | None
     scenario: dict[str, Any]
     etag: str
     tags: list[str]
@@ -666,9 +686,9 @@ class Registry(Protocol):
     async def queries(self, run_id: str, query: QueryFilter) -> Page[dict[str, Any]]: ...
 ```
 
-`NewBuild` и `BuildRecord` устроены так же, только с `profile`, `targets` и `result`
-вместо плана. `Page` — это `items` и `total`. `RunQuery` (фильтры `scenario`, `state`,
-`tag`, период, сортировка, страница), `QueryFilter`, `RunSummary` и строка списка с
+`NewBuild` и `BuildRecord` устроены так же, только с `profile_id`, `profile`, `targets`
+и `result` вместо плана. `Page` — это `items` и `total`. `RunQuery` (фильтры
+`scenario_id`, `name`, `state`, `tag`, период, сортировка, страница), `QueryFilter`, `RunSummary` и строка списка с
 колонками сводки здесь заданы минимально. 30 расширяет их полями, не меняя смысла
 существующих.
 
@@ -683,8 +703,10 @@ class Registry(Protocol):
 `InMemoryJobManager` ничего не выполняет: `submit` ставит задачу в очередь, а переходы
 делают тестовые методы `start(ref)`, `report(ref, stage, done, total)` и
 `finish(ref, state, failure=None)`. Они вызывают `Registry.update` так же, как будет
-вызывать 29. Значит, до 29 `ragglet serve` принимает прогоны, но они так и остаются
-`queued`, и в UI это видно. `create_app(settings, jobs=None, registry=None)` подставляет
+вызывать 29. Значит, между 28 и 29 `ragglet serve` принимает прогоны, но они так и
+остаются `queued`, и в UI это видно. Так решено на ревью: CLI до ragglet-37 вызывает
+ядро напрямую, а заглушка нужна тестам API и фронту (31), чтобы строить страницы прогона
+и очереди до появления 29. `create_app(settings, jobs=None, registry=None)` подставляет
 заглушки; 29 и 30 передают свои реализации, а endpoints и их тесты не меняются.
 
 **Ответы:**
@@ -712,6 +734,7 @@ class TaskErrorOut(BaseModel):
 class RunStatus(BaseModel):
     id: str
     scenario: str                          # name
+    scenario_id: str | None                # ссылка на сценарий библиотеки, если её передали
     etag: str
     state: TaskState
     phase: Literal["preparing", "progress", "finishing"] | None   # только при running
@@ -747,16 +770,18 @@ class LogChunkOut(BaseModel):
     complete: bool
 ```
 
-`BuildAccepted` и `BuildStatus` такие же, с `profile`, `targets: list[CollectionRef]` и
-`result` (число документов, записанные метаданные) вместо плана и summary.
+`BuildAccepted` и `BuildStatus` такие же, с `profile`, `profile_id`,
+`targets: list[CollectionRef]` и `result` (число документов, записанные метаданные)
+вместо плана и summary.
 
 - Без `include` ответ лёгкий: только реестр и менеджер, артефакты не читаются. Именно его
   опрашивают раз в секунду.
 - `phase` считает API из состояния и прогресса по таблице ragglet-15: `running` без
   прогресса — `preparing`, `done < total` — `progress`, `done == total` — `finishing`.
   Так CLI и UI показывают одно и то же.
-- «Повторить» — это `include=scenario` и `POST /v1/runs {"scenario": scenario_yaml}`:
-  новый прогон из того же snapshot, переданного содержимым.
+- «Повторить» — это `include=scenario` и
+  `POST /v1/runs {"scenario": scenario_yaml, "scenario_id": scenario_id}`: новый прогон
+  из того же snapshot, переданного содержимым, с той же ссылкой на библиотеку.
 - `cancel`: задача в очереди убирается и сразу становится `cancelled`; у `running`
   менеджер прерывает процесс, и ответ показывает текущее состояние (`running`, пока
   процесс не завершился). Отмена завершённой задачи — 409 `task.finished`.
@@ -801,7 +826,9 @@ class LogChunkOut(BaseModel):
    preflight делает `PING` Redis с таймаутом и при неудаче даёт `cache.unreachable` с
    `path: cache.embedding.endpoint`; сейчас Redis трогает только `describe_services`,
    уже после загрузки моделей. Недоступный endpoint в конфиге чаще всего — опечатка в
-   порту, поэтому это ошибка конфига, а не сбой.
+   порту, поэтому это ошибка конфига, а не сбой. Обе проверки идут до побочных эффектов:
+   каталог прогона ещё не создан, модели не загружены. В API это 422 на «Проверить», в
+   CLI — код 2.
 6. **`Preflight.collections`** — `CollectionInfo` всех целей, для `RunCheck.targets`.
    `manifest()` не меняется.
 7. **`run_scenario(…, run_id=None)`** задаёт имя каталога прогона; `None` — как сейчас,
@@ -896,9 +923,9 @@ src/ragglet/registry/  protocol.py, memory.py (InMemoryRegistry)
 | `path` только у ошибок схемы, у проблем ядра только `where` | `path` есть и у части проблем ядра: у новых проверок конфига в preflight | `cascade`, `backend_ref`, endpoint-ы — это поля конфига; без `path` UI не поставит ошибку у поля |
 | 409 по `updated_at`, «в `If-Match`-стиле» | 409 по `etag` (хэш содержимого) из тела `PUT` и параметра `DELETE`; `updated_at` отдаётся для показа | mtime грубее и меняется без правки; поле тела видно в схеме OpenAPI и проще для CLI |
 | четыре способа создать сценарий | на сервере два: из YAML и из snapshot прогона; «дублировать» и «пустой» делает UI через `POST {yaml}` | дублирование — это правка `name` в тексте с комментариями, её уже умеет YAML-редактор UI; серверу понадобилась бы round-trip YAML-библиотека |
-| `POST /v1/runs {scenario, scenario_id?, tags?}` | ровно одно из `scenario` (текст) и `scenario_id` | `scenario_id` по правилу библиотеки равен `name`, рядом с текстом он лишний; отдельно он удобен для «Запустить выбранные» и CLI. Это id файла на сервере, а не путь клиента (вопрос ревью 4) |
+| `POST /v1/runs {scenario, scenario_id?, tags?}` | так же, и `scenario_id` обязан совпадать с `name` в содержимом (иначе 422 `request.library_ref`) | по правилу библиотеки id равен `name`; ссылка, не совпадающая с содержимым, ввела бы реестр в заблуждение |
 | id сборки назначает 29 | id сборки `<профиль>_<UTC>` выдаёт реестр при постановке, как у прогона | один id на сущность, задача адресуется им же; сборки тоже попадают в реестр (рамка 38) |
-| «два прогона в одну секунду невозможны» | в id время постановки, при совпадении оно сдвигается на секунду | id выдаётся при 202, а ставить можно быстрее раза в секунду; время в имени каталога теперь означает постановку, а не старт |
+| «два прогона в одну секунду невозможны» | в id время постановки, при совпадении — суффикс `-2`, `-3`: `<name>_<UTC>[-N]`; так же у сборок | id выдаётся при 202, а ставить можно быстрее раза в секунду; время в имени каталога теперь означает постановку, а не старт |
 | `GET /v1/runs/{id}` с `fields=` или отдельный `/status` | лёгкий ответ по умолчанию, тяжёлое — через `?include=summary,manifest,scenario`; `phase` считает сервер | один URL, частый опрос дёшев без параметров; фаза одинакова в UI и CLI |
 | `GET /v1/tasks?active=1` | `GET /v1/tasks` — только активные: текущая и очередь | завершённые задачи — это прогоны и сборки в реестре (30), второй список не нужен |
 | `GET /v1/indexes`: поля коллекции | плюс `state`, `profiles` и список endpoint-ов с доступностью | правила четырёх состояний из ragglet-15 один раз считает сервер; `profiles` нужны для «Пересобрать» |
@@ -976,9 +1003,11 @@ src/ragglet/registry/  protocol.py, memory.py (InMemoryRegistry)
    при недоступном endpoint коллекции другого на месте. Датасеты: `datasets/demo` с
    `splits: ["test"]`, `hf`-id из библиотеки и метаданных.
 9. **Постановка и жизнь задачи на заглушках.** `POST /v1/runs` → 202, id вида
-   `<name>_YYYYMMDDTHHMMSSZ`, заголовок `Location`; в реестре запись, в очереди задача с
-   `run_dir = artifacts_dir / id`. Две постановки за секунду дают разные id. После 422 нет
-   ни записи, ни задачи. `GET`: `queued` с позицией → после `start` фаза `preparing` →
+   `<name>_YYYYMMDDTHHMMSSZ`, заголовок `Location`; в реестре запись с `scenario_id` из
+   запроса, в очереди задача с `run_dir = artifacts_dir / id`. Три постановки за одну
+   секунду (время заморожено) дают `…Z`, `…Z-2`, `…Z-3`; так же у сборок. Запрос без
+   `scenario` — 422 `request.missing`; `scenario_id`, не равный `name`, — 422
+   `request.library_ref` с `path: scenario_id`. После 422 нет ни записи, ни задачи. `GET`: `queued` с позицией → после `start` фаза `preparing` →
    после `report` фаза `progress` → после `finish(failed, ValidationError)` есть
    `error.problem` с issues. `cancel` в очереди — `cancelled`, завершённой задачи — 409.
    `log` по смещениям. `GET /v1/tasks` — текущая, затем очередь. `include=scenario` даёт
@@ -1007,14 +1036,22 @@ src/ragglet/registry/  protocol.py, memory.py (InMemoryRegistry)
    статус, отмена, лог, `/v1/tasks`.
 5. Статика UI, README.
 
+После фазы 4 и до ragglet-29 прогоны и сборки через API ставятся в очередь, но не
+выполняются: заглушка менеджера ничего не запускает. Это принято. Выполнять прогоны в
+это время можно из CLI, который до ragglet-37 вызывает ядро напрямую, а заглушка нужна
+тестам API и фронту (31).
+
 ## Вне скоупа
 
 - Очередь, процессы, отмена работающей задачи, лог процесса, второй preflight при старте
-  — ragglet-29. Здесь только интерфейс и заглушка без выполнения.
+  — ragglet-29. Здесь только интерфейс и заглушка без выполнения: до 29 прогоны через API
+  остаются `queued`.
 - Хранение прогонов и сборок, восстановление после рестарта сервера (записи
   `queued`/`running`, которых уже нет у менеджера), список прогонов с колонками сводки,
   per-query, артефакты и zip, наполнение `summary` и `manifest` — ragglet-30.
-- CLI как клиент API — ragglet-37. До него CLI вызывает ядро напрямую, как сейчас.
+- CLI как клиент API — ragglet-37. До него CLI вызывает ядро напрямую, как сейчас, и
+  остаётся единственным способом реально выполнить прогон, пока нет 29.
+- Изоляция dry-run от идущего прогона по CPU — известное ограничение v1 (п. 8).
 - UI — ragglet-31 и 32; здесь только раздача статики.
 - Авторизация, несколько пользователей, несколько процессов сервера.
 - SSE и WebSocket (решение 8 ragglet-15).
@@ -1044,19 +1081,29 @@ src/ragglet/registry/  protocol.py, memory.py (InMemoryRegistry)
 - **Заглушка менеджера, которая выполняет задачи в процессе сервера.** Позволила бы
   гонять прогоны до 29, но в обход правила «свежий процесс на задачу» из рамки 38 и с
   риском, что временное станет постоянным.
+- **`POST /v1/runs {scenario_id}` без содержимого** — сервер сам читает файл библиотеки.
+  Отвергнуто на ревью: рамка 38 требует передавать конфиг содержимым, а UI перед запуском
+  и так сохраняет сценарий, и текст у него есть.
+- **Сдвиг времени в id на секунду при совпадении.** Отвергнуто на ревью: в id оказалось
+  бы ложное время.
 
-## Открытые вопросы для ревью
+## Решено на ревью
 
-1. **Черновики в библиотеке** (п. 4): сохраняем невалидное по схеме с `valid: false` и
-   отказываем только битому YAML. Или отказывать во всём невалидном?
-2. **Недоступный Qdrant или Redis — 422** (п. 10.5), а не сбой задачи. Согласны считать
-   недоступный endpoint ошибкой конфига?
-3. **Время в id прогона — момент постановки, со сдвигом на секунду при совпадении.** Имя
-   каталога перестаёт означать время старта. Устраивает, или лучше суффикс `-2`?
-4. **`POST /v1/runs {scenario_id}` без содержимого.** Удобно для «Запустить выбранные» и
-   CLI. Не противоречит ли это правилу рамки 38 «конфиг передаётся содержимым»?
-5. **Заглушка менеджера не выполняет задачи**: между 28 и 29 прогоны через API стоят в
-   очереди. Приемлемо?
-6. **Dry-run во время прогона делит с ним CPU.** Для больших корпусов это шум в замерах.
-   Варианты: ничего не делать (корпуса стенда малы), предупреждать в ответе или ставить
-   dry-run в очередь менеджера за текущей задачей.
+1. **Черновики, невалидные по схеме, сохраняются** с `valid: false` и `problem`;
+   синтаксически битый YAML не сохраняется (422 `config.yaml`). Сценарий «на полпути»
+   должен сохраняться (п. 4).
+2. **Недоступный Qdrant или Redis при dry-run — 422**, проблема preflight с кодом
+   `storage.unreachable` или `cache.unreachable`, а не сбой задачи. Проверка идёт до
+   побочных эффектов, и в UI ошибка встаёт в «Проверить» (п. 10.5).
+3. **Совпадение id решается суффиксом `-2`, `-3`** к `<name>_<UTC>`, а не сдвигом
+   времени: id не должен содержать ложное время. То же для id сборки (п. 9).
+4. **Конфиг в `POST /v1/runs` и `POST /v1/builds` — только содержимым** (`scenario` /
+   `profile`), как требует рамка 38. `scenario_id` / `profile_id` — необязательная ссылка
+   рядом с содержимым: по ней реестр знает, из какого сценария или профиля библиотеки
+   прогон или сборка. Файл по ней сервер не читает (п. 8).
+5. **Между 28 и 29 прогоны через API стоят в очереди и не выполняются** — приемлемо. CLI
+   до ragglet-37 вызывает ядро напрямую, а заглушка нужна тестам и фронту («Фазы», «Вне
+   скоупа»).
+6. **Dry-run во время прогона делит с ним CPU — в v1 ничего не делаем**, это известное
+   ограничение. Dry-run лёгкий, тяжёлое в нём только первое скачивание датасета с Hub, а
+   к моменту прогона датасет уже в кэше после сборки индекса (п. 8).
