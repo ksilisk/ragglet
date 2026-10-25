@@ -48,3 +48,6 @@ class LRURetrievalCache:
 
     def set(self, key: str, entry: RetrievalCacheEntry) -> None:
         self.cache[key] = entry
+
+    def clear(self) -> None:
+        self.cache.clear()
