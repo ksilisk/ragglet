@@ -6,14 +6,24 @@ from typing import Any
 
 import redis.asyncio as redis
 
+_UNLINK_BATCH = 1000
+
 
 class RedisEmbeddingCache:
     def __init__(
-        self, endpoint: str, ttl_seconds: int, model_name: str, revision: str | None, normalize: bool
+        self,
+        endpoint: str,
+        ttl_seconds: int,
+        model_name: str,
+        revision: str | None,
+        normalize: bool,
+        *,
+        namespace: str,
     ):
         self.redis = redis.from_url(endpoint, encoding="utf-8", decode_responses=True)
         self.ttl = int(ttl_seconds)
-        self.ns = f"emb:{model_name}@{revision}:{int(normalize)}"
+        self.ns = f"emb:{model_name}@{revision}:{int(normalize)}:{namespace}"
+        self._written: set[str] = set()
 
     def _key(self, text: str) -> str:
         h = hashlib.sha1(text.encode("utf-8")).hexdigest()
@@ -27,7 +37,14 @@ class RedisEmbeddingCache:
 
     async def set(self, text: str, vector: list[float]) -> None:
         key = self._key(text)
+        self._written.add(key)  # до записи: прерванный set тоже убираем
         await self.redis.set(key, json.dumps(vector), ex=self.ttl)
+
+    async def delete_written(self) -> None:
+        """Удаляет только ключи, записанные этим экземпляром."""
+        keys, self._written = list(self._written), set()
+        for i in range(0, len(keys), _UNLINK_BATCH):
+            await self.redis.unlink(*keys[i:i + _UNLINK_BATCH])
 
     async def describe(self) -> dict[str, Any]:
         server = await self.redis.info("server")

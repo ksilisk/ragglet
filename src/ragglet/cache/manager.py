@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
 from typing import Any
 
@@ -30,27 +31,51 @@ class CacheStats:
 
 
 class CacheManager:
+    """
+    Каждый повтор начинается с кэша в том состоянии, что на старте прогона. Без
+    cache.embedding.namespace ключи Redis принадлежат прогону и удаляются перед каждым
+    повтором и в конце. С namespace кэш общий для прогонов, за его состояние отвечает
+    исследователь, и ragglet его не чистит.
+    """
+
     def __init__(self, cfg: ScenarioConfig, embedding_revision: str | None = None):
         self.cfg = cfg
         self.stats = CacheStats()
 
         self.emb_cache: RedisEmbeddingCache | None = None
         self.ret_cache: LRURetrievalCache | None = None
+        self._owns_emb_keys = False
 
         if cfg.cache.enabled and cfg.cache.embedding:
+            namespace = cfg.cache.embedding.namespace
+            self._owns_emb_keys = namespace is None
             self.emb_cache = RedisEmbeddingCache(
                 endpoint=cfg.cache.embedding.endpoint,
                 ttl_seconds=cfg.cache.embedding.ttl_seconds,
                 model_name=cfg.embedding.model,
                 revision=embedding_revision,
                 normalize=cfg.embedding.normalize,
+                namespace=namespace or f"run-{uuid.uuid4().hex}",
             )
 
         if cfg.cache.enabled and cfg.cache.retrieval:
             self.ret_cache = LRURetrievalCache(size=cfg.cache.retrieval.size)
 
+    async def reset(self) -> None:
+        """Перед повтором: убрать всё, что записал прогон, и обнулить счётчики."""
+        self.stats = CacheStats()
+        if self.ret_cache is not None:
+            self.ret_cache.clear()
+        if self.emb_cache is not None and self._owns_emb_keys:
+            await self.emb_cache.delete_written()
+
     async def close(self) -> None:
-        if self.emb_cache is not None:
+        if self.emb_cache is None:
+            return
+        try:
+            if self._owns_emb_keys:
+                await self.emb_cache.delete_written()  # при падении остаток истечёт по TTL
+        finally:
             await self.emb_cache.close()
 
     async def get_or_compute_embedding(self, query: str, embed_fn) -> list[float]:
@@ -111,6 +136,3 @@ class CacheManager:
         if self.ret_cache is None or key is None:
             return
         self.ret_cache.set(key, RetrievalCacheEntry(retrieved_items=retrieved_items))
-
-    def reset_stats(self) -> None:
-        self.stats = CacheStats()

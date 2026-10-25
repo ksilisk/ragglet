@@ -143,5 +143,5 @@ def test_model_revision_from_hf_cache(tmp_path, monkeypatch):
 def test_redis_embedding_key_includes_model_revision():
     from ragglet.cache.embedding_redis import RedisEmbeddingCache
 
-    cache = RedisEmbeddingCache("redis://localhost:6379/0", 60, "m", DATA_SHA, True)
-    assert cache._key("q").startswith(f"emb:m@{DATA_SHA}:1:")
+    cache = RedisEmbeddingCache("redis://localhost:6379/0", 60, "m", DATA_SHA, True, namespace="ns")
+    assert cache._key("q").startswith(f"emb:m@{DATA_SHA}:1:ns:")

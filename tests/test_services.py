@@ -66,7 +66,7 @@ class _Redis:
 
 
 async def test_redis_cache_reports_server_version():
-    cache = RedisEmbeddingCache("redis://localhost:6379/0", 60, "m", "rev", True)
+    cache = RedisEmbeddingCache("redis://localhost:6379/0", 60, "m", "rev", True, namespace="ns")
     cache.redis = _Redis()
 
     assert await cache.describe() == {"type": "redis", "version": "7.4.1"}

@@ -236,6 +236,8 @@ class CacheEmbeddingConfig(BaseModel):
     type: Literal["redis"] = "redis"
     endpoint: str
     ttl_seconds: int = 86400
+    # общий кэш для прогонов с тем же namespace; без него у прогона свои ключи
+    namespace: str | None = Field(None, min_length=1)
 
 
 class CacheRetrievalConfig(BaseModel):
@@ -359,6 +361,17 @@ class ScenarioConfig(BaseModel):
     def _generation_requires_context(self) -> "ScenarioConfig":
         if self.generation.enabled and not self.context.enabled:
             raise ValueError("context.enabled must be true when generation.enabled=true")
+        return self
+
+    @model_validator(mode="after")
+    def _shared_cache_single_repeat(self) -> "ScenarioConfig":
+        # общий кэш не чистится между повторами: повтор 1 увидел бы записи повтора 0
+        emb = self.cache.embedding
+        if self.cache.enabled and emb is not None and emb.namespace is not None and self.run.repeats > 1:
+            raise ValueError(
+                "cache.embedding.namespace is shared across runs and is not reset between repeats; "
+                "use run.repeats=1 and repeat the run instead"
+            )
         return self
 
     @model_validator(mode="after")

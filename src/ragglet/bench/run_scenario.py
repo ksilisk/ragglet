@@ -99,7 +99,7 @@ async def run_scenario(
                 seed_r = base_rng.randint(0, 2 ** 31 - 1)
                 random.Random(seed_r).shuffle(run_items)
 
-            caches.reset_stats()
+            await caches.reset()
             df = await run_queries_once(
                 cfg, run_items, backends, embedder, caches, reranker, generator, on_done=query_done
             )
