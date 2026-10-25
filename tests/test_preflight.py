@@ -448,8 +448,10 @@ async def test_run_id_names_the_run_dir_once(tmp_path, fake_runtime):
 
 
 def test_run_plan_matches_progress_total():
+    from ragglet.bench.plan import run_plan
+
     cfg = _scenario(run={"repeats": 3, "load": {"concurrency": 4}})
-    plan = run_module.run_plan(cfg, 5)
+    plan = run_plan(cfg, 5)
     assert (plan.queries_per_repeat, plan.total, plan.load) == (5, 15, {"type": "closed", "concurrency": 4})
 
 

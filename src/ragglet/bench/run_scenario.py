@@ -9,6 +9,7 @@ from typing import Any
 import pandas as pd
 
 from ragglet.bench.artifacts import make_artifact_paths, save_config_snapshot, save_manifest
+from ragglet.bench.plan import run_plan
 from ragglet.bench.preflight import Preflight, check_scenario, preflight
 from ragglet.bench.query_loop import run_queries_once
 from ragglet.bench.summarize import summarize_repeat, aggregate_over_repeats
@@ -21,23 +22,6 @@ from ragglet.modules.embedders.st_embedder import SentenceTransformerEmbedder
 from ragglet.rerank.engine import build_reranker
 from ragglet.retrieval.backends import BackendRegistry
 from ragglet.stores.qdrant_store_async import AsyncQdrantStore
-
-
-@dataclass(frozen=True)
-class RunPlan:
-    repeats: int
-    queries_per_repeat: int
-    total: int  # запросов за прогон: total у progress("queries", ...)
-    load: dict[str, Any]  # run.load: type и параметры модели нагрузки
-
-
-def run_plan(cfg: ScenarioConfig, n_queries: int) -> RunPlan:
-    return RunPlan(
-        repeats=cfg.run.repeats,
-        queries_per_repeat=n_queries,
-        total=n_queries * cfg.run.repeats,
-        load={"type": cfg.run.load.type, **cfg.run.load.params},
-    )
 
 
 @dataclass(frozen=True)
