@@ -1,6 +1,6 @@
 # S1 — Async Retrieval.
-# Текущий runtime умеет async fanout внутри одного query.
-# Чего не хватает: query-level concurrency и throughput/QPS summary.
+# Async fanout внутри одного запроса: два vector-источника с разным ef_search, merge RRF.
+# Конкурентность запросов задаётся run.load (concurrency), QPS и wall_ms — в summary.
 
 version: 1
 name: "s1_async_retrieval"
