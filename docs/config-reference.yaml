@@ -281,7 +281,7 @@ scenario:
           constraints:
             schema_enforced: ">= 1"
           status: implemented
-          docs: "Number of full dataset passes."
+          docs: "Number of full dataset passes. Every repeat starts with the cache as it was at run start: the retrieval LRU is cleared and the run's own Redis keys are deleted before each repeat, so repeats differ only by noise."
         shuffle:
           type: "boolean"
           default: true
@@ -697,7 +697,8 @@ scenario:
           type: "object|null"
           default: null
           status: partial
-          docs: "Redis embedding cache. Optional when cache.enabled=true if another cache layer is configured."
+          docs: "Redis embedding cache. Optional when cache.enabled=true if another cache layer is configured. Keys are prefixed with model@revision:normalize and a scope: the run's own random id by default, or `namespace`."
+          caveat: "Without namespace every run and every repeat starts cold; the run deletes only the keys it wrote (before each repeat and at the end, leftovers after a crash expire by TTL) and never touches other keys."
           fields:
             type:
               type: "enum"
@@ -714,12 +715,19 @@ scenario:
               default: 86400
               status: implemented
               docs: "Redis TTL for embedding vectors."
+            namespace:
+              type: "string|null"
+              default: null
+              status: implemented
+              docs: "Shared cache scope: runs with the same namespace share embedding vectors, and ragglet never deletes them. A new namespace starts cold, reusing one after a run starts warm; the researcher owns its state. The snapshot does not show whether a namespace was empty, check emb_hit_rate in summary."
+              constraints:
+                schema_enforced: "Requires run.repeats=1: a shared cache is not reset between repeats. For spread, repeat the run."
         retrieval:
           type: "object|null"
           default: null
           status: implemented
           docs: "In-process LRU cache for retrieved id lists."
-          caveat: "Not persisted across CLI processes. It can hit across repeats inside the same scenario run."
+          caveat: "Lives inside one repeat: cleared before each repeat and not persisted across CLI processes. Hits come only from repeated queries within a repeat."
           fields:
             type:
               type: "enum"
