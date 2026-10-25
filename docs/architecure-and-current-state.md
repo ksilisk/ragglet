@@ -105,7 +105,8 @@ Key sections:
   - `embedding`: Redis cache for query embeddings
   - `retrieval`: in-memory LRU cache for retrieval results, including retrieved ids and candidate payloads
   Notes:
-  - retrieval LRU is per-process; hit rate across separate CLI runs is expected to be 0 unless repeats>1 or queries repeat.
+  - every repeat starts with the cache as it was at run start: retrieval LRU is cleared, the run's own Redis keys are deleted;
+  - `embedding.namespace` shares the Redis cache across runs (warm start is a second run with the same namespace); it requires `repeats: 1` and is never deleted by ragglet.
 - `metrics`:
   - `quality.k`, `quality.doc`, `quality.chunk`
   - `percentiles` from YAML for emitted latency fields
@@ -216,6 +217,7 @@ What is implemented today (core)
 * Redis embedding cache: query text -> embedding vector
 * LRU retrieval cache: query+scenario signature -> retrieved ids + retrieved item payloads (in-process only)
 * Cache stats are summarized as rates (per repeat), not as per-row arrays.
+* Each repeat starts with empty caches; Redis keys are scoped by run unless `cache.embedding.namespace` is set.
 
 ✅ Rerank:
 

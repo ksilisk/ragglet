@@ -1,6 +1,7 @@
 # S4 — Cache.
-# Текущий runtime поддерживает Redis embedding cache и in-process retrieval LRU.
-# Для стабильного retrieval-cache hit-rate оставляем shuffle=false и repeats>1.
+# Redis embedding cache и in-process retrieval LRU. Каждый повтор начинается с пустого кэша,
+# поэтому S4 меряет холодный кэш. Тёплый старт кэша эмбеддингов — второй прогон с тем же
+# cache.embedding.namespace и repeats: 1.
 
 version: 1
 name: "s4_cache"

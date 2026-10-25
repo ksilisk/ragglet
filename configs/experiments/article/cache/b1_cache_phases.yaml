@@ -1,3 +1,6 @@
+# Холодная и тёплая фаза — два прогона подряд с одним namespace: первый наполняет кэш
+# эмбеддингов, второй стартует с тёплого. Для каждого trial нужен новый namespace.
+# Кэш retrieval в памяти живёт один повтор, поэтому холодный в обоих прогонах.
 version: 1
 name: "article_b1_cache_phases"
 description: "Article matrix B paired cold/warm cache phases using isolated Redis DB 15."
@@ -5,7 +8,7 @@ tags: ["article", "cache", "b1", "cold-warm", "redis-db-15"]
 seed: 42
 
 run:
-  repeats: 2
+  repeats: 1
   shuffle: false
   save_per_query: true
   artifacts_dir: "results/article/raw"
@@ -72,6 +75,7 @@ cache:
     type: "redis"
     endpoint: "redis://localhost:6379/15"
     ttl_seconds: 86400
+    namespace: "b1_trial1"
   retrieval:
     type: "memory_lru"
     size: 10000
