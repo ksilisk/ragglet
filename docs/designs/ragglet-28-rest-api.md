@@ -479,7 +479,7 @@ class BuildTargetCheck(BaseModel):
   у него на руках; «Запустить выбранные» сначала читает тексты через
   `GET /v1/scenarios/{id}`.
 - **`RunCheck`** — это `Preflight` ядра плюс план. План считает ядро: новая
-  `run_plan(cfg, n_queries)` в `bench/run_scenario.py`, ею же `run_scenario` считает
+  `run_plan(cfg, n_queries)` в `bench/plan.py` (лёгкий модуль: реестр и API не тянут torch), ею же `run_scenario` считает
   `total` для прогресса. Для `targets` `Preflight` должен отдавать состояние всех целей,
   а не только `params` primary, — это поле `collections` (п. 10).
 - **`BuildCheck`** — это `BuildResult` плюс то, чего ядро не знает по каждой цели: по
@@ -899,12 +899,13 @@ src/ragglet/api/
   probes.py       опрос Qdrant и Redis с таймаутом, список коллекций
   core_calls.py   check_run, check_build: ядро в потоке
   deps.py         Depends: settings, библиотеки, jobs, registry
-  routers/        meta, stand, scenarios, index_profiles, indexes, datasets, runs, builds, tasks
+  refs.py         кто из библиотеки ссылается на коллекцию, snapshot как YAML
+  routers/        meta, stand, library (сценарии и профили), indexes, datasets, runs, builds, tasks
 src/ragglet/jobs/      protocol.py, memory.py (InMemoryJobManager)
 src/ragglet/registry/  protocol.py, memory.py (InMemoryRegistry)
 ```
 
-- `routers/scenarios.py` и `routers/index_profiles.py` — тонкие обёртки над одной
+- `routers/library.py` — сценарии и профили, тонкие обёртки над одной
   `ConfigLibrary`, `runs.py` и `builds.py` — над `core_calls`, `Registry` и `JobManager`.
 - Зависимости: `fastapi>=0.115` и `uvicorn>=0.32` в основных, без `uvicorn[standard]`:
   uvloop и httptools одному пользователю не нужны. `TestClient` работает на `httpx`, он
@@ -945,7 +946,7 @@ src/ragglet/registry/  protocol.py, memory.py (InMemoryRegistry)
 | `core/issues.py` | `Issue.path` |
 | `config/errors.py` (новый), `config/scenario.py`, `config/index_profile.py`, `datasets/sources.py` | `FieldError` в model-валидаторах и `check_source` |
 | `bench/preflight.py` | `SCENARIO_CHECKS`, `check_scenario`, `storage.unreachable`, `cache.unreachable`, `Preflight.collections` |
-| `bench/run_scenario.py`, `bench/artifacts.py` | `check_scenario` первой строкой, `run_id`, `run_plan()` |
+| `bench/run_scenario.py`, `bench/artifacts.py`, `bench/plan.py` (новый) | `check_scenario` первой строкой, `run_id`, `run_plan()` |
 | `storage/layout.py` | `StorageTarget.path`; ошибки формы storage — `ValidationError` `storage.layout` |
 | `datasets/sources.py` | `dataset.not_found` |
 | `stores/qdrant_store_async.py` | `list_collections()`, `params=None` у чужих коллекций |
