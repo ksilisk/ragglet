@@ -6,6 +6,7 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from ragglet.config.errors import FieldError
 from ragglet.datasets.sources import check_source
 
 
@@ -31,8 +32,9 @@ class ChunkingConfig(BaseModel):
     def _validate_sizes(self) -> "ChunkingConfig":
         if self.method == "none":
             if self.chunk_size is not None or self.chunk_overlap is not None:
-                raise ValueError(
-                    "chunking.chunk_size/chunk_overlap are not allowed when chunking.method='none'"
+                raise FieldError(
+                    "chunk_size" if self.chunk_size is not None else "chunk_overlap",
+                    "chunking.chunk_size/chunk_overlap are not allowed when chunking.method='none'",
                 )
             return self
         if self.chunk_size is None:
@@ -40,7 +42,7 @@ class ChunkingConfig(BaseModel):
         if self.chunk_overlap is None:
             self.chunk_overlap = 120
         if self.chunk_overlap >= self.chunk_size:
-            raise ValueError("chunk_overlap must be less than chunk_size")
+            raise FieldError("chunk_overlap", "chunk_overlap must be less than chunk_size")
         return self
 
 
@@ -96,9 +98,12 @@ class StorageConfig(BaseModel):
     @model_validator(mode="after")
     def _validate_storage_shape(self) -> "StorageConfig":
         if self.backend is None and (self.endpoint is None or self.collection is None):
-            raise ValueError("storage.endpoint and storage.collection are required when storage.backend is not set")
+            raise FieldError(
+                "endpoint" if self.endpoint is None else "collection",
+                "storage.endpoint and storage.collection are required when storage.backend is not set",
+            )
         if self.mode != "single" and not self.backends:
-            raise ValueError("storage.backends must be provided when storage.mode is not 'single'")
+            raise FieldError("backends", "storage.backends must be provided when storage.mode is not 'single'")
         return self
 
 

@@ -5,6 +5,8 @@ from typing import Any, ClassVar, Protocol
 import anyio
 from pydantic import BaseModel, ConfigDict, Field
 
+from ragglet.config.errors import FieldError
+
 
 class Launch(Protocol):
     async def __call__(self, i: int, planned_at: float | None = None) -> None:
@@ -56,7 +58,7 @@ LOAD_MODELS: dict[str, type[LoadModel]] = {"closed": ClosedLoad}
 
 def load_params(load_type: str, raw: dict[str, Any]) -> BaseModel:
     if load_type not in LOAD_MODELS:
-        raise ValueError(f"unknown load model {load_type!r}; available: {sorted(LOAD_MODELS)}")
+        raise FieldError("type", f"unknown load model {load_type!r}; available: {sorted(LOAD_MODELS)}")
     return LOAD_MODELS[load_type].Params.model_validate(raw)
 
 

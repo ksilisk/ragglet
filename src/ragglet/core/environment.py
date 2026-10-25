@@ -59,6 +59,19 @@ ENV_FACTS: dict[str, Callable[[], Any]] = {
 }
 
 
+def predicted_compute() -> dict[str, Any]:
+    """Где посчитает модель, если её загрузить: тот же выбор устройства, что у sentence-transformers."""
+    import torch
+    from sentence_transformers.util import get_device_name
+
+    device = get_device_name()
+    return {
+        "device": device,
+        "accelerator": torch.cuda.get_device_name(0) if device.startswith("cuda") else None,
+        "torch_threads": torch.get_num_threads(),
+    }
+
+
 def capture_env(compute: dict[str, Any]) -> dict[str, Any]:
     """Окружение процесса; `compute` — где загруженная модель считает эмбеддинги."""
     env = {name: fact() for name, fact in ENV_FACTS.items()}

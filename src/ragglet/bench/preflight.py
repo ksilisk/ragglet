@@ -1,18 +1,90 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Iterator, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from ragglet.bench.dataset import EvalDataset, load_eval_dataset
-from ragglet.config.scenario import ScenarioConfig
+from ragglet.cache.embedding_redis import redis_version
+from ragglet.config.scenario import RetrievalSourceConfig, ScenarioConfig
+from ragglet.core.errors import ServiceUnavailable
 from ragglet.core.issues import Issue, error, raise_on_errors, warning
 from ragglet.datasets.sources import describe_dataset
 from ragglet.indexing.metadata import extract_index_metadata
-from ragglet.storage.layout import StorageLayout, StorageTarget, build_storage_layout
+from ragglet.retrieval.engine import IMPLEMENTED_STRATEGIES
+from ragglet.storage.layout import (
+    StorageLayout,
+    StorageTarget,
+    build_storage_layout,
+    unimplemented_targets,
+)
 from ragglet.stores.qdrant_store_async import CollectionInfo
 
 REBUILD_HINT = "Rebuild the index: ragglet index build <index_profile.yaml>"
+SERVICE_TIMEOUT_S = 2.0
+
+# -----------------------
+# Проверки только по конфигу: до клиентов, датасета и моделей
+# -----------------------
+
+ScenarioCheck = Callable[[ScenarioConfig, StorageLayout], Iterable[Issue]]
+
+
+def _used_sources(cfg: ScenarioConfig) -> list[tuple[int, RetrievalSourceConfig]]:
+    sources = list(enumerate(cfg.retrieval.sources))
+    return sources[:1] if cfg.retrieval.strategy == "single" else sources  # single берёт sources[0]
+
+
+def retrieval_strategy_implemented(cfg: ScenarioConfig, layout: StorageLayout) -> Iterator[Issue]:
+    if cfg.retrieval.strategy not in IMPLEMENTED_STRATEGIES:
+        yield error(
+            "retrieval.not_implemented",
+            "retrieval.strategy",
+            f"strategy {cfg.retrieval.strategy!r} is not implemented, use one of {list(IMPLEMENTED_STRATEGIES)}",
+            path="retrieval.strategy",
+        )
+
+
+def retrieval_one_keyword_source(cfg: ScenarioConfig, layout: StorageLayout) -> Iterator[Issue]:
+    keyword = [i for i, source in enumerate(cfg.retrieval.sources) if source.kind == "keyword"]
+    for i in keyword[1:]:
+        yield error(
+            "retrieval.keyword_sources",
+            f"retrieval.sources[{i}]",
+            "only one keyword source is supported: the run builds one BM25 index",
+            path=f"retrieval.sources[{i}]",
+        )
+
+
+def retrieval_known_backend_refs(cfg: ScenarioConfig, layout: StorageLayout) -> Iterator[Issue]:
+    known = [target.id for target in layout.targets]
+    for i, source in _used_sources(cfg):
+        ref = source.params.get("backend_ref")
+        if source.kind == "vector" and ref is not None and str(ref) not in known:
+            path = f"retrieval.sources[{i}].params.backend_ref"
+            yield error("retrieval.backend_ref", path, f"unknown backend_ref {ref!r}; storage targets: {known}",
+                        path=path)
+
+
+SCENARIO_CHECKS: list[ScenarioCheck] = [
+    retrieval_strategy_implemented,
+    retrieval_one_keyword_source,
+    retrieval_known_backend_refs,
+]
+
+
+def check_scenario(cfg: ScenarioConfig) -> StorageLayout:
+    """То, что схема пропускает, а прогон не умеет: форма storage, реализованные backends и стратегии."""
+    layout = build_storage_layout(cfg.storage)
+    raise_on_errors(
+        f"Scenario {cfg.name!r} uses unsupported settings",
+        [*unimplemented_targets(layout), *(issue for check in SCENARIO_CHECKS for issue in check(cfg, layout))],
+    )
+    return layout
+
+# -----------------------
+# Совместимость с индексом
+# -----------------------
 
 
 @dataclass(frozen=True)
@@ -91,12 +163,12 @@ def index_embedding(ctx: IndexContext) -> Iterator[Issue]:
         "embedding_normalize": ctx.cfg.embedding.normalize,
     }
     for target, meta in ctx.complete_targets():
-        for field, value in expected.items():
-            if meta[field] != value:
+        for key, value in expected.items():
+            if meta[key] != value:
                 yield error(
                     "index.embedding",
                     _where(target),
-                    f"{field}: index has {meta[field]!r}, scenario expects {value!r}",
+                    f"{key}: index has {meta[key]!r}, scenario expects {value!r}",
                 )
 
 
@@ -129,6 +201,7 @@ class Preflight:
     index: dict[str, Any]  # метаданные ragglet primary target (у всех targets сборки они равны)
     params: dict[str, Any]  # параметры коллекции primary target
     warnings: list[Issue]  # датасета и индекса
+    collections: dict[str, CollectionInfo] = field(default_factory=dict)  # target id -> состояние коллекции
 
     def manifest(self) -> dict[str, Any]:
         """Только то, чего нет в scenario.snapshot."""
@@ -153,11 +226,34 @@ class Preflight:
         }
 
 
+async def _reach_services(
+        cfg: ScenarioConfig, layout: StorageLayout, stores: Mapping[str, Any]
+) -> dict[str, CollectionInfo | None]:
+    """Состояние коллекций целей; недоступный Qdrant или Redis — ошибка конфига, до побочных эффектов."""
+    collections: dict[str, CollectionInfo | None] = {}
+    issues: list[Issue] = []
+    for target in layout.targets:
+        try:
+            collections[target.id] = await stores[target.id].collection_info()
+        except ServiceUnavailable as e:
+            issues.append(error("storage.unreachable", f"target {target.id} ({target.endpoint})",
+                                f"Qdrant is not reachable: {e.reason}", path=f"{target.path}.endpoint"))
+    emb = cfg.cache.embedding
+    if cfg.cache.enabled and emb is not None:
+        try:
+            await redis_version(emb.endpoint, SERVICE_TIMEOUT_S)
+        except ServiceUnavailable as e:
+            issues.append(error("cache.unreachable", f"cache.embedding ({emb.endpoint})",
+                                f"Redis is not reachable: {e.reason}", path="cache.embedding.endpoint"))
+    raise_on_errors("Services are not reachable", issues, hint="Check the endpoints in the scenario")
+    return collections
+
+
 async def preflight(cfg: ScenarioConfig, stores: Mapping[str, Any]) -> Preflight:
-    """Датасет сценария + совместимость с индексом в `stores` (target id -> store)."""
-    layout = build_storage_layout(cfg.storage)
+    """Конфиг, датасет сценария, доступность сервисов и совместимость с индексом в `stores` (target id -> store)."""
+    layout = check_scenario(cfg)
     dataset = load_eval_dataset(cfg.dataset)
-    collections = {target.id: await stores[target.id].collection_info() for target in layout.targets}
+    collections = await _reach_services(cfg, layout, stores)
     metadata = {
         target_id: extract_index_metadata(info.metadata) if info is not None else None
         for target_id, info in collections.items()
@@ -174,4 +270,5 @@ async def preflight(cfg: ScenarioConfig, stores: Mapping[str, Any]) -> Preflight
         index=metadata[primary],
         params=collections[primary].params,
         warnings=[*dataset.warnings, *index_warnings],
+        collections={tid: info for tid, info in collections.items() if info is not None},
     )

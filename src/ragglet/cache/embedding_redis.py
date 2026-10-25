@@ -4,9 +4,28 @@ import json
 import hashlib
 from typing import Any
 
+import anyio
 import redis.asyncio as redis
+from redis.exceptions import ConnectionError as RedisConnectionError
+from redis.exceptions import TimeoutError as RedisTimeoutError
+
+from ragglet.core.errors import ServiceUnavailable
 
 _UNLINK_BATCH = 1000
+
+
+async def redis_version(endpoint: str, timeout: float) -> str:
+    """Версия сервера по INFO server; ServiceUnavailable — не ответил за timeout."""
+    try:
+        client = redis.from_url(endpoint, socket_connect_timeout=timeout, socket_timeout=timeout)
+        try:
+            with anyio.fail_after(timeout):
+                server = await client.info("server")
+        finally:
+            await client.aclose()
+    except (RedisConnectionError, RedisTimeoutError, TimeoutError, OSError, ValueError) as e:
+        raise ServiceUnavailable(endpoint, f"{type(e).__name__}: {e}") from e
+    return str(server["redis_version"])
 
 
 class RedisEmbeddingCache:

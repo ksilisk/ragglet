@@ -26,6 +26,7 @@ from ragglet.retrieval.engine import retrieve_items
 from ragglet.retrieval.merge import RetrievedItem
 
 STAGES = ("embed", "retrieve", "rerank", "context", "generation")
+LATENCY_STEPS = (*STAGES, "total")  # стадии, для которых в строке есть lat_*_ms
 
 
 def _lap(lat: dict[str, float], stage: str, start: float, done: bool = True) -> float:

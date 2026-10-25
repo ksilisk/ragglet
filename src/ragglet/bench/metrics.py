@@ -69,3 +69,10 @@ METRICS: dict[str, MetricSpec] = {
     "r_cap": MetricSpec(r_cap_at_k, needs_ideal=True),
     "ndcg": MetricSpec(ndcg_at_k, needs_ideal=True),
 }
+
+
+def metrics_for_level(level: str) -> list[str]:
+    """Метрики, допустимые на уровне: chunk — без тех, кому нужны все релевантные единицы."""
+    if level == "chunk":
+        return [name for name, spec in METRICS.items() if not spec.needs_ideal]
+    return list(METRICS)

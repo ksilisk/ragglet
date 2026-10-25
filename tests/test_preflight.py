@@ -333,3 +333,132 @@ def test_cli_validation_error_exits_with_code_2(tmp_path, fake_runtime):
 
     assert result.exit_code == 2
     assert "index.no_metadata" in result.output
+
+
+def _paths(exc) -> list[tuple[str, str | None]]:
+    return [(i.code, i.path) for i in exc.value.issues]
+
+
+@pytest.mark.parametrize(
+    "overrides, expected",
+    [
+        (
+            {"retrieval": {"strategy": "cascade", "sources": [{"name": "v"}]}},
+            [("retrieval.not_implemented", "retrieval.strategy")],
+        ),
+        (
+            {"retrieval": {"strategy": "fanout_merge", "sources": [
+                {"name": "v"}, {"name": "k1", "kind": "keyword"}, {"name": "k2", "kind": "keyword"},
+            ]}},
+            [("retrieval.keyword_sources", "retrieval.sources[2]")],
+        ),
+        (
+            {"retrieval": {"strategy": "fanout_merge", "sources": [
+                {"name": "v", "params": {"backend_ref": "default"}},
+                {"name": "w", "params": {"backend_ref": "shard_9"}},
+            ]}},
+            [("retrieval.backend_ref", "retrieval.sources[1].params.backend_ref")],
+        ),
+        (
+            {"storage": {"mode": "sharded", "backend": {"type": "qdrant", "endpoint": "http://q:6333", "collection": "c"},
+                         "backends": [{"id": "s", "type": "qdrant", "endpoint": "http://q:6333", "collection": "c0"},
+                                      {"id": "s", "type": "qdrant", "endpoint": "http://q:6334", "collection": "c1"}]}},
+            [("storage.layout", "storage.backends")],
+        ),
+    ],
+    ids=["cascade", "two_keyword_sources", "unknown_backend_ref", "duplicate_target_ids"],
+)
+async def test_unsupported_scenario_settings_fail_before_any_client(overrides, expected, tmp_path, fake_runtime):
+    with pytest.raises(ValidationError) as exc:
+        await run_module.run_scenario(_scenario(tmp_path / "runs", **overrides), dry_run=True)
+    assert _paths(exc) == expected
+
+
+async def test_config_problems_are_reported_together(fake_runtime):
+    backend = {"type": "pgvector", "endpoint": "http://pg:5432", "collection": "chunks_v1"}
+    cfg = _scenario(
+        storage={"mode": "single", "backend": backend},
+        retrieval={"strategy": "cascade", "sources": [{"name": "v"}]},
+    )
+    with pytest.raises(ValidationError) as exc:
+        await run_module.run_scenario(cfg, dry_run=True)
+    assert _paths(exc) == [
+        ("storage.not_implemented", "storage.backend.type"),
+        ("retrieval.not_implemented", "retrieval.strategy"),
+    ]
+
+
+async def test_unreachable_qdrant_is_a_config_error():
+    from ragglet.core.errors import ServiceUnavailable
+
+    class _Down:
+        async def collection_info(self):
+            raise ServiceUnavailable("http://q:6333", "ConnectError: refused")
+
+    with pytest.raises(ValidationError) as exc:
+        await preflight(_scenario(), {"default": _Down()})
+    assert _paths(exc) == [("storage.unreachable", "storage.backend.endpoint")]
+    assert exc.value.issues[0].where == "target default (http://q:6333)"
+
+
+async def test_unreachable_redis_is_a_config_error(monkeypatch):
+    from ragglet.bench import preflight as preflight_module
+    from ragglet.core.errors import ServiceUnavailable
+
+    async def down(endpoint, timeout):
+        raise ServiceUnavailable(endpoint, "ConnectionError: refused")
+
+    monkeypatch.setattr(preflight_module, "redis_version", down)
+    cfg = _scenario(cache={"enabled": True, "embedding": {"endpoint": "redis://r:6379/0"}})
+    with pytest.raises(ValidationError) as exc:
+        await preflight(cfg, {"default": _Store(_meta())})
+    assert _paths(exc) == [("cache.unreachable", "cache.embedding.endpoint")]
+
+
+async def test_redis_version_reports_refused_connection():
+    from ragglet.cache.embedding_redis import redis_version
+    from ragglet.core.errors import ServiceUnavailable
+
+    with pytest.raises(ServiceUnavailable, match="redis://127.0.0.1:1/0"):
+        await redis_version("redis://127.0.0.1:1/0", timeout=1.0)
+
+
+async def test_missing_local_dataset_points_to_dataset_id(tmp_path):
+    with pytest.raises(ValidationError) as exc:
+        await preflight(_scenario(dataset={"id": str(tmp_path / "missing")}), {"default": _Store(_meta())})
+    assert _paths(exc) == [("dataset.not_found", "dataset.id")]
+
+
+async def test_preflight_keeps_state_of_every_target(fake_runtime):
+    fake_runtime.metadata_for = {"chunks_v1": _meta()}
+    res = await run_module.run_scenario(_scenario(), dry_run=True)
+    assert set(res.preflight.collections) == {"default"}
+    assert res.preflight.collections["default"].points == 53
+
+
+async def test_run_id_names_the_run_dir_once(tmp_path, fake_runtime):
+    fake_runtime.metadata_for = {"chunks_v1": _meta()}
+    cfg = _scenario(tmp_path / "runs", dataset={"id": str(DEMO), "limit": 2})
+
+    res = await run_module.run_scenario(cfg, run_id="s_20261125T101540Z-2")
+
+    assert res.run_dir == tmp_path / "runs" / "s_20261125T101540Z-2"
+    with pytest.raises(FileExistsError):
+        await run_module.run_scenario(cfg, run_id="s_20261125T101540Z-2")
+
+
+def test_run_plan_matches_progress_total():
+    cfg = _scenario(run={"repeats": 3, "load": {"concurrency": 4}})
+    plan = run_module.run_plan(cfg, 5)
+    assert (plan.queries_per_repeat, plan.total, plan.load) == (5, 15, {"type": "closed", "concurrency": 4})
+
+
+def test_cli_unsupported_strategy_exits_with_code_2(tmp_path, fake_runtime):
+    path = tmp_path / "scenario.yaml"
+    data = _scenario_data(tmp_path / "runs", retrieval={"strategy": "cascade", "sources": [{"name": "v"}]})
+    path.write_text(yaml.safe_dump(data), encoding="utf-8")
+
+    result = CliRunner().invoke(app, ["bench", "run", str(path), "--dry-run"])
+
+    assert result.exit_code == 2
+    assert "retrieval.not_implemented" in result.output

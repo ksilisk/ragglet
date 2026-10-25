@@ -15,11 +15,12 @@ class ArtifactPaths:
     run_dir: Path
     timestamp: str
 
-def make_artifact_paths(artifacts_dir: str, scenario_name: str) -> ArtifactPaths:
+def make_artifact_paths(artifacts_dir: str, scenario_name: str, run_id: str | None = None) -> ArtifactPaths:
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     base_dir = Path(artifacts_dir)
-    run_dir = base_dir / f"{scenario_name}_{ts}"
-    run_dir.mkdir(parents=True, exist_ok=True)
+    run_dir = base_dir / (run_id or f"{scenario_name}_{ts}")
+    # каталог с заданным id создаёт только этот прогон: совпадение — ошибка, а не смесь артефактов
+    run_dir.mkdir(parents=True, exist_ok=run_id is None)
     return ArtifactPaths(base_dir=base_dir, run_dir=run_dir, timestamp=ts)
 
 def save_config_snapshot(run_dir: Path, cfg: ScenarioConfig) -> None:

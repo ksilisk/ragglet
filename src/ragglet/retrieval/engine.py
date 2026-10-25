@@ -9,6 +9,10 @@ from ragglet.retrieval.merge import SourceSpec, RetrievedItem, rrf_merge, run_so
     weighted_sum_merge
 
 
+# стратегии, которые умеет retrieve_items; схема знает и cascade
+IMPLEMENTED_STRATEGIES = ("single", "fanout_merge")
+
+
 def _search_params(params: dict) -> dict:
     return {k: v for k, v in (params or {}).items() if k != "backend_ref"}
 
