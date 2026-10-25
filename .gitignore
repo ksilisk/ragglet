@@ -7,3 +7,5 @@ __pycache__/
 results/
 
 .DS_Store
+# настройки ragglet serve (RAGGLET_*)
+.env
