@@ -1,6 +1,6 @@
 version: 1
 name: baseline_qdrant_fanout_two_vec
-description: Single-source vector retrieval (Qdrant), no rerank, no cache, no generation
+description: Hybrid fanout retrieval (Qdrant vector + in-memory BM25, weighted_sum merge) with Redis embedding cache and memory LRU retrieval cache; no rerank, no generation
 tags: []
 seed: 42
 timeouts:
