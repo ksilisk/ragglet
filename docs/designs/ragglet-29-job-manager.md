@@ -67,7 +67,7 @@ results/runs/nfcorpus_rerank_20261125T101540Z/
 await anyio.open_process(
     [sys.executable, "-m", "ragglet.jobs.worker", str(task_dir)],
     stdin=DEVNULL, stdout=log_file, stderr=log_file,     # task.log, открыт на дозапись
-    env=os.environ | {"PYTHONUNBUFFERED": "1", "PYTHONFAULTHANDLER": "1"},
+    env=os.environ | {"PYTHONUNBUFFERED": "1", "PYTHONFAULTHANDLER": "1", "TQDM_DISABLE": "1"},
 )
 ```
 
@@ -76,7 +76,8 @@ await anyio.open_process(
   (`datasets/demo`) разрешается так же, как при dry-run. **Окружение** наследуется
   целиком: ключи генерации, `HF_HOME` и прочее. `PYTHONUNBUFFERED` нужен, чтобы `print`
   не застревал в буфере, `PYTHONFAULTHANDLER` — чтобы при падении нативного кода в лог
-  попал стек Python.
+  попал стек Python. `TQDM_DISABLE` убирает полосы загрузки модели и Hub: в файле лога
+  это километровые строки с `\r`, а прогресс задачи и так есть в `progress.json`.
 - **stdout и stderr** передаются процессу файлом на уровне дескриптора. В лог попадает
   всё, включая вывод C-кода, а серверу не нужно ничего перекачивать.
 - **Код берётся с диска при старте задачи.** Если после запуска сервера сделали
@@ -134,10 +135,11 @@ def main(task_dir: Path, operations: Mapping[TaskKind, Operation] = OPERATIONS) 
 
 `finish` пишет `result.json` с последним значением прогресса и строку-итог в лог.
 
-- **Прогон:** `anyio.run` над `run_scenario(cfg, progress=progress, run_id=spec.ref.id)`.
-  Рядом в той же task group слушаются сигналы отмены (п. 5). `cfg` — это
-  `ScenarioConfig.model_validate(spec.config)`, `dry_run` не передаётся. Preflight №2
-  ядро делает первой строкой.
+- **Прогон:** `anyio.run` над `run_scenario(cfg, progress=progress, run_id=<имя каталога>)`
+  внутри `cancellable` (п. 5). `cfg` — это `ScenarioConfig.model_validate(spec.config)`, а
+  `run.artifacts_dir` заменяется на родителя каталога задачи, чтобы ядро писало туда же,
+  где лежат файлы задачи. `dry_run` не передаётся. Preflight №2 ядро делает первой
+  строкой.
 - **Сборка:** `build_index(cfg, progress=progress)` синхронно в главном потоке. Результат
   для реестра — `{"documents": r.documents, "index": r.index}`, где `index` — записанные
   метаданные ragglet.
@@ -239,8 +241,10 @@ SIGTERM). Итог менеджер берёт из `result.json`, а код н�
 потому, что воркер в одной группе процессов с сервером, и Ctrl+C в терминале сервера
 приходит обоим. Так же ведёт себя воркер, запущенный руками.
 
-- **Прогон.** Сигналы слушает `anyio.open_signal_receiver` в той же task group, что и
-  `run_scenario`. Сигнал отменяет её scope. Дальше всё идёт тем же путём, что при
+- **Прогон.** `cancellable` открывает `anyio.CancelScope` вокруг `run_scenario` и вешает на
+  сигналы `loop.add_signal_handler(sig, scope.cancel)`. Сигнал отменяет scope. Task group
+  здесь нет намеренно: anyio оборачивает исключение из тела task group в `ExceptionGroup`,
+  а сбой ядра должен выходить как есть, с `qid`. Дальше всё идёт тем же путём, что при
   фатальной ошибке запроса или Ctrl+C в ragglet-18: модель нагрузки и запросы в работе
   отменяются, начатые вызовы моделей в потоках дожидаются, `finally` в `run_scenario`
   закрывает клиенты Qdrant и Redis. Синхронный код (например, запись
@@ -361,10 +365,11 @@ class ProcessJobManager:                   # реализует JobManager
             cancel_grace_s: float = 10.0,
             command: Sequence[str] = (sys.executable, "-m", "ragglet.jobs.worker"),
             builds_dir: Path = Path("results/builds"),
+            now: Callable[[], datetime] = lambda: datetime.now(UTC),
     ): ...
 ```
 
-`command` нужен тестам, чтобы подставить фиктивный воркер. `builds_dir` — временный
+`command` и `now` нужны тестам: фиктивный воркер и часы, как у заглушки. `builds_dir` — временный
 мостик до ragglet-30: пока реестр не создаёт каталоги сборок, у сборки без
 `TaskSpec.run_dir` менеджер берёт `builds_dir / id`, то есть ту же раскладку, что сделает
 30. Каталог задачи менеджер создаёт с `exist_ok=True`, так что с реестром 30, который
@@ -378,7 +383,6 @@ class ProcessJobManager:                   # реализует JobManager
 | `jobs/worker.py` (новый) | `python -m ragglet.jobs.worker <dir>`: `ThrottledProgress`, отмена, сторожевой поток, вызов ядра |
 | `jobs/process.py` (новый) | `ProcessJobManager` |
 | `jobs/protocol.py` | комментарий у `TaskSpec.run_dir`: «каталог задачи: прогона или сборки» |
-| `jobs/__init__.py` | экспорт `ProcessJobManager` |
 | `bench/artifacts.py` | каталог прогона с `run_id` может уже существовать, если в нём нет `scenario.snapshot.json` (та же правка, что п. 11.1 ragglet-30; кто вольётся вторым, берёт любую) |
 | `api/settings.py` | `cancel_grace_s` |
 | `api/app.py` | lifespan |
@@ -388,7 +392,9 @@ class ProcessJobManager:                   # реализует JobManager
 
 Имена файлов: `process.py` назван по образцу `memory.py` с `InMemoryJobManager`, то есть
 по способу выполнения задач. `files.py` — файлы, через которые общаются два процесса.
-Сервер не импортирует `worker.py`: это код другого процесса.
+Сервер не импортирует `worker.py`: это код другого процесса. `ProcessJobManager`
+импортируется из `ragglet.jobs.process`, как заглушка из `ragglet.jobs.memory`: экспорт из
+`ragglet.jobs` дал бы циклический импорт с `registry.protocol`.
 
 `jobs/memory.py`, роутеры и `registry/` не меняются.
 
@@ -444,8 +450,10 @@ class ProcessJobManager:                   # реализует JobManager
     `localhost:6333` недоступен). Настоящий воркер собирает профиль `demo` во временную
     коллекцию и прогоняет на ней сценарий по `datasets/demo` с `repeats: 1` →
     `completed`, в каталоге прогона есть `summary.json`, `final_progress` равен плану.
-    В конце коллекция удаляется.
-12. Существующие тесты проходят, `ruff check src tests` чистый.
+    Затем прогон на 30 повторов отменяется во втором повторе → `cancelled` штатно (есть
+    `result.json`), `per_query.repeat0.csv` на месте, `summary.json` нет. В конце коллекция
+    удаляется.
+12. Существующие тесты проходят; новые и изменённые файлы проходят `ruff check`.
 
 Ручная проверка на Mac: `ragglet serve`, через curl сборка `demo` и прогон по ней, опрос
 статуса и лога, отмена. Затем `kill -9` сервера во время прогона: по `ps` видно, что
@@ -551,7 +559,9 @@ class ProcessJobManager:                   # реализует JobManager
 соседней задаче, запущенной через `tg.start`. SIGTERM посылался на 0,8 с (во время
 синхронного участка), на 2,0 с (во время вызова в потоке) и на 3,0 с. Во всех трёх
 случаях синхронный участок и начатый вызов в потоке доработали, `finally` выполнился, а
-процесс вышел с кодом 143 по флагу отмены.
+процесс вышел с кодом 143 по флагу отмены. В реализации task group заменена на
+`CancelScope` и `loop.add_signal_handler` (п. 5), а то же поведение на настоящем ядре
+проверяет интеграционный тест 11.
 
 Если слушатель запускается через `start_soon`, а синхронная работа начинается сразу, то
 на 0,8 с обработчика ещё нет, и процесс убивается действием по умолчанию. Отсюда правило
