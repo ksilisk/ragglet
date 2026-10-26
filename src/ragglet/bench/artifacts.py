@@ -19,8 +19,11 @@ def make_artifact_paths(artifacts_dir: str, scenario_name: str, run_id: str | No
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     base_dir = Path(artifacts_dir)
     run_dir = base_dir / (run_id or f"{scenario_name}_{ts}")
-    # каталог с заданным id создаёт только этот прогон: совпадение — ошибка, а не смесь артефактов
-    run_dir.mkdir(parents=True, exist_ok=run_id is None)
+    run_dir.mkdir(parents=True, exist_ok=True)
+    # каталог с заданным id мог заранее создать реестр или менеджер задач, но прогона в нём ещё
+    # не было: иначе это ошибка, а не смесь артефактов двух прогонов
+    if run_id is not None and (run_dir / "scenario.snapshot.json").exists():
+        raise FileExistsError(f"run directory {run_dir} already holds a run")
     return ArtifactPaths(base_dir=base_dir, run_dir=run_dir, timestamp=ts)
 
 def save_config_snapshot(run_dir: Path, cfg: ScenarioConfig) -> None:
