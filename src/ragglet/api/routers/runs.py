@@ -229,5 +229,5 @@ async def cancel_run(run_id: str, svc: Svc) -> RunStatus:
 
 @router.get("/runs/{run_id}/log", responses={404: {"model": Problem}})
 async def run_log(run_id: str, svc: Svc, offset: Annotated[int, Query(ge=0)] = 0) -> LogChunkOut:
-    await _record(svc, run_id)
-    return await read_log(svc.jobs, TaskRef(TaskKind.RUN, run_id), offset)
+    record = await _record(svc, run_id)
+    return await read_log(svc.jobs, TaskRef(TaskKind.RUN, run_id), offset, record.run_dir)

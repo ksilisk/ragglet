@@ -2,20 +2,31 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Annotated
+from typing import IO, Annotated
 
+import anyio
 from fastapi import APIRouter, Query
+from fastapi.responses import FileResponse, StreamingResponse
+from starlette.background import BackgroundTask
 
 from ragglet.api.deps import Svc
 from ragglet.api.problems import Problem, problem_error
 from ragglet.api.routers.runs import _record
-from ragglet.api.schemas import QueryDetail, QueryPageOut, ResultChunk, TruthDoc
+from ragglet.api.schemas import ArtifactOut, QueryDetail, QueryPageOut, ResultChunk, TruthDoc
+from ragglet.registry.files import zip_artifacts
 from ragglet.registry.per_query import result_chunks, truth_docs
 from ragglet.registry.protocol import QueryFilter, RegistryError
 
 router = APIRouter(tags=["runs"])
 
 TITLES = {404: "Not found", 409: "Conflict", 422: "Request is invalid"}
+MEDIA_TYPES = {
+    ".json": "application/json",
+    ".yaml": "application/yaml",
+    ".csv": "text/csv",
+    ".parquet": "application/vnd.apache.parquet",
+    ".log": "text/plain; charset=utf-8",
+}
 ERRORS = {404: {"model": Problem}, 409: {"model": Problem}, 422: {"model": Problem}}
 
 
@@ -71,3 +82,37 @@ async def get_query(run_id: str, qid: str, svc: Svc, repeat: Annotated[int, Quer
         truth=[TruthDoc(**doc) for doc in truth_docs(row)],
         results=[ResultChunk(**chunk) for chunk in result_chunks(row, context_enabled)],
     )
+
+
+@router.get("/runs/{run_id}/artifacts", responses=ERRORS)
+async def list_artifacts(run_id: str, svc: Svc) -> list[ArtifactOut]:
+    """Файлы каталога прогона как есть, с run.json и task.log; служебные файлы менеджера скрыты."""
+    await _record(svc, run_id)
+    return [ArtifactOut(name=a.name, size=a.size, modified_at=a.modified_at)
+            for a in await svc.registry.artifacts(run_id)]
+
+
+@router.get("/runs/{run_id}/artifacts.zip", responses=ERRORS, response_class=StreamingResponse)
+async def download_zip(run_id: str, svc: Svc) -> StreamingResponse:
+    """Весь каталог одним архивом: `<id>/<файл>`."""
+    record = await _record(svc, run_id)
+    names = [a.name for a in await svc.registry.artifacts(run_id)]
+    archive = await anyio.to_thread.run_sync(zip_artifacts, record.run_dir, names)
+    return StreamingResponse(_chunks(archive), media_type="application/zip", background=BackgroundTask(archive.close),
+                             headers={"Content-Disposition": f'attachment; filename="{run_id}.zip"'})
+
+
+@router.get("/runs/{run_id}/artifacts/{name}", responses=ERRORS, response_class=FileResponse)
+async def download_artifact(run_id: str, name: str, svc: Svc) -> FileResponse:
+    """Один файл как есть. Путь строится только из имён листинга: «..» и чужие пути не проходят."""
+    record = await _record(svc, run_id)
+    if name not in {a.name for a in await svc.registry.artifacts(run_id)}:
+        raise problem_error(404, "artifact.not_found", "Not found", f"run {run_id!r} has no file {name!r}",
+                            where=f"runs/{run_id}")
+    path = record.run_dir / name
+    return FileResponse(path, media_type=MEDIA_TYPES.get(path.suffix, "application/octet-stream"), filename=name)
+
+
+def _chunks(archive: IO[bytes], size: int = 1 << 20) -> Iterator[bytes]:
+    while chunk := archive.read(size):
+        yield chunk

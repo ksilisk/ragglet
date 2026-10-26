@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+from pathlib import Path
+
+import anyio
 from fastapi import APIRouter
 
 from ragglet.api.deps import Svc
 from ragglet.api.problems import problem_error
 from ragglet.api.schemas import LogChunkOut, TaskItem
 from ragglet.jobs.protocol import JobManager, TaskFinished, TaskRef, TaskState
+from ragglet.registry.files import TASK_LOG, read_task_log
 
 router = APIRouter(tags=["tasks"])
 
@@ -37,7 +41,11 @@ async def cancel(jobs: JobManager, ref: TaskRef, state: TaskState) -> None:
         raise problem_error(409, "task.finished", "Task is not active", str(e), where=f"{ref.kind}s/{ref.id}") from e
 
 
-async def read_log(jobs: JobManager, ref: TaskRef, offset: int) -> LogChunkOut:
-    chunk = await jobs.log(ref, offset=offset, limit=LOG_LIMIT)
+async def read_log(jobs: JobManager, ref: TaskRef, offset: int, task_dir: Path | None = None) -> LogChunkOut:
+    """Лог у менеджера; если менеджер задачу не знает (рестарт, импорт) — task.log из каталога задачи."""
+    if task_dir is not None and (task_dir / TASK_LOG).is_file() and await jobs.status(ref) is None:
+        chunk = await anyio.to_thread.run_sync(read_task_log, task_dir / TASK_LOG, offset, LOG_LIMIT)
+    else:
+        chunk = await jobs.log(ref, offset=offset, limit=LOG_LIMIT)
     return LogChunkOut(text=chunk.text, offset=offset, next_offset=chunk.next_offset, complete=chunk.complete)
 

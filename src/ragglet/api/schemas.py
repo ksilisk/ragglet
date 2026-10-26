@@ -451,6 +451,12 @@ class BuildList(BaseModel):
     items: list[BuildItem]
 
 
+class ArtifactOut(BaseModel):
+    name: str
+    size: int  # байт
+    modified_at: datetime
+
+
 class QueryPageOut(BaseModel):
     repeat: int
     repeats: list[int]  # какие повторы записаны: у упавшего прогона — частичные результаты

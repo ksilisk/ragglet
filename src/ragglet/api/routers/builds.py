@@ -181,5 +181,5 @@ async def cancel_build(build_id: str, svc: Svc) -> BuildStatus:
 
 @router.get("/builds/{build_id}/log", responses={404: {"model": Problem}})
 async def build_log(build_id: str, svc: Svc, offset: Annotated[int, Query(ge=0)] = 0) -> LogChunkOut:
-    await _record(svc, build_id)
-    return await read_log(svc.jobs, TaskRef(TaskKind.BUILD, build_id), offset)
+    record = await _record(svc, build_id)
+    return await read_log(svc.jobs, TaskRef(TaskKind.BUILD, build_id), offset, record.build_dir)

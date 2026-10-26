@@ -11,19 +11,21 @@ import logging
 import math
 import os
 import re
+import tempfile
 import uuid
+import zipfile
 from collections.abc import Callable
 from dataclasses import fields, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import IO, Any
 
 import anyio
 from pydantic import TypeAdapter
 
 from ragglet.bench.artifacts import SNAPSHOT_FILE
 from ragglet.datasets.sources import describe_dataset
-from ragglet.jobs.protocol import JobManager, TaskFailure, TaskKind, TaskRef, TaskState
+from ragglet.jobs.protocol import JobManager, LogChunk, TaskFailure, TaskKind, TaskRef, TaskState
 from ragglet.registry import per_query
 from ragglet.registry.listing import run_metrics, select_builds, select_runs
 from ragglet.registry.protocol import (
@@ -50,7 +52,8 @@ BUILD_FILE = "build.json"
 FORMAT = 1  # версия файла записи
 DONE_MARKER = "summary.aggregate.csv"  # ядро пишет его последним: прогон завершён
 AGGREGATE_FILE = "summary.aggregate.json"
-SERVICE_FILES = frozenset({"task.json", "progress.json", "result.json"})  # файлы менеджера задач (ragglet-29)
+TASK_LOG = "task.log"  # вывод воркера: менеджер задач (ragglet-29) пишет его в каталог задачи
+SERVICE_FILES = frozenset({"task.json", "progress.json", "result.json"})  # служебные файлы менеджера
 RUN_DIR_NAME = re.compile(r"^(?P<name>.+)_(?P<at>\d{8}T\d{6}Z)(?:-\d+)?$")
 ACTIVE = (TaskState.QUEUED, TaskState.RUNNING)
 
@@ -209,6 +212,44 @@ def list_artifacts(run_dir: Path) -> list[Artifact]:
         out.append(Artifact(name=entry.name, size=stat.st_size,
                             modified_at=datetime.fromtimestamp(stat.st_mtime, UTC)))
     return sorted(out, key=lambda a: a.name)
+
+
+def zip_artifacts(run_dir: Path, names: list[str]) -> IO[bytes]:
+    """Архив `<id>/<файл>` во временном файле; закрыть его — дело вызывающего."""
+    out = tempfile.TemporaryFile()
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name in names:
+            zf.write(run_dir / name, f"{run_dir.name}/{name}")
+    out.seek(0)
+    return out
+
+
+def _utf8_complete(data: bytes) -> int:
+    """Длина data без последнего символа UTF-8, если он обрезан: его отдаст следующий кусок."""
+    for back in range(1, min(4, len(data)) + 1):
+        byte = data[-back]
+        if byte & 0b1100_0000 == 0b1000_0000:
+            continue  # байт продолжения: ищем начало символа
+        size = 1 if byte < 0x80 else 2 if byte >> 5 == 0b110 else 3 if byte >> 4 == 0b1110 else 4
+        return len(data) if size <= back else len(data) - back
+    return len(data)
+
+
+def read_task_log(path: Path, offset: int, limit: int) -> LogChunk:
+    """
+    Лог задачи из каталога, когда менеджер её не знает (после рестарта): те же правила, что у
+    менеджера — смещение в байтах, кусок не рвёт символ UTF-8, битые байты — U+FFFD.
+    """
+    if not path.is_file():
+        return LogChunk(text="", next_offset=offset, complete=True)
+    with path.open("rb") as f:
+        size = os.fstat(f.fileno()).st_size
+        f.seek(offset)
+        data = f.read(limit)
+    cut = _utf8_complete(data) or len(data)  # кусок из одного обломка символа отдаём как есть: иначе застрянем
+    next_offset = offset + cut
+    return LogChunk(text=data[:cut].decode("utf-8", errors="replace"), next_offset=next_offset,
+                    complete=next_offset >= size)
 
 
 class FileRegistry:

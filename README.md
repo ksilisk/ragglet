@@ -200,6 +200,7 @@ uv run ragglet serve
 | `RAGGLET_REDIS_URL` | `redis://localhost:6379/0` | Redis для страницы стенда; пусто — не показывать |
 | `RAGGLET_SCENARIOS_DIR`, `RAGGLET_INDEX_PROFILES_DIR` | `configs/scenarios`, `configs/indexes` | библиотека сценариев и профилей |
 | `RAGGLET_ARTIFACTS_DIR` | `results/runs` | куда пишутся прогоны (`run.artifacts_dir` из запроса игнорируется) |
+| `RAGGLET_BUILDS_DIR` | `results/builds` | записи сборок индекса: `<id>/build.json` |
 | `RAGGLET_DATASET_ROOTS` | `datasets` | где искать локальные датасеты для выбора в UI |
 | `RAGGLET_UI_DIR` | — | собранный веб-интерфейс, раздаётся с того же адреса |
 
@@ -210,6 +211,31 @@ uv run ragglet serve
 422, иначе 202 с id прогона (`<name>_<UTC>`, при совпадении `-2`). Любая ошибка — JSON
 `{title, hint, issues: [{code, severity, path, where, message}]}`, где `path` — поле
 конфига (`metrics.quality.k`), `where` — место вне конфига (`qrels/test.tsv:7`).
+
+**Реестр прогонов** ([docs/designs/ragglet-30-run-registry.md](docs/designs/ragglet-30-run-registry.md)).
+Запись прогона — `run.json` в его каталоге `results/runs/<id>/`, рядом с артефактами; базы
+нет, сервер при старте сканирует каталог. Каталоги без `run.json` (прогоны из CLI и старые)
+попадают в реестр как импортированные (`origin: import`): `completed`, если есть
+`summary.aggregate.csv`, иначе `failed` / `RunIncomplete`; в них сервер ничего не пишет.
+Записи `queued` / `running`, оставшиеся после падения сервера, при старте становятся
+`failed` / `ServerRestart`. Удалить прогон — удалить его каталог.
+
+- `GET /v1/runs` — список с колонками сводки из `summary.aggregate.json` (`ndcg`, `recall`
+  при `k`, `p50_ms`, `p95_ms`, `qps`, `timeout_rate`; нет колонки в summary — `null`);
+  фильтры `state`, `scenario`, `scenario_id`, `dataset`, `collection`, `tag`, `since`,
+  `until`, `q`; `sort` (`-ndcg` — по убыванию); `offset`, `limit`. `GET /v1/builds` — то же
+  для сборок.
+- `GET /v1/runs/{id}?include=summary,manifest,scenario` — статус и тяжёлые поля;
+  `scenario_file` говорит, изменился ли сценарий библиотеки после прогона.
+- `GET /v1/runs/{id}/queries` — per-query повтора (`repeat`) с фильтрами `outcome`,
+  `miss_at` (промах при k), `min_total_ms`, `q` и `first_relevant_rank`;
+  `GET /v1/runs/{id}/queries/{qid}` — один запрос: выдача с рангами, релевантностью,
+  rerank-score и попаданием в контекст.
+- `GET /v1/runs/{id}/artifacts`, `…/artifacts/{name}`, `…/artifacts.zip` — файлы как есть.
+
+```bash
+curl -s 'localhost:8000/v1/runs?scenario=nfcorpus_hf&sort=-ndcg&k=10' | jq '.items[] | {id, ndcg, p95_ms, qps}'
+```
 
 Проверка через curl:
 
