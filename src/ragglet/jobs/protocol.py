@@ -36,7 +36,7 @@ class TaskSpec:
     ref: TaskRef
     name: str  # сценарий или профиль: для очереди и шапки
     config: dict[str, Any]  # проверенный конфиг; воркер валидирует его заново
-    run_dir: Path | None = None  # у прогона: каталог, который создаст ядро
+    run_dir: Path | None = None  # каталог задачи: прогона или сборки; его создаёт реестр при постановке
 
 
 @dataclass(frozen=True)
