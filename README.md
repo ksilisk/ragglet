@@ -201,7 +201,7 @@ docs/config-reference.yaml
 - `rerank` поддерживает локальный `cross_encoder` provider из `sentence-transformers`;
 - `context` поддерживает сбор retrieved/reranked чанков по политикам `top_n`, `threshold` и `adaptive`;
 - `generation` поддерживает `noop` и `openai_compatible`; при `enabled: true` question/context могут быть отправлены во внешний provider;
-- `run.load` задает, когда запускать запросы. Модель `closed` держит `concurrency` запросов одновременно в работе, от эмбеддинга до ответа LLM (по умолчанию 1). Сетевые этапы идут конкурентно, а локальные модели на CPU (эмбеддинг, BM25, rerank) обрабатывают один вызов за раз, и ожидание своей очереди видно в `lat_*_ms`. Своя схема подачи запросов — класс в `src/ragglet/bench/load.py` и строка в `LOAD_MODELS`.;
+- `run.load` задает, когда запускать запросы. Модель `closed` держит `concurrency` запросов одновременно в работе, от эмбеддинга до ответа LLM (по умолчанию 1). Сетевые этапы идут конкурентно, а локальные модели на CPU (эмбеддинг, BM25, rerank) обрабатывают один вызов за раз, и ожидание своей очереди видно в `lat_*_ms`. Своя схема подачи запросов — класс в `src/ragglet/bench/load.py` и строка в `LOAD_MODELS`;
 - каждый повтор (`run.repeats`) начинается с пустого кэша: кэш retrieval очищается, а прогон удаляет ключи Redis, которые записал сам. Чтобы стартовать с тёплого кэша эмбеддингов, запустите второй прогон с тем же `cache.embedding.namespace` (только с `repeats: 1`). Попал ли запрос в кэш, видно по колонкам `emb_cache` и `ret_cache` в `per_query`, доля попаданий и задержки попаданий и промахов — в summary ([docs/metrics.md](docs/metrics.md#кэш)).
 
 ## Полезные команды
