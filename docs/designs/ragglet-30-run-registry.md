@@ -9,9 +9,10 @@
 статуса читают только индекс, а per-query читается, когда открыта вкладка «Запросы». API
 получает список прогонов и сборок с фильтрами, сортировкой и колонками сводки,
 наполненные `?include=summary,manifest`, per-query с фильтрами и рангом первого
-релевантного, деталь запроса с оценками из qrels и текстами чанков из Qdrant, а также
-файлы и zip каталога. Адрес всего этого — id прогона. Это имя каталога, и оно не меняется
-ни со временем, ни при переносе каталога на другую машину.
+релевантного, деталь запроса по строке per-query, файлы и zip каталога. Адрес всего
+этого — id прогона. Это имя каталога, и оно не меняется ни со временем, ни при переносе
+каталога на другую машину. Оценки из qrels и тексты чанков из Qdrant в детали запроса —
+последняя, необязательная фаза (п. 8).
 
 ## Пример, на котором всё объясняется
 
@@ -28,8 +29,8 @@
 
    ```json
    {"id": "nfcorpus_hf_20261024T180917Z", "scenario": "nfcorpus_hf", "scenario_id": null,
-    "origin": "import", "state": "completed", "started_at": "2026-10-24T18:09:17Z",
-    "finished_at": "2026-10-24T18:09:21Z", "duration_s": 4.2,
+    "origin": "import", "state": "completed", "enqueued_at": "2026-10-24T18:09:17Z",
+    "started_at": null, "finished_at": null, "duration_s": null,
     "dataset": "hf:BeIR/nfcorpus@b5026a0e96e8+a451b3b26d3a", "collection": "nfcorpus_v1",
     "tags": ["beir", "hf", "nfcorpus"], "repeats": 1, "ndcg": 0.315, "recall": 0.150,
     "p50_ms": 152.5, "p95_ms": 232.1, "qps": 95.4, "timeout_rate": 0.0}
@@ -54,12 +55,11 @@
    сервер посчитал `first_relevant_rank` из `final_doc_ids` и `truth_ids`; медиана — 1,
    максимум — 21.
 6. **Запрос.** `GET …/queries/PLAIN-307` («Vitamin D: Shedding some light on the new
-   recommendations»). Три релевантных документа, у всех оценка 2 по qrels датасета,
-   найдены на doc-рангах 1, 5 и 12. В выдаче чанки 1, 3 и 4 — это один документ
-   `MED-714`, поэтому у них один `doc_rank` 1. Тексты чанков взяты из payload
-   `nfcorpus_v1`: `built_at` коллекции совпадает с `manifest.index.built_at`. После
-   пересборки коллекции тексты недоступны (`index.rebuilt`), а оценки и заголовки
-   документов остаются: они из датасета.
+   recommendations»). Три релевантных документа найдены на doc-рангах 1, 5 и 12. В
+   выдаче чанки 1, 3 и 4 — это один документ `MED-714`, поэтому у них один `doc_rank` 1.
+   Всё это есть в строке per-query. В последней фазе к этому добавляются оценки (у всех
+   трёх 2 по qrels датасета) и тексты чанков из payload `nfcorpus_v1`, пока `built_at`
+   коллекции совпадает с `manifest.index.built_at`.
 7. **Файлы.** `GET …/artifacts` — девять файлов с размерами, `GET …/artifacts.zip` —
    весь каталог одним архивом.
 8. **Перенос.** Каталог `nfcorpus_rerank_…` скопировали на другой стенд. Там он виден с
@@ -118,17 +118,24 @@
   принимает уже созданный каталог (п. 11). Прогон, отменённый в очереди, оставляет
   каталог с одним `run.json`. Это и есть его запись.
 - **Пишет только сервер.** Запись атомарна: временный `.run.json.<uuid>.tmp` и
-  `os.replace`, под `anyio.Lock` реестра. Сервер — один процесс (28), поэтому
-  межпроцессных блокировок нет. Ядро, воркер 29 и CLI `run.json` не трогают: воркер
-  сообщает переходы менеджеру, менеджер в процессе сервера зовёт `Registry.update`.
+  `os.replace`, под `anyio.Lock` реестра (`update` может прийти конкурентно из одного
+  event loop). Сервер — один процесс (28), поэтому межпроцессных блокировок нет. Ядро,
+  воркер 29 и CLI `run.json` не трогают: воркер сообщает переходы менеджеру, менеджер в
+  процессе сервера зовёт `Registry.update`.
+- **Файлы менеджера** лежат в том же каталоге (решение 29): `task.log` — вывод воркера,
+  `task.json`, `progress.json`, `result.json` — служебные. `task.log` входит в список
+  артефактов и в zip, служебные файлы не показываются (п. 9).
 - **Битый или незнакомый `run.json`** (ручная правка, `format` из будущего) не
   перезаписывается. Сервер пишет предупреждение в свой лог, а каталог импортируется как
   каталог без записи (п. 3).
-- **Сборки.** Каталога у сборки нет, поэтому её запись — файл
-  `results/builds/<id>.json` того же устройства (`BuildRecord`). Новая настройка
-  `builds_dir: Path = Path("results/builds")` (`RAGGLET_BUILDS_DIR`). Сборки CLI до 37 в
-  реестр не попадают: от них не остаётся файлов. Их след — метаданные коллекции, их
-  показывает `GET /v1/indexes`.
+- **Сборки** живут отдельно от прогонов: `results/builds/<id>/build.json` того же
+  устройства (`BuildRecord`), рядом файлы менеджера. Продукт сборки — коллекция в
+  Qdrant, переносить каталог сборки незачем. Новая настройка
+  `builds_dir: Path = Path("results/builds")` (`RAGGLET_BUILDS_DIR`) и поле
+  `BuildRecord.build_dir`. Роутер сборок передаёт его в `TaskSpec(run_dir=…)`: имя поля
+  в `jobs/protocol.py` остаётся `run_dir`. Сборки CLI до 37 в реестр не попадают: от
+  них не остаётся файлов. Их след — метаданные коллекции, их показывает
+  `GET /v1/indexes`.
 
 Индекс в памяти: `dict[id, RunRecord]` и такой же для сборок. Его строит скан при
 первом обращении к реестру. Все методы `FileRegistry` асинхронные, файловый ввод-вывод
@@ -166,10 +173,10 @@ id прогона — `<name>_<UTC постановки>[-N]` (решено в 2
 | `tags` | `[]`; теги сценария лежат в snapshot, фильтр `tag` их учитывает |
 | `dataset` | `describe_dataset(source или "local", id, manifest.dataset.revision или snapshot.dataset.revision)` |
 | `collection` | `snapshot.storage.backend.collection`: primary по правилу `build_storage_layout` |
-| `enqueued_at`, `started_at` | время из id. У CLI это момент создания каталога, после загрузки моделей; если имя не по шаблону — mtime snapshot |
+| `enqueued_at` | время из имени каталога `<name>_<YYYYMMDDTHHMMSSZ>[-N]`. Каталог с именем не по шаблону не импортируется, сервер пишет предупреждение в лог |
+| `started_at`, `finished_at` | `null`: точных времён в артефактах нет, mtime не используем. Длительность в списке — «—» |
 | `state` | `completed`, если есть `summary.aggregate.csv` (его ядро пишет последним); иначе `failed` |
 | `failure` | у неполного: `RunIncomplete`, «no summary.aggregate.csv: the run crashed, was killed or is still running from the CLI» |
-| `finished_at` | mtime `summary.aggregate.csv`; у неполного — `null` |
 | `warnings` | `[]` |
 | `origin` | `"import"` (у записей из `run.json` — `"api"`) |
 
@@ -178,9 +185,9 @@ id прогона — `<name>_<UTC постановки>[-N]` (решено в 2
   не завершился, и `error.message` говорит прямо, что известно и что нет. Если CLI-прогон
   ещё идёт, при следующем скане он станет `completed`: неполные импортированные каталоги
   перепроверяются на каждом скане (один `stat`).
-- **Длительность по mtime.** Если каталог скопировали без сохранения времён (`cp` без
-  `-p`), время конца будет неверным. Импорт — переходный путь до 37, у прогонов через API
-  времена берутся из записи.
+- **Со сценарием библиотеки по имени не связываем.** CLI мог запускать и
+  `configs/experiments/…` с тем же `name`, и ссылка оказалась бы ложной. Историю
+  сценария даёт фильтр `scenario=`, а после 37 все прогоны идут через API со ссылкой.
 - **Когда скан.** Полный — при первом обращении к реестру после старта. Перед каждым
   `list_runs` — `scandir` каталога (миллисекунды на тысячах): новые имена
   импортируются, исчезнувшие удаляются из индекса, неполные импортированные
@@ -189,14 +196,15 @@ id прогона — `<name>_<UTC постановки>[-N]` (решено в 2
 
 ### 4. Восстановление после рестарта
 
-В `create_app` появляется `lifespan`. При старте он вызывает
-`recover(registry, jobs)` из `registry/recovery.py`. Функция пользуется только методами
-протоколов и поэтому работает с любой реализацией. Для каждой записи `queued` или
-`running` (прогоны и сборки), которой `jobs.status(ref)` не знает:
+Это аварийный путь: при штатной остановке менеджер 29 сам переводит свои задачи в
+`failed` / `ServerShutdown`. В `Registry` появляется метод `recover(jobs)`
+(`InMemoryRegistry` — no-op). `lifespan` в `create_app` вызывает его после входа в
+менеджер задач, то есть когда менеджер уже поднят и пуст. Для каждой записи `queued`
+или `running` (прогоны и сборки), которой `jobs.status(ref)` не знает:
 
 | Запись | Признак | Становится |
 |---|---|---|
-| прогон | есть `summary.aggregate.csv` | `completed`, `finished_at` = mtime файла: воркер успел закончить, а переход до сервера не дошёл |
+| прогон | есть `summary.aggregate.csv` | `completed`: воркер успел закончить, а переход до сервера не дошёл; `finished_at` — время восстановления |
 | прогон `running` | нет `summary.aggregate.csv` | `failed`, `ServerRestart`: «server restarted while the run was running; artifacts of finished repeats are kept» |
 | прогон `queued` | | `failed`, `ServerRestart`: «server restarted before the run started; use Repeat to run it» |
 | сборка `running` | | `failed`, `ServerRestart`: «… the collection may be left without metadata: rebuild it» |
@@ -206,6 +214,19 @@ id прогона — `<name>_<UTC постановки>[-N]` (решено в 2
 поэтому `run.json` обновляется так же, как при любом переходе. Сами задачи заново не
 ставятся (см. «Рассмотренные альтернативы»). `TestClient` без `with` lifespan не
 запускает, поэтому тесты 28 это не затрагивает.
+
+```python
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    async with AsyncExitStack() as stack:
+        if isinstance(jobs, AbstractAsyncContextManager):   # вход в менеджер — ragglet-29
+            await stack.enter_async_context(jobs)
+        await registry.recover(jobs)                        # ragglet-30
+        yield
+```
+
+Вход в менеджер записан ровно так, как в доке 29, поэтому при слиянии второй из нас
+разрешает конфликт в одну строку.
 
 ### 5. Список прогонов и сборок
 
@@ -359,14 +380,19 @@ class QueryPageOut(BaseModel):
 - **Нет файлов per-query** (прогон в очереди, ещё не закончил повтор,
   `save_per_query: false`) → 404 `run.no_per_query`. Нет такого повтора → 404
   `run.repeat_not_found`, в сообщении перечислены записанные повторы.
+- **Файл, который ещё пишется.** Ядро пишет per-query не атомарно, поэтому у идущего
+  прогона последний файл может оказаться недописанным. Ошибка чтения даёт 409
+  `run.file_unreadable` («being written or damaged»), а не 500. Вкладка «Запросы»
+  нужна завершённым и упавшим прогонам, так что атомарная запись в ядре того не стоит.
 
 ### 8. Деталь запроса: `GET /v1/runs/{id}/queries/{qid}?repeat=0`
 
+**Первая версия (фаза 3)** собирается только из строки per-query, без датасета и
+Qdrant:
+
 ```python
 class TruthDoc(BaseModel):
-    doc_id: str
-    grade: int | None                      # из qrels датасета; None — см. grades
-    title: str | None                      # из корпуса датасета
+    doc_id: str                            # из truth_ids строки
     doc_rank: int | None                   # ранг в final_doc_ids; None — не найден
 
 class ResultChunk(BaseModel):
@@ -375,16 +401,8 @@ class ResultChunk(BaseModel):
     doc_id: str                            # из chunk_id «<doc_id>#<chunk_index>» — контракт сборки
     doc_rank: int                          # ранг документа в final_doc_ids: по нему считаются doc-метрики
     relevant: bool                         # doc_id в truth_ids строки
-    grade: int | None
     rerank_score: float | None             # по chunk_id из reranked_ids/rerank_scores
     in_context: bool | None                # None — context выключен
-    title: str | None                      # payload Qdrant, иначе заголовок документа из корпуса
-    text: str | None                       # payload Qdrant; None — см. texts
-
-class Availability(BaseModel):
-    available: bool
-    code: str | None                       # почему нет
-    message: str | None
 
 class QueryDetail(BaseModel):
     qid: str
@@ -393,9 +411,17 @@ class QueryDetail(BaseModel):
     row: dict[str, Any]                    # строка per-query целиком: задержки, метрики, контекст, ответ
     truth: list[TruthDoc]
     results: list[ResultChunk]
-    grades: Availability                   # оценки и заголовки из датасета
-    texts: Availability                    # тексты чанков из Qdrant
 ```
+
+У прогонов без `final_ids` / `final_doc_ids` (февраль, июнь) `results` пуст, а
+`truth` — без рангов; строка `row` есть всегда.
+
+**Обогащение (фаза 5, последняя).** Добавляет поля, не меняя существующих:
+`TruthDoc.grade` и `title`, `ResultChunk.grade`, `title` и `text`, а у `QueryDetail` —
+`grades: Availability` и `texts: Availability` (`available`, `code`, `message`: чего нет и
+почему). Если фаза не влезает в эту задачу, она уходит в ragglet-32, где деталь запроса
+нужна для сравнения. Ей одной нужны `resolve_dataset(offline)` и
+`AsyncQdrantStore.payloads()` (п. 11).
 
 **Оценки и заголовки — из датасета прогона.** Правила:
 
@@ -438,16 +464,20 @@ class QueryDetail(BaseModel):
 
 | Endpoint | Ответ |
 |---|---|
-| `GET /v1/runs/{id}/artifacts` | `list[ArtifactOut{name, size, modified_at}]` — файлы каталога, без подкаталогов и имён на `.` (временные файлы атомарной записи), включая `run.json` и лог 29, если он там |
+| `GET /v1/runs/{id}/artifacts` | `list[ArtifactOut{name, size, modified_at}]` — файлы каталога, включая `run.json` и `task.log`; без подкаталогов, имён на `.` (временный файл записи `run.json`) и служебных файлов менеджера `task.json`, `progress.json`, `result.json` |
 | `GET /v1/runs/{id}/artifacts/{name}` | файл как есть (`FileResponse`), тип по расширению: `json`, `yaml`, `text/csv`, `application/vnd.apache.parquet` |
 | `GET /v1/runs/{id}/artifacts.zip` | весь каталог: `<id>.zip` с записями `<id>/<файл>`, `ZIP_DEFLATED`; собирается в потоке во временный файл (каталоги — единицы и десятки МБ: все 55 нынешних весят 42 МБ) и отдаётся потоком |
 
 - Путь к файлу строится только из имён, которые вернул листинг каталога, а id — только
   из индекса реестра. Поэтому `..` и абсолютные пути не проходят. Неизвестное имя —
   404 `artifact.not_found`.
-- У идущего прогона отдаётся то, что уже записано. Ядро пишет файлы атомарно (п. 11),
-  поэтому каждый файл в листинге целый.
+- У идущего прогона отдаётся то, что уже записано, последний файл может быть недописан.
 - `Artifact` в протоколе получает `modified_at`.
+- **Лог после рестарта.** `GET /v1/runs/{id}/log` и `GET /v1/builds/{id}/log`, когда
+  менеджер задачу не знает (после рестарта или для импортированного прогона), читают
+  `task.log` из каталога задачи по тем же правилам, что менеджер 29: `offset` в байтах,
+  кусок до 64 КиБ обрезается по границе UTF-8, `complete: true` в конце файла. Нет
+  файла — `("", offset, true)`, как раньше.
 
 ### 10. Интерфейс: что меняется
 
@@ -467,6 +497,12 @@ class RunRecord:
     ...
     origin: Literal["api", "import"] = "api"   # не пишется в run.json
     metrics: RunMetrics | None = None          # производное из summary.aggregate.json; не пишется
+
+@dataclass(frozen=True)
+class BuildRecord:
+    id: str
+    build_dir: Path                        # results/builds/<id>: build.json и файлы менеджера
+    ...
 
 @dataclass(frozen=True)
 class RunQuery:                            # + dataset, collection, text, sort="-enqueued_at", k=10
@@ -489,70 +525,70 @@ class Artifact:
 class Registry(Protocol):
     ...
     async def query_row(self, run_id: str, repeat: int, qid: str) -> dict[str, Any] | None: ...  # новое
+    async def recover(self, jobs: JobManager) -> None: ...   # новое: п. 4
 ```
 
 `InMemoryRegistry` остаётся тестовым двойником для тестов 28: новые поля фильтров он
-понимает минимально, `query_row` возвращает `None`. Деталь запроса собирает отдельный
-`QueryInspector` (`registry/inspect.py`: датасет и Qdrant). Роутер создаёт его лениво в
-`Services`. Реестр отвечает за хранение, а не за походы в Qdrant.
+понимает минимально, `query_row` возвращает `None`, `recover` ничего не делает. Деталь
+запроса собирает роутер из `query_row`: это разбор одной строки. Обогащение из фазы 5
+делает отдельный `QueryInspector` (`registry/inspect.py`: датасет и Qdrant), его роутер
+создаёт лениво в `Services`. Реестр отвечает за хранение, а не за походы в Qdrant.
 
 `api/schemas.py`: `RunItem`, `RunList`, `BuildItem`, `BuildList`, `QueryPageOut`,
 `QueryDetail` и вложенные модели, `ArtifactOut`; `RunStatus.origin`,
 `RunStatus.scenario_file`, Optional `RunStatus.etag` и `plan`; `RunBrief.ndcg_at_10`.
 `create_app`: по умолчанию `FileRegistry(settings.artifacts_dir, settings.builds_dir)`
-и `lifespan` с `recover`. Новые endpoints: `GET /v1/runs` в `routers/runs.py`,
+и `lifespan` с `recover` (п. 4). Роутер сборок передаёт `record.build_dir` в
+`TaskSpec(run_dir=…)`; лог по-прежнему у менеджера, а когда менеджер задачу не знает, —
+из `task.log` каталога (п. 9). Новые endpoints: `GET /v1/runs` в `routers/runs.py`,
 `GET /v1/builds` в `routers/builds.py`, запросы и артефакты в новом
 `routers/results.py`.
 
 Новые коды проблем: `run.no_per_query`, `run.repeat_not_found`, `query.not_found`,
-`artifact.not_found` (404); `request.filter`, `request.sort` (422).
+`artifact.not_found` (404); `run.file_unreadable` (409); `request.filter`,
+`request.sort` (422).
 
 ### 11. Доработки ядра
 
 1. **Каталог прогона.** С `run_id` каталог может уже существовать (его создал реестр),
    но в нём не должно быть `scenario.snapshot.json`. Иначе `FileExistsError`, то есть
    защита из 28 от смешения артефактов двух прогонов сохраняется. Без `run_id` (CLI до
-   37) имя получает тот же суффикс `-2`, `-3` через `mkdir(exist_ok=False)`. Сейчас два
-   CLI-прогона в одну секунду пишут в один каталог, а CLI может попасть в каталог,
-   зарезервированный API. `unique_id` переезжает из `registry/memory.py` в
-   `bench/artifacts.py`.
-2. **Атомарная запись артефактов.** snapshot, manifest, per-query, `summary.*`
-   пишутся во временный `.<имя>.<uuid>.tmp` и переименовываются `os.replace`. Тогда
-   `summary.aggregate.csv` на диске — честный признак завершения, а чтение per-query
-   идущего прогона не видит полфайла.
-3. **`resolve_dataset(…, offline=False)`**: при `offline=True` у `hf` —
-   `local_files_only=True`, нет в кэше — `None` вместо скачивания.
-4. **`AsyncQdrantStore.payloads(chunk_ids) -> dict[str, dict]`** (п. 8).
+   37) всё как сейчас.
+2. Только для фазы 5: **`resolve_dataset(…, offline=False)`** (при `offline=True` у
+   `hf` — `local_files_only=True`, нет в кэше — `None` вместо скачивания) и
+   **`AsyncQdrantStore.payloads(chunk_ids) -> dict[str, dict]`** (п. 8).
 
-CLI это не меняет, кроме суффикса имени при совпадении секунды.
+Атомарной записи артефактов и суффикса имени каталога у CLI нет (решено на ревью):
+признак завершённости — `summary.aggregate.csv`, как сейчас, а CLI в ragglet-37 станет
+клиентом API.
 
-## Требования к ragglet-29
+## Договорённости с ragglet-29
 
-Файлы 29 эта задача не трогает, в `jobs/protocol.py` правок не нужно. Нужно следующее:
+Файлы 29 эта задача не трогает, в `jobs/protocol.py` правок не нужно (29 поправит только
+комментарий к `TaskSpec.run_dir`: у сборки это каталог сборки).
 
 1. **Переходы.** Терминальный `update` несёт `finished_at`, у прогона — `final_progress`.
    Всё это уже есть в `TaskChange`. `completed` ставится только после того, как
-   `run_scenario` вернул результат.
-2. **Каталог.** Воркер вызывает `run_scenario(cfg, run_id=record.id)`. Каталог к этому
-   моменту существует, в нём лежит `run.json`. После фазы 1 этой задачи ядро это
-   допускает.
-3. **Lifespan.** В `create_app` реестр добавляет `lifespan` с `recover(registry, jobs)`.
-   Если 29 тоже поднимает воркер в lifespan, порядок такой: сначала менеджер, потом
-   `recover`, а при остановке менеджер гасит процессы задач. Кто из нас вольётся вторым,
-   тот и объединяет lifespan.
-4. **Лог (предложение).** Если лог задачи пишется в файл, удобно класть его в каталог
-   прогона (`results/runs/<id>/task.log`) и рядом с записью сборки
-   (`results/builds/<id>.log`). Тогда лог переживает рестарт, переезжает с каталогом и
-   сам попадает во «Файлы» и в zip. Решает 29.
-5. **Процессы задач умирают вместе с сервером.** Если процесс задачи переживёт рестарт
-   и допишет каталог, запись к этому времени уже будет `failed`, и правило «есть
-   aggregate → `completed`» из п. 4 не сработает.
+   `run_scenario` вернул результат. Конкурентные `update` реестр сериализует сам.
+2. **Каталог задачи.** Реестр создаёт его при постановке и передаёт в `TaskSpec.run_dir`:
+   у прогона `results/runs/<id>/`, у сборки `results/builds/<id>/`. Воркер вызывает
+   `run_scenario(cfg, run_id=record.id)`; ядро после фазы 1 принимает каталог, в котором
+   пока лежат только `run.json` и файлы менеджера.
+3. **Файлы менеджера** — в каталоге задачи: `task.log`, `task.json`, `progress.json`,
+   `result.json`. Реестр показывает `task.log` в артефактах и в zip, остальные скрывает, а
+   после рестарта отдаёт `task.log` через `GET …/log` сам (п. 9).
+4. **Lifespan.** 29 входит в менеджер, 30 после этого вызывает `registry.recover(jobs)`.
+   Кто вливается вторым, разрешает конфликт в одну строку.
+5. **Штатная остановка** — `failed` / `ServerShutdown` от менеджера. Аварийный рестарт —
+   `failed` / `ServerRestart` от `recover`. Процессы задач умирают вместе с сервером
+   (сторожевой поток 29): иначе запись уже `failed`, а каталог ещё пишется.
 
 ## Расхождения с ragglet-15 и ragglet-28
 
 | Было | Здесь | Почему |
 |---|---|---|
 | 28: каталог прогона создаёт ядро при старте | реестр при постановке, с `run.json`; ядро принимает готовый каталог без snapshot | записи `queued` нужно жить в каталоге, чтобы он оставался единицей переноса; резервация id через `mkdir` атомарна |
+| 15: у сборки каталога нет | `results/builds/<id>/` с `build.json` и файлами менеджера | лог и служебные файлы 29 живут в каталоге задачи |
 | 28: `RunStatus.etag: str`, `plan: RunPlanOut` | Optional | у импортированных CLI-прогонов нет ни текста сценария, ни плана |
 | 15: «сценарий изменился после прогона — по `updated_at` файла» | по `etag` (как решено в 28), поле `scenario_file` с `deleted` | mtime меняется без правки |
 | 15: `GET /v1/runs?…&from&to&page` | `since`, `until`, `offset`, `limit` | имена из `RunQuery` 28 |
@@ -564,21 +600,18 @@ CLI это не меняет, кроме суффикса имени при со
 
 | Модуль | Изменение |
 |---|---|
-| `registry/protocol.py` | поля и `query_row` (п. 10) |
-| `registry/files.py` (новый) | `FileRegistry`: `run.json`, записи сборок, скан, индекс, список, summary, manifest, артефакты |
-| `registry/importer.py` (новый) | запись из каталога без `run.json` |
-| `registry/metrics.py` (новый) | `RunMetrics` из aggregate, колонки списка, сортировка |
-| `registry/per_query.py` (новый) | чтение parquet/CSV, LRU, фильтры, `first_relevant_rank` |
-| `registry/inspect.py` (новый) | `QueryInspector`: датасет, qrels, заголовки, тексты из Qdrant |
-| `registry/recovery.py` (новый) | `recover(registry, jobs)` |
-| `registry/memory.py` | новые поля и методы минимально; `unique_id` — из `bench/artifacts.py` |
-| `api/routers/runs.py`, `builds.py` | `GET /v1/runs`, `GET /v1/builds`; `origin`, `scenario_file`, Optional `etag` и `plan` |
+| `registry/protocol.py` | поля, `query_row`, `recover`, `BuildRecord.build_dir` (п. 10) |
+| `registry/files.py` (новый) | `FileRegistry`: `run.json` и `build.json`, скан, импорт, индекс, `recover`, список, summary, manifest, артефакты |
+| `registry/listing.py` (новый) | `RunMetrics` из aggregate, фильтры, сортировка, колонки |
+| `registry/per_query.py` (новый) | чтение parquet/CSV, LRU, фильтры, `first_relevant_rank`, разбор строки для детали |
+| `registry/inspect.py` (новый, фаза 5) | `QueryInspector`: датасет, qrels, заголовки, тексты из Qdrant |
+| `registry/memory.py` | новые поля и методы минимально |
+| `api/routers/runs.py`, `builds.py` | `GET /v1/runs`, `GET /v1/builds`; `origin`, `scenario_file`, Optional `etag` и `plan`; `build_dir` в `TaskSpec`; лог из `task.log` |
 | `api/routers/results.py` (новый) | запросы, деталь запроса, артефакты, zip |
-| `api/routers/library.py` | `RunBrief.ndcg_at_10` |
-| `api/schemas.py`, `api/app.py`, `api/settings.py`, `api/deps.py` | точечно: модели; `FileRegistry` по умолчанию и `lifespan`; `builds_dir`; `QueryInspector` в `Services` |
-| `bench/artifacts.py`, `bench/run_scenario.py` | каталог с `run_id`, суффикс без него, атомарная запись |
-| `datasets/sources.py` | `offline` |
-| `stores/qdrant_store_async.py` | `payloads()` |
+| `api/routers/library.py`, `tasks.py` | `RunBrief.ndcg_at_10`; чтение `task.log` по смещению |
+| `api/schemas.py`, `api/app.py`, `api/settings.py`, `api/deps.py` | точечно: модели; `FileRegistry` по умолчанию и `lifespan`; `builds_dir`; `QueryInspector` в `Services` (фаза 5) |
+| `bench/artifacts.py` | каталог с `run_id` может существовать без snapshot |
+| `datasets/sources.py`, `stores/qdrant_store_async.py` | фаза 5: `offline`, `payloads()` |
 | `README.md` | реестр, `RAGGLET_BUILDS_DIR`, новые endpoints |
 
 `pyproject.toml` не меняется: pandas, pyarrow и pydantic уже в зависимостях.
@@ -596,9 +629,11 @@ formats, complete, manifest, generation)` в `tests/registry_support.py` соб�
    перезаписывает, временных файлов не остаётся. Новый `FileRegistry` на том же каталоге
    читает те же записи. Три постановки в одну секунду дают `…Z`, `…Z-2`, `…Z-3`, и
    занятый CLI каталог тоже пропускается. Битый `run.json` не перезаписывается, каталог
-   импортируется. Сборки — то же в `builds_dir`.
+   импортируется. Сборки — то же в `builds_dir/<id>/build.json`, и `TaskSpec.run_dir`
+   сборки — её каталог.
 2. **Импорт.** Полный каталог без `run.json` — `completed`, `origin: import`, `dataset`
-   и `collection` из snapshot и manifest, `finished_at` = mtime aggregate. Без aggregate
+   и `collection` из snapshot и manifest, `enqueued_at` из имени, `started_at`,
+   `finished_at` и `duration_s` — `null`. Без aggregate
    — `failed` / `RunIncomplete`; после появления aggregate следующий список даёт
    `completed`. Snapshot, не проходящий текущую схему, импортируется. Каталог без
    snapshot и имя на `.` не видны. Удалённый каталог исчезает из списка. В
@@ -619,17 +654,19 @@ formats, complete, manifest, generation)` в `tests/registry_support.py` соб�
    `first_relevant_rank` и `-lat_total_ms`, страницы, `repeats`. `outcome` у поколения
    `"feb"` — 422 `request.filter`. Нет per-query — 404 `run.no_per_query`, нет повтора
    — 404 со списком.
-7. **Деталь запроса** на `datasets/demo`: оценки из qrels и заголовки из корпуса,
-   `doc_rank` против `rank` при двух чанках одного документа, `rerank_score` по
-   `chunk_id`, `in_context`. Без Qdrant (фейк не отвечает) — `texts.code:
+7. **Деталь запроса.** `doc_rank` против `rank` при двух чанках одного документа,
+   `rerank_score` по `chunk_id`, `in_context`, ранги `truth`; у поколения `"feb"` —
+   пустые `results`. Неизвестный `qid` — 404. Фаза 5 на `datasets/demo`: оценки из qrels
+   и заголовки из корпуса. Без Qdrant (фейк не отвечает) — `texts.code:
    index.unreachable`, ответ 200. Фейк с другим `built_at` — `index.rebuilt`. С тем же
    `built_at` и фейковыми payload — тексты на месте. Изменённый qrels во временной копии
    датасета — `dataset.changed`. Без manifest — `run.no_manifest`.
-8. **Артефакты.** Листинг без временных файлов; файл отдаётся байт в байт; `..%2Fx` и
-   неизвестное имя — 404; в zip все файлы под `<id>/`.
+8. **Артефакты.** Листинг с `task.log`, без `task.json`, `progress.json`, `result.json` и
+   временных файлов; файл отдаётся байт в байт; `..%2Fx` и неизвестное имя — 404; в zip
+   все показанные файлы под `<id>/`. `GET …/log` у задачи, которую менеджер не знает,
+   читает `task.log` по смещению, кусок не рвёт символ UTF-8.
 9. **Ядро.** `run_id` на каталоге только с `run.json` работает, на каталоге со
-   snapshot — `FileExistsError`. Два CLI-прогона в одну секунду получают разные каталоги.
-   Артефакты пишутся без временных файлов в итоге.
+   snapshot — `FileExistsError`.
 10. Существующие тесты, включая тесты API 28 на `InMemoryRegistry`, проходят без правок.
 
 Ручная проверка: `ragglet serve` на настоящем `results/runs` (55 каталогов трёх
@@ -638,14 +675,16 @@ zip.
 
 ## Фазы (отдельными коммитами)
 
-1. **Ядро**: каталог с `run_id` и суффикс без него, атомарная запись артефактов,
-   `resolve_dataset(offline)`, `payloads()`.
-2. **Реестр на файлах**: `run.json`, записи сборок, скан и импорт, `recover` в
+1. **Ядро**: каталог с `run_id` может уже существовать.
+2. **Реестр на файлах**: `run.json` и `build.json`, скан и импорт, `recover` в
    lifespan, `GET /v1/runs` и `GET /v1/builds` с колонками и фильтрами,
    `include=summary,manifest`, `origin`, `scenario_file`, `RunBrief.ndcg_at_10`,
    `FileRegistry` по умолчанию, `builds_dir`.
-3. **Per-query**: список с фильтрами и рангом, деталь запроса с датасетом и Qdrant.
-4. **Артефакты**: листинг, файл, zip; README.
+3. **Per-query**: список с фильтрами и рангом, деталь запроса по строке.
+4. **Артефакты и лог**: листинг, файл, zip, `task.log` после рестарта; README.
+5. **Обогащение детали запроса**: `resolve_dataset(offline)`, `payloads()`, оценки и
+   заголовки из датасета, тексты из Qdrant. Если не влезает в эту задачу — уходит в
+   ragglet-32.
 
 ## Вне скоупа
 
@@ -693,17 +732,29 @@ zip.
 - **Угадывать списки в CSV по первой `[`.** Текст запроса тоже может начинаться со
   скобки.
 
-## Открытые вопросы
+## Решено на ревью
 
-1. **Связывать ли импортированные прогоны со сценарием библиотеки по имени?** Сейчас у
-   них `scenario_id: null`, поэтому в «последний прогон» списка сценариев CLI-прогоны не
-   попадают (8 прогонов `nfcorpus_hf` там не видны). Можно ставить
-   `scenario_id = name`, если такой файл есть в библиотеке. Но CLI мог запускать и
-   `configs/experiments/…` с тем же `name`, тогда ссылка будет ложной. Предлагаю
-   оставить `null`: историю сценария даёт фильтр `scenario=`, а после 37 все прогоны
-   идут через API со ссылкой.
-2. **Время конца импортированных прогонов по mtime.** Это даёт длительность в списке,
-   но после копирования без `-p` она неверна. Альтернатива: `duration_s = null` у всех
-   импортированных.
-3. **`builds_dir` по умолчанию `results/builds`.** Подходит ли, или сборки держать в
-   `results/runs/.builds`, чтобы для переноса хватало одного каталога?
+Общая просьба: упростить всё, что можно сделать дешевле и понятнее, — пользователь один.
+
+1. **Каталог прогона создаёт реестр при постановке** (расхождение с 28 одобрено): атомарный
+   `mkdir results/runs/<id>/`, суффикс `-2` при `EEXIST`; ядро принимает существующий
+   каталог без snapshot (п. 1, 11).
+2. **Сборки — `results/builds/<id>/build.json`**, отдельно от прогонов: продукт сборки —
+   коллекция в Qdrant, переносить её каталог незачем. `BuildRecord.build_dir` уходит в
+   `TaskSpec(run_dir=…)`, имя поля в `jobs/protocol.py` не меняется (п. 1).
+3. **Лог и файлы менеджера — в каталоге задачи** (`task.log`, `task.json`,
+   `progress.json`, `result.json`, решение 29). `task.log` — в артефактах и zip, служебные
+   скрыты; после рестарта `GET …/log` читает `task.log` сам (п. 9).
+4. **Рестарт**: `Registry.recover(jobs)` в lifespan после входа в менеджер; `queued` и
+   `running`, которых менеджер не знает, — `failed` / `ServerRestart`, при
+   `summary.aggregate.csv` — `completed`. Штатную остановку помечает 29
+   (`ServerShutdown`), `recover` — аварийный путь (п. 4).
+5. **Импортированные прогоны** со сценарием по имени не связываются; `enqueued_at` — из
+   имени каталога, `started_at`, `finished_at` и длительность — `null`, mtime не
+   используется (п. 3).
+6. **Упрощения**: обогащение детали запроса (датасет, Qdrant) — последняя фаза, при
+   нехватке времени уходит в ragglet-32; атомарной записи артефактов в ядре и суффикса
+   имени каталога у CLI нет (п. 8, 11, «Фазы»).
+7. Остальное принято как есть: `run.json` без базы, индекс в памяти, импорт без
+   сохранения, колонки сводки из `summary.aggregate.json` в памяти, per-query parquet →
+   CSV с `ast.literal_eval`, `first_relevant_rank`, `scenario_file`, удаление вне скоупа.
