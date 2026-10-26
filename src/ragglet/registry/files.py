@@ -24,6 +24,7 @@ from pydantic import TypeAdapter
 from ragglet.bench.artifacts import SNAPSHOT_FILE
 from ragglet.datasets.sources import describe_dataset
 from ragglet.jobs.protocol import JobManager, TaskFailure, TaskKind, TaskRef, TaskState
+from ragglet.registry import per_query
 from ragglet.registry.listing import run_metrics, select_builds, select_runs
 from ragglet.registry.protocol import (
     Artifact,
@@ -34,6 +35,7 @@ from ragglet.registry.protocol import (
     Page,
     QueryFilter,
     QueryPage,
+    RegistryError,
     RunMetrics,
     RunQuery,
     RunRecord,
@@ -397,11 +399,17 @@ class FileRegistry:
         record = await self.get_run(run_id)
         return await anyio.to_thread.run_sync(list_artifacts, record.run_dir) if record else []
 
+    async def _run_dir(self, run_id: str) -> Path:
+        record = await self.get_run(run_id)
+        if record is None:
+            raise RegistryError(404, "run.not_found", f"run {run_id!r} not found")
+        return record.run_dir
+
     async def queries(self, run_id: str, query: QueryFilter) -> QueryPage:
-        return QueryPage(items=[], total=0, repeat=query.repeat, repeats=[], source="", columns=[])
+        return await anyio.to_thread.run_sync(per_query.query_page, await self._run_dir(run_id), query)
 
     async def query_row(self, run_id: str, repeat: int, qid: str) -> dict[str, Any] | None:
-        return None
+        return await anyio.to_thread.run_sync(per_query.query_row, await self._run_dir(run_id), repeat, qid)
 
 
 def _restart_failure(kind: TaskKind, state: TaskState) -> TaskFailure:

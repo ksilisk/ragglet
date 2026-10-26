@@ -362,7 +362,9 @@ class QueryPageOut(BaseModel):
   `context_ids`, `final_ids`, `final_doc_ids`, `rerank_scores`), а не угадыванием по
   первой `[`: текст запроса тоже может начинаться со скобки. `qid`, `query`, `outcome`,
   `timeout_stage` читаются строками, иначе `qid` вида `0042` стал бы числом 42. Новая
-  колонка-список в CSV требует строки в `LIST_COLUMNS`, parquet — нет.
+  колонка-список в CSV требует строки в `LIST_COLUMNS`, parquet — нет. CSV не отличает
+  пустую строку от пустого значения, поэтому пустой текст (`answer: ""`) из CSV приходит
+  как `null`, а из parquet — как `""`.
 - **Строка списка** — все скалярные колонки файла плюс `first_relevant_rank`. Списки и
   длинные тексты (`context_text`, `prompt_text`, `answer`, `raw_generation_response`)
   отдаёт деталь запроса. NaN → `null` (через `DataFrame.to_json`, он же превращает

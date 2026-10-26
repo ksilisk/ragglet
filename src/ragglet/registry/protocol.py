@@ -175,9 +175,10 @@ class Artifact:
 class RegistryError(Exception):
     """Ожидаемая ошибка чтения прогона: API отдаёт её Problem с этим статусом и кодом."""
 
-    def __init__(self, status: int, code: str, message: str):
+    def __init__(self, status: int, code: str, message: str, path: str | None = None):
         super().__init__(message)
         self.status, self.code, self.message = status, code, message
+        self.path = path  # параметр запроса, к которому относится ошибка
 
 
 class Registry(Protocol):

@@ -451,6 +451,39 @@ class BuildList(BaseModel):
     items: list[BuildItem]
 
 
+class QueryPageOut(BaseModel):
+    repeat: int
+    repeats: list[int]  # какие повторы записаны: у упавшего прогона — частичные результаты
+    source: str  # "per_query.repeat0.parquet"
+    columns: list[str]  # колонки строк: у старых поколений формата их меньше
+    total: int
+    items: list[dict[str, Any]]  # скалярные колонки per-query и first_relevant_rank; NaN -> null
+
+
+class TruthDoc(BaseModel):
+    doc_id: str  # из truth_ids строки
+    doc_rank: int | None  # ранг в final_doc_ids; None — не найден
+
+
+class ResultChunk(BaseModel):
+    rank: int  # позиция в final_ids, с 1
+    chunk_id: str
+    doc_id: str  # из chunk_id «<doc_id>#<chunk_index>» — контракт сборки
+    doc_rank: int | None  # ранг документа в final_doc_ids: по нему считаются doc-метрики
+    relevant: bool  # doc_id в truth_ids строки
+    rerank_score: float | None  # по chunk_id из reranked_ids и rerank_scores
+    in_context: bool | None  # None — context выключен
+
+
+class QueryDetail(BaseModel):
+    qid: str
+    repeat: int
+    query: str
+    row: dict[str, Any]  # строка per-query целиком: задержки, метрики, контекст, ответ
+    truth: list[TruthDoc]
+    results: list[ResultChunk]  # пусто у прогонов без final_doc_ids
+
+
 class LogChunkOut(BaseModel):
     text: str
     offset: int

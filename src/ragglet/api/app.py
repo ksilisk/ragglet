@@ -13,7 +13,17 @@ from starlette.types import Scope
 from ragglet.api.deps import Services
 from ragglet.api.library import ConfigLibrary
 from ragglet.api.problems import install_handlers
-from ragglet.api.routers import builds, datasets, indexes, library, meta, runs, stand, tasks
+from ragglet.api.routers import (
+    builds,
+    datasets,
+    indexes,
+    library,
+    meta,
+    results,
+    runs,
+    stand,
+    tasks,
+)
 from ragglet.api.schemas import RootInfo
 from ragglet.api.settings import ServerSettings
 from ragglet.config.index_profile import IndexProfileConfig
@@ -76,7 +86,7 @@ def create_app(
         registry=registry,
     )
     install_handlers(app)
-    for module in (meta, stand, library, indexes, datasets, runs, builds, tasks):
+    for module in (meta, stand, library, indexes, datasets, runs, results, builds, tasks):
         app.include_router(module.router, prefix="/v1")
 
     if settings.ui_dir is not None:
