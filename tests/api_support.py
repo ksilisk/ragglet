@@ -15,6 +15,7 @@ from ragglet.config.index_profile import IndexProfileConfig
 from ragglet.core.errors import ServiceUnavailable
 from ragglet.indexing.metadata import build_index_metadata
 from ragglet.jobs.memory import InMemoryJobManager
+from ragglet.registry.files import FileRegistry
 from ragglet.registry.memory import InMemoryRegistry
 from ragglet.stores.qdrant_store_async import CollectionInfo, ServerCollections
 
@@ -115,13 +116,13 @@ class Clock:
 class Stand:
     client: TestClient
     settings: ServerSettings
-    registry: InMemoryRegistry
+    registry: InMemoryRegistry | FileRegistry
     jobs: InMemoryJobManager
     qdrant: FakeQdrant
     clock: Clock
 
 
-def make_stand(tmp_path: Path, monkeypatch, **settings) -> Stand:
+def make_stand(tmp_path: Path, monkeypatch, *, file_registry: bool = False, **settings) -> Stand:
     from ragglet.api import probes
     from ragglet.bench import preflight as preflight_module
     from ragglet.bench import run_scenario as run_module
@@ -147,10 +148,12 @@ def make_stand(tmp_path: Path, monkeypatch, **settings) -> Stand:
         artifacts_dir=tmp_path / "runs",
         dataset_roots=[ROOT / "datasets"],
         qdrant_endpoints=[QDRANT],
+        builds_dir=tmp_path / "builds",
         **settings,
     )
     clock = Clock()
-    registry = InMemoryRegistry(config.artifacts_dir, now=clock)
+    registry = (FileRegistry(config.artifacts_dir, config.builds_dir, now=clock) if file_registry
+                else InMemoryRegistry(config.artifacts_dir, now=clock))
     jobs = InMemoryJobManager(registry, now=clock)
     client = TestClient(create_app(config, jobs=jobs, registry=registry))
     return Stand(client=client, settings=config, registry=registry, jobs=jobs, qdrant=qdrant, clock=clock)

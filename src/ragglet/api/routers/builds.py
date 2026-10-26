@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Collection
+from datetime import datetime
 from functools import partial
 from typing import TYPE_CHECKING, Annotated
 
@@ -14,11 +15,13 @@ from ragglet.api.deps import Services, Svc
 from ragglet.api.library import etag_of
 from ragglet.api.problems import Problem, issues_out, parse_config, problem_error
 from ragglet.api.refs import library_users
-from ragglet.api.routers.runs import check_library_ref
+from ragglet.api.routers.runs import check_library_ref, check_sort
 from ragglet.api.routers.tasks import cancel, parse_include, read_log
 from ragglet.api.schemas import (
     BuildAccepted,
     BuildCheck,
+    BuildItem,
+    BuildList,
     BuildRequest,
     BuildStatus,
     BuildTargetCheck,
@@ -28,8 +31,9 @@ from ragglet.api.schemas import (
 )
 from ragglet.config.index_profile import IndexProfileConfig
 from ragglet.indexing.metadata import RAGGLET_METADATA_KEY
-from ragglet.jobs.protocol import TaskKind, TaskRef, TaskSpec
-from ragglet.registry.protocol import BuildRecord, NewBuild
+from ragglet.jobs.protocol import TaskKind, TaskRef, TaskSpec, TaskState
+from ragglet.registry.listing import BUILD_SORT_KEYS, duration_s
+from ragglet.registry.protocol import BuildQuery, BuildRecord, NewBuild
 
 if TYPE_CHECKING:  # build_index тянет torch: в API — только при проверке
     from ragglet.indexing.build_index import BuildResult
@@ -94,10 +98,48 @@ async def post_build(req: BuildRequest, response: Response, svc: Svc) -> BuildCh
         warnings=result.warnings,
     ))
     status = await svc.jobs.submit(TaskSpec(ref=TaskRef(TaskKind.BUILD, record.id), name=cfg.id,
-                                            config=cfg.model_dump(by_alias=True)))
+                                            config=cfg.model_dump(by_alias=True), run_dir=record.build_dir))
     response.headers["Location"] = f"/v1/builds/{record.id}"
     return BuildAccepted(id=record.id, state=status.state, position=status.position,
                          warnings=issues_out(result.warnings))
+
+
+def build_item(record: BuildRecord) -> BuildItem:
+    documents = (record.result or {}).get("documents")
+    return BuildItem(
+        id=record.id,
+        profile=record.name,
+        profile_id=record.profile_id,
+        state=record.state,
+        enqueued_at=record.enqueued_at,
+        started_at=record.started_at,
+        finished_at=record.finished_at,
+        duration_s=duration_s(record),
+        dataset=record.dataset,
+        targets=[CollectionRef(endpoint=t.endpoint, collection=t.collection) for t in record.targets],
+        documents=documents if isinstance(documents, int) else None,
+    )
+
+
+@router.get("/builds", responses={422: {"model": Problem}})
+async def list_builds(
+        svc: Svc,
+        state: TaskState | None = None,
+        profile_id: str | None = None,
+        dataset: Annotated[str | None, Query(description="source:id — любая ревизия; с @ревизией — точная")] = None,
+        collection: Annotated[str | None, Query(description="среди целей сборки")] = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        q: str | None = None,
+        sort: Annotated[str, Query(description="ключ сортировки, '-' — по убыванию; null всегда в конце")] = "-enqueued_at",
+        offset: Annotated[int, Query(ge=0)] = 0,
+        limit: Annotated[int, Query(ge=1, le=500)] = 50,
+) -> BuildList:
+    page = await svc.registry.list_builds(BuildQuery(
+        profile_id=profile_id, state=state, offset=offset, limit=limit, dataset=dataset, collection=collection,
+        since=since, until=until, text=q, sort=check_sort(sort, BUILD_SORT_KEYS),
+    ))
+    return BuildList(total=page.total, items=[build_item(record) for record in page.items])
 
 
 async def _record(svc: Services, build_id: str) -> BuildRecord:

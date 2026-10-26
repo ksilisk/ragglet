@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -18,7 +20,7 @@ from ragglet.config.index_profile import IndexProfileConfig
 from ragglet.config.scenario import ScenarioConfig
 from ragglet.jobs.memory import InMemoryJobManager
 from ragglet.jobs.protocol import JobManager
-from ragglet.registry.memory import InMemoryRegistry
+from ragglet.registry.files import FileRegistry
 from ragglet.registry.protocol import Registry
 
 
@@ -42,10 +44,18 @@ def create_app(
         jobs: JobManager | None = None,
         registry: Registry | None = None,
 ) -> FastAPI:
-    """Приложение API; без jobs и registry — in-memory заглушки до ragglet-29 и ragglet-30."""
+    """Приложение API; без registry — реестр на файлах, без jobs — заглушка менеджера до ragglet-29."""
     settings = settings or ServerSettings()
-    registry = registry or InMemoryRegistry(settings.artifacts_dir)
+    registry = registry or FileRegistry(settings.artifacts_dir, settings.builds_dir)
     jobs = jobs or InMemoryJobManager(registry)
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        async with AsyncExitStack() as stack:
+            if isinstance(jobs, AbstractAsyncContextManager):  # вход в менеджер задач — ragglet-29
+                await stack.enter_async_context(jobs)
+            await registry.recover(jobs)  # после падения сервера: осиротевшие queued/running
+            yield
 
     app = FastAPI(
         title="Ragglet",
@@ -54,6 +64,7 @@ def create_app(
         openapi_url="/v1/openapi.json",
         docs_url="/v1/docs",
         redoc_url=None,
+        lifespan=lifespan,
     )
     app.state.services = Services(
         settings=settings,

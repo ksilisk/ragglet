@@ -6,7 +6,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from ragglet.jobs.protocol import TaskKind, TaskRef, TaskState
+from ragglet.jobs.protocol import JobManager, TaskKind, TaskRef, TaskState
+from ragglet.registry.listing import select_builds, select_runs
 from ragglet.registry.protocol import (
     Artifact,
     BuildQuery,
@@ -15,6 +16,7 @@ from ragglet.registry.protocol import (
     NewRun,
     Page,
     QueryFilter,
+    QueryPage,
     RunQuery,
     RunRecord,
     RunSummary,
@@ -31,10 +33,16 @@ def unique_id(base: str, taken: Callable[[str], bool]) -> str:
 
 
 class InMemoryRegistry:
-    """Заглушка реестра до ragglet-30: записи в памяти процесса, артефактов не читает."""
+    """Тестовый двойник реестра: записи в памяти процесса, каталогов не создаёт и артефактов не читает."""
 
-    def __init__(self, artifacts_dir: Path, now: Callable[[], datetime] = lambda: datetime.now(UTC)):
+    def __init__(
+            self,
+            artifacts_dir: Path,
+            now: Callable[[], datetime] = lambda: datetime.now(UTC),
+            builds_dir: Path | None = None,
+    ):
         self.artifacts_dir = artifacts_dir
+        self.builds_dir = builds_dir or artifacts_dir.parent / "builds"
         self._now = now
         self._runs: dict[str, RunRecord] = {}
         self._builds: dict[str, BuildRecord] = {}
@@ -57,7 +65,7 @@ class InMemoryRegistry:
         now = self._now()
         build_id = unique_id(f"{new.name}_{now:%Y%m%dT%H%M%SZ}", self._builds.__contains__)
         record = BuildRecord(
-            id=build_id, state=TaskState.QUEUED, enqueued_at=now,
+            id=build_id, build_dir=self.builds_dir / build_id, state=TaskState.QUEUED, enqueued_at=now,
             **{f.name: getattr(new, f.name) for f in fields(NewBuild)},
         )
         self._builds[build_id] = record
@@ -77,26 +85,10 @@ class InMemoryRegistry:
         return self._builds.get(build_id)
 
     async def list_runs(self, query: RunQuery) -> Page[RunRecord]:
-        found = [
-            r for r in self._runs.values()
-            if (query.scenario_id is None or r.scenario_id == query.scenario_id)
-            and (query.name is None or r.name == query.name)
-            and (query.state is None or r.state is query.state)
-            and (query.tag is None or query.tag in r.tags or query.tag in r.scenario.get("tags", []))
-            and (query.since is None or r.enqueued_at >= query.since)
-            and (query.until is None or r.enqueued_at < query.until)
-        ]
-        found.sort(key=lambda r: r.enqueued_at, reverse=True)
-        return Page(items=found[query.offset:query.offset + query.limit], total=len(found))
+        return select_runs(self._runs.values(), query)
 
     async def list_builds(self, query: BuildQuery) -> Page[BuildRecord]:
-        found = [
-            b for b in self._builds.values()
-            if (query.profile_id is None or b.profile_id == query.profile_id)
-            and (query.state is None or b.state is query.state)
-        ]
-        found.sort(key=lambda b: b.enqueued_at, reverse=True)
-        return Page(items=found[query.offset:query.offset + query.limit], total=len(found))
+        return select_builds(self._builds.values(), query)
 
     async def summary(self, run_id: str) -> RunSummary | None:
         return None
@@ -107,5 +99,11 @@ class InMemoryRegistry:
     async def artifacts(self, run_id: str) -> list[Artifact]:
         return []
 
-    async def queries(self, run_id: str, query: QueryFilter) -> Page[dict[str, Any]]:
-        return Page(items=[], total=0)
+    async def queries(self, run_id: str, query: QueryFilter) -> QueryPage:
+        return QueryPage(items=[], total=0, repeat=query.repeat, repeats=[], source="", columns=[])
+
+    async def query_row(self, run_id: str, repeat: int, qid: str) -> dict[str, Any] | None:
+        return None
+
+    async def recover(self, jobs: JobManager) -> None:
+        """Записи живут только в памяти процесса: после рестарта восстанавливать нечего."""

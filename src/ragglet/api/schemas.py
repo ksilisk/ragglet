@@ -8,7 +8,7 @@ from pydantic import BaseModel, StringConstraints, model_validator
 from ragglet.api.problems import Problem, ProblemIssue, issues_out
 from ragglet.config.errors import FieldError
 from ragglet.jobs.protocol import ProgressInfo, TaskFailure, TaskKind, TaskState, TaskStatus
-from ragglet.registry.protocol import BuildRecord, RunRecord
+from ragglet.registry.protocol import BuildRecord, Origin, RunRecord
 
 ID_PATTERN = r"^[A-Za-z0-9_-]{1,64}$"
 ConfigId = Annotated[str, StringConstraints(pattern=ID_PATTERN)]
@@ -72,6 +72,7 @@ class RunBrief(BaseModel):
     id: str
     state: TaskState
     enqueued_at: datetime
+    ndcg_at_10: float | None = None  # doc_ndcg@10, среднее по повторам; None — нет в summary
 
 
 class BuildBrief(BaseModel):
@@ -90,7 +91,7 @@ class ScenarioItem(BaseModel):
     dataset: str | None = None  # "hf:BeIR/nfcorpus"; None у черновика без dataset
     collections: list[CollectionRef] = []  # цели storage
     pipeline: Pipeline | None = None
-    last_run: RunBrief | None = None  # колонки сводки добавляет ragglet-30
+    last_run: RunBrief | None = None
 
 
 class IndexProfileItem(BaseModel):
@@ -369,18 +370,23 @@ class RunSummaryOut(BaseModel):
     aggregate: dict[str, Any]
 
 
+ScenarioFile = Literal["unchanged", "changed", "deleted"]
+
+
 class RunStatus(_Live):
     id: str
     scenario: str  # name
     scenario_id: str | None  # ссылка на сценарий библиотеки, если её передали
-    etag: str
-    plan: RunPlanOut
+    etag: str | None  # None — прогон импортирован из каталога: текста сценария не было
+    origin: Origin  # import — каталог без записи реестра: CLI до ragglet-37 и старые прогоны
+    scenario_file: ScenarioFile | None = None  # файл сценария библиотеки против etag; None — ссылки нет
+    plan: RunPlanOut | None  # None — импортирован: плана preflight не было
     dataset: str
     collection: str
     tags: list[str]
     warnings: list[ProblemIssue]  # preflight при постановке
-    summary: RunSummaryOut | None = None  # ?include=summary (ragglet-30)
-    manifest: dict[str, Any] | None = None  # ?include=manifest (ragglet-30)
+    summary: RunSummaryOut | None = None  # ?include=summary: summary.json и summary.aggregate.json как есть
+    manifest: dict[str, Any] | None = None  # ?include=manifest
     scenario_yaml: str | None = None  # ?include=scenario: snapshot для «Повторить» и «Открыть как сценарий»
 
 
@@ -394,6 +400,55 @@ class BuildStatus(_Live):
     warnings: list[ProblemIssue]
     result: dict[str, Any] | None = None  # documents и записанные метаданные
     profile_yaml: str | None = None  # ?include=profile
+
+
+class RunItem(BaseModel):
+    """Строка списка прогонов: запись реестра и колонки сводки, без чтения per-query."""
+
+    id: str
+    scenario: str  # name
+    scenario_id: str | None
+    origin: Origin
+    state: TaskState
+    enqueued_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+    duration_s: float | None  # finished_at − started_at
+    dataset: str
+    collection: str
+    tags: list[str]  # теги записи и сценария
+    repeats: int | None  # из summary.aggregate
+    ndcg: float | None  # doc_ndcg@k, среднее по повторам
+    recall: float | None  # doc_recall@k
+    p50_ms: float | None  # lat_total_p50
+    p95_ms: float | None  # lat_total_p95
+    qps: float | None  # throughput_qps
+    timeout_rate: float | None
+
+
+class RunList(BaseModel):
+    k: int  # для ndcg и recall
+    total: int
+    items: list[RunItem]
+
+
+class BuildItem(BaseModel):
+    id: str
+    profile: str  # id профиля
+    profile_id: str | None
+    state: TaskState
+    enqueued_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+    duration_s: float | None
+    dataset: str
+    targets: list[CollectionRef]
+    documents: int | None  # из result
+
+
+class BuildList(BaseModel):
+    total: int
+    items: list[BuildItem]
 
 
 class LogChunkOut(BaseModel):

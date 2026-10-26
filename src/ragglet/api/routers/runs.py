@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from collections.abc import Collection
 from dataclasses import asdict
+from datetime import datetime
 from typing import Annotated
 
+import anyio
 from fastapi import APIRouter, Query, Response
 
 from ragglet.api.core_calls import check_run
@@ -17,10 +19,13 @@ from ragglet.api.schemas import (
     LogChunkOut,
     RunAccepted,
     RunCheck,
+    RunItem,
+    RunList,
     RunPlanOut,
     RunRequest,
     RunStatus,
     RunSummaryOut,
+    ScenarioFile,
     TargetCheck,
     live_fields,
 )
@@ -28,8 +33,9 @@ from ragglet.bench.plan import run_plan
 from ragglet.bench.preflight import Preflight
 from ragglet.config.scenario import ScenarioConfig
 from ragglet.datasets.sources import describe_dataset
-from ragglet.jobs.protocol import TaskKind, TaskRef, TaskSpec
-from ragglet.registry.protocol import NewRun, RunRecord
+from ragglet.jobs.protocol import TaskKind, TaskRef, TaskSpec, TaskState
+from ragglet.registry.listing import RUN_SORT_KEYS, duration_s, run_tags, summary_column
+from ragglet.registry.protocol import NewRun, RunQuery, RunRecord
 from ragglet.storage.layout import build_storage_layout
 
 router = APIRouter(tags=["runs"])
@@ -117,13 +123,82 @@ async def _record(svc: Services, run_id: str) -> RunRecord:
     return record
 
 
+def check_sort(sort: str, allowed: Collection[str]) -> str:
+    if sort.removeprefix("-") not in allowed:
+        raise problem_error(422, "request.sort", "Request is invalid",
+                            f"unknown sort key {sort!r}; allowed: {sorted(allowed)}, '-' for descending", path="sort")
+    return sort
+
+
+def run_item(record: RunRecord, k: int) -> RunItem:
+    return RunItem(
+        id=record.id,
+        scenario=record.name,
+        scenario_id=record.scenario_id,
+        origin=record.origin,
+        state=record.state,
+        enqueued_at=record.enqueued_at,
+        started_at=record.started_at,
+        finished_at=record.finished_at,
+        duration_s=duration_s(record),
+        dataset=record.dataset,
+        collection=record.collection,
+        tags=run_tags(record),
+        repeats=record.metrics.repeats if record.metrics else None,
+        ndcg=summary_column(record, "ndcg", k),
+        recall=summary_column(record, "recall", k),
+        p50_ms=summary_column(record, "p50", k),
+        p95_ms=summary_column(record, "p95", k),
+        qps=summary_column(record, "qps", k),
+        timeout_rate=summary_column(record, "timeout_rate", k),
+    )
+
+
+@router.get("/runs", responses={422: {"model": Problem}})
+async def list_runs(
+        svc: Svc,
+        state: TaskState | None = None,
+        scenario: Annotated[str | None, Query(description="имя сценария: история сценария")] = None,
+        scenario_id: str | None = None,
+        dataset: Annotated[str | None, Query(description="source:id — любая ревизия; с @ревизией — точная")] = None,
+        collection: str | None = None,
+        tag: str | None = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        q: Annotated[str | None, Query(description="подстрока в id, имени, описании, тегах, датасете, коллекции")] = None,
+        sort: Annotated[str, Query(description="ключ сортировки, '-' — по убыванию; null всегда в конце")] = "-enqueued_at",
+        k: Annotated[int, Query(ge=1, description="k для ndcg и recall")] = 10,
+        offset: Annotated[int, Query(ge=0)] = 0,
+        limit: Annotated[int, Query(ge=1, le=500)] = 50,
+) -> RunList:
+    """Реестр прогонов с колонками сводки; per-query не читается."""
+    page = await svc.registry.list_runs(RunQuery(
+        scenario_id=scenario_id, name=scenario, state=state, tag=tag, since=since, until=until,
+        offset=offset, limit=limit, dataset=dataset, collection=collection, text=q,
+        sort=check_sort(sort, RUN_SORT_KEYS), k=k,
+    ))
+    return RunList(k=k, total=page.total, items=[run_item(record, k) for record in page.items])
+
+
+async def scenario_file(svc: Services, record: RunRecord) -> ScenarioFile | None:
+    """Файл сценария библиотеки против версии, с которой прогон поставлен."""
+    if record.scenario_id is None or record.etag is None:
+        return None
+    entry = await anyio.to_thread.run_sync(svc.scenarios.find, record.scenario_id)
+    if entry is None:
+        return "deleted"
+    return "unchanged" if entry.etag == record.etag else "changed"
+
+
 async def run_status(svc: Services, record: RunRecord, include: Collection[str] = ()) -> RunStatus:
     out = RunStatus(
         id=record.id,
         scenario=record.name,
         scenario_id=record.scenario_id,
         etag=record.etag,
-        plan=RunPlanOut(**asdict(record.plan)),
+        origin=record.origin,
+        scenario_file=await scenario_file(svc, record),
+        plan=RunPlanOut(**asdict(record.plan)) if record.plan else None,
         dataset=record.dataset,
         collection=record.collection,
         tags=record.tags,
