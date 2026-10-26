@@ -193,7 +193,7 @@ def test_summary_reports_means_and_short_doc_depth():
     df = pd.DataFrame(
         [
             {**row, "lat_embed_ms": 1.0, "lat_retrieve_ms": 1.0, "lat_total_ms": 2.0,
-             "emb_hit_rate": 0.0, "ret_hit_rate": 0.0, "t_start_ms": 0.0, "outcome": "ok",
+             "t_start_ms": 0.0, "outcome": "ok",
              "timeout_stage": None}
             for row in rows
         ]

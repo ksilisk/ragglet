@@ -11,7 +11,7 @@ import pandas as pd
 
 from ragglet.bench.evaluation import evaluate_quality, project_to_docs
 from ragglet.bench.load import LoadModel, build_load_model
-from ragglet.cache.manager import CacheManager
+from ragglet.cache.manager import CacheManager, Lookup
 from ragglet.config.scenario import ScenarioConfig
 from ragglet.context.base import ContextResult
 from ragglet.context.engine import assemble_context
@@ -124,22 +124,22 @@ async def run_queries_once(
         gen_cost_estimated = None
         lat: dict[str, float] = {}
         lat_total_ms = 0.0
+        emb_cache: Lookup = None
+        ret_cache: Lookup = None
 
         try:
             # бюджет идёт с планового момента: ожидание старта входит в него
             with anyio.fail_after(max(0.0, planned_at + total_budget - anyio.current_time())):
                 t = time.perf_counter()
-                vec = await caches.get_or_compute_embedding(it.query, embedder.embed_query)
-                t = _lap(lat, "embed", t)
-
-                # retrieval cache
-                key = caches.make_retrieval_key(it.query)
-                cached = caches.get_retrieval(key)
-                if cached is not None:
-                    retrieved_items = cached.retrieved_items
-                else:
+                retrieved_items, ret_cache = caches.get_retrieval(it.query)
+                if retrieved_items is None:
+                    vec, emb_cache = await caches.get_embedding(it.query)
+                    if vec is None:
+                        vec = await embedder.embed_query(it.query)
+                        await caches.set_embedding(it.query, vec)
+                    t = _lap(lat, "embed", t)
                     retrieved_items = await retrieve_items(cfg, backends, it.query, vec)
-                    caches.set_retrieval(key, retrieved_items)
+                    caches.set_retrieval(it.query, retrieved_items)
                 retrieved_ids = [item.chunk_id for item in retrieved_items]
                 retrieved_doc_ids = project_to_docs(retrieved_items)
                 t = _lap(lat, "retrieve", t)
@@ -223,8 +223,8 @@ async def run_queries_once(
             "t_start_ms": (planned_at - t0) * 1000.0,
             **{f"lat_{stage}_ms": lat.get(stage, math.nan) for stage in STAGES},
             "lat_total_ms": lat_total_ms,
-            "emb_hit_rate": caches.stats.emb_hit_rate,
-            "ret_hit_rate": caches.stats.ret_hit_rate,
+            "emb_cache": emb_cache,
+            "ret_cache": ret_cache,
             "outcome": outcome,
             "timeout_stage": timeout_stage,
         }
