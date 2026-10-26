@@ -466,9 +466,17 @@ class QueryPageOut(BaseModel):
     items: list[dict[str, Any]]  # скалярные колонки per-query и first_relevant_rank; NaN -> null
 
 
+class Availability(BaseModel):
+    available: bool
+    code: str | None = None  # почему нет: dataset.not_local, dataset.changed, index.rebuilt, index.unreachable, …
+    message: str | None = None
+
+
 class TruthDoc(BaseModel):
     doc_id: str  # из truth_ids строки
     doc_rank: int | None  # ранг в final_doc_ids; None — не найден
+    grade: int | None = None  # оценка из qrels датасета; None — см. QueryDetail.grades
+    title: str | None = None  # из корпуса датасета, если он тот же, что у прогона
 
 
 class ResultChunk(BaseModel):
@@ -479,6 +487,9 @@ class ResultChunk(BaseModel):
     relevant: bool  # doc_id в truth_ids строки
     rerank_score: float | None  # по chunk_id из reranked_ids и rerank_scores
     in_context: bool | None  # None — context выключен
+    grade: int | None = None  # оценка документа по qrels; 0 — не релевантен
+    title: str | None = None  # payload Qdrant, иначе заголовок документа из корпуса
+    text: str | None = None  # payload Qdrant; None — см. QueryDetail.texts
 
 
 class QueryDetail(BaseModel):
@@ -488,6 +499,8 @@ class QueryDetail(BaseModel):
     row: dict[str, Any]  # строка per-query целиком: задержки, метрики, контекст, ответ
     truth: list[TruthDoc]
     results: list[ResultChunk]  # пусто у прогонов без final_doc_ids
+    grades: Availability  # оценки и заголовки из датасета прогона
+    texts: Availability  # тексты чанков из Qdrant, пока коллекция той же сборки
 
 
 class LogChunkOut(BaseModel):

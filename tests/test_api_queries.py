@@ -97,7 +97,8 @@ def test_older_format_has_fewer_columns(stand):
     assert _problem(stand, f"/v1/runs/{FEB}/queries", miss_at=10) == (422, "request.filter", "miss_at")
 
     detail = stand.client.get(f"/v1/runs/{FEB}/queries/q1").json()
-    assert (detail["results"], detail["truth"]) == ([], [{"doc_id": "d1", "doc_rank": None}])
+    assert (detail["results"], detail["truth"]) == ([], [{"doc_id": "d1", "doc_rank": None, "grade": None,
+                                                          "title": None}])
 
 
 def test_missing_and_unreadable_files(stand):
@@ -118,7 +119,7 @@ def test_query_detail_from_the_row(stand):
     ta = TRUTH["q001"]
     assert (body["qid"], body["repeat"]) == ("q001", 0)
     assert body["query"].startswith("What is Retrieval-Augmented Generation")
-    assert body["truth"] == [{"doc_id": ta, "doc_rank": 1}]
+    assert [(t["doc_id"], t["doc_rank"]) for t in body["truth"]] == [(ta, 1)]
     assert [(r["rank"], r["doc_rank"], r["relevant"], r["rerank_score"], r["in_context"]) for r in body["results"]] == [
         (1, 1, True, 0.9, True),
         (2, 1, True, 0.8, True),  # второй чанк того же документа: doc-ранг тот же

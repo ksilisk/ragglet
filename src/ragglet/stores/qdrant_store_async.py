@@ -10,6 +10,7 @@ from qdrant_client.http import models as qm
 from qdrant_client.http.exceptions import ResponseHandlingException
 
 from ragglet.core.errors import ServiceUnavailable
+from ragglet.indexing.metadata import chunk_point_id
 
 
 @dataclass(frozen=True)
@@ -76,6 +77,13 @@ class AsyncQdrantStore:
             "indexed_vectors": info.indexed_vectors,
             "segments": info.segments,
         }
+
+    async def payloads(self, chunk_ids: list[str]) -> dict[str, dict[str, Any]]:
+        """payload чанков по chunk_id, без векторов; ServiceUnavailable — Qdrant не ответил."""
+        points = await _reachable(self.endpoint, self.client.retrieve(
+            self.collection, ids=[chunk_point_id(c) for c in chunk_ids], with_payload=True, with_vectors=False,
+        ))
+        return {str(p.payload["chunk_id"]): p.payload for p in points if p.payload and "chunk_id" in p.payload}
 
     async def scroll_payloads(self, limit: int = 256, offset=None, with_payload: Any = True):
         res = await self.client.scroll(

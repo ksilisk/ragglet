@@ -171,3 +171,19 @@ def test_hf_missing_repository_or_revision_is_a_config_error(monkeypatch):
     with pytest.raises(ValidationError) as exc:
         resolve_dataset("hf", "BeIR/x", f"{DATA_SHA}+{QRELS_SHA}")
     assert [(i.code, i.path) for i in exc.value.issues] == [("dataset.not_found", "dataset.revision")]
+
+
+def test_offline_resolve_only_looks_into_the_hf_cache(tmp_path, monkeypatch):
+    import huggingface_hub
+    from huggingface_hub.errors import LocalEntryNotFoundError
+
+    calls = []
+
+    def cached_only(**kwargs):
+        calls.append(kwargs)
+        raise LocalEntryNotFoundError("not in the local cache")
+
+    monkeypatch.setattr(huggingface_hub, "snapshot_download", cached_only)
+    with pytest.raises(FileNotFoundError):
+        resolve_dataset("hf", "BeIR/x", f"{DATA_SHA}+{QRELS_SHA}", offline=True)
+    assert calls[0]["local_files_only"] is True

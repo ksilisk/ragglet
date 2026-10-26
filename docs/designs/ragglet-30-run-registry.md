@@ -421,8 +421,7 @@ class QueryDetail(BaseModel):
 **Обогащение (фаза 5, последняя).** Добавляет поля, не меняя существующих:
 `TruthDoc.grade` и `title`, `ResultChunk.grade`, `title` и `text`, а у `QueryDetail` —
 `grades: Availability` и `texts: Availability` (`available`, `code`, `message`: чего нет и
-почему). Если фаза не влезает в эту задачу, она уходит в ragglet-32, где деталь запроса
-нужна для сравнения. Ей одной нужны `resolve_dataset(offline)` и
+почему). Фаза сделана в этой задаче. Ей одной нужны `resolve_dataset(offline)` и
 `AsyncQdrantStore.payloads()` (п. 11).
 
 **Оценки и заголовки — из датасета прогона.** Правила:
@@ -431,8 +430,10 @@ class QueryDetail(BaseModel):
   `resolve_dataset(source, id, revision, offline=True)`: для `hf` это
   `snapshot_download(local_files_only=True)` с ревизией из `manifest.dataset.revision`
   (для BeIR она составная, `<data>+<qrels>`), для `local` — путь `dataset.id`
-  относительно рабочего каталога сервера. Если датасета нет в кэше, получаем
-  `grades.code = "dataset.not_local"`. Сеть по клику на строку не трогаем.
+  относительно рабочего каталога сервера. Если датасета нет на диске или в кэше
+  (`FileNotFoundError`, у `local` — `dataset.not_found` ядра), получаем
+  `grades.code = "dataset.not_local"`. Сеть по клику на строку не трогаем. Датасет, который
+  не разбирается, — `dataset.invalid`.
 - Затем `parse_dataset(path, [split])` и `eval_items(split, limit)`, и хэши сверяются с
   `manifest.dataset`. Не совпал `eval_sha256` — `dataset.changed`, оценок нет. Не совпал
   `corpus_sha256` — заголовков нет. Сверка бесплатная: `parse_dataset` считает хэши всё
@@ -440,8 +441,9 @@ class QueryDetail(BaseModel):
 - Нет manifest (прогоны до ragglet-17) — `run.no_manifest`. Сверить не с чем, поэтому
   оценок нет. `relevant` и `truth` по-прежнему берутся из `truth_ids` строки.
 - Разобранный датасет кэшируется: qrels split и словарь `doc_id → title` (второй проход
-  по корпусу), LRU на 2 датасета, загрузка в потоке. Для nfcorpus (3,6 тыс. документов)
-  это доли секунды при первом клике.
+  по корпусу), LRU на 2 датасета, загрузка в потоке. Ключ кэша включает mtime и размеры
+  файлов датасета, поэтому правка датасета сбрасывает его. Для nfcorpus (3,6 тыс.
+  документов) это доли секунды при первом клике.
 
 **Тексты чанков — из Qdrant, пока коллекция той же сборки.**
 
@@ -557,8 +559,10 @@ class Registry(Protocol):
    защита из 28 от смешения артефактов двух прогонов сохраняется. Без `run_id` (CLI до
    37) всё как сейчас.
 2. Только для фазы 5: **`resolve_dataset(…, offline=False)`** (при `offline=True` у
-   `hf` — `local_files_only=True`, нет в кэше — `None` вместо скачивания) и
-   **`AsyncQdrantStore.payloads(chunk_ids) -> dict[str, dict]`** (п. 8).
+   `hf` — `local_files_only=True`, нет в кэше — `FileNotFoundError` вместо скачивания) и
+   **`AsyncQdrantStore.payloads(chunk_ids) -> dict[str, dict]`** (п. 8). Функция id точки
+   `chunk_point_id` переезжает из `build_index` в лёгкий `indexing/metadata.py`: её зовут
+   и сборка, и store, а API не должен тянуть torch.
 
 Атомарной записи артефактов и суффикса имени каталога у CLI нет (решено на ревью):
 признак завершённости — `summary.aggregate.csv`, как сейчас, а CLI в ragglet-37 станет
@@ -685,7 +689,7 @@ zip.
 3. **Per-query**: список с фильтрами и рангом, деталь запроса по строке.
 4. **Артефакты и лог**: листинг, файл, zip, `task.log` после рестарта; README.
 5. **Обогащение детали запроса**: `resolve_dataset(offline)`, `payloads()`, оценки и
-   заголовки из датасета, тексты из Qdrant. Если не влезает в эту задачу — уходит в
+   заголовки из датасета, тексты из Qdrant. Сделано здесь; если бы не влезло, ушло бы в
    ragglet-32.
 
 ## Вне скоупа

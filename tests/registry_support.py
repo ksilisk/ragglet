@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 import pandas as pd
-from api_support import DEMO, DEMO_SHA, MODEL_SHA, PARAMS, QDRANT
+from api_support import DEMO, MODEL_SHA, PARAMS, QDRANT
 
 from ragglet.bench.artifacts import save_config_snapshot, save_manifest
 from ragglet.bench.dataset import load_eval_dataset
@@ -117,7 +117,7 @@ def make_run_dir(
     if manifest:
         dataset = load_eval_dataset(cfg.dataset)
         save_manifest(run_dir, {
-            "dataset": {"revision": None, "corpus_sha256": DEMO_SHA, "eval_sha256": dataset.eval_sha256},
+            "dataset": {"revision": None, "corpus_sha256": dataset.corpus_sha256, "eval_sha256": dataset.eval_sha256},
             "index": {"profile_id": "demo", "built_at": BUILT_AT, "embedding_revision": MODEL_SHA,
                       "chunking": {"method": "recursive", "chunk_size": 800, "chunk_overlap": 120},
                       "params": PARAMS, "build_env": {"commit": "c" * 40}},

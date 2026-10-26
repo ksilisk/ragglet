@@ -42,3 +42,25 @@ def test_chunking_recursive_defaults_and_overlap_check():
     assert len(chunk_document("x" * 2000, cfg)) == 3
     with pytest.raises(ValueError, match="chunk_overlap must be less"):
         ChunkingConfig(chunk_size=100, chunk_overlap=100)
+
+
+async def test_payloads_by_chunk_id_use_build_point_ids():
+    from qdrant_client import AsyncQdrantClient
+    from qdrant_client.http import models as qm
+
+    from ragglet.indexing.metadata import chunk_point_id
+    from ragglet.stores.qdrant_store_async import AsyncQdrantStore
+
+    store = AsyncQdrantStore("http://unused:6333", "chunks_v1")
+    store.client = AsyncQdrantClient(location=":memory:")
+    await store.client.create_collection("chunks_v1", vectors_config=qm.VectorParams(size=2, distance=qm.Distance.COSINE))
+    await store.client.upsert("chunks_v1", points=[
+        qm.PointStruct(id=chunk_point_id(c), vector=[1.0, 0.0], payload={"chunk_id": c, "doc_id": c.split("#")[0],
+                                                                         "title": "T", "text": f"text of {c}"})
+        for c in ("d1#0", "d1#1", "d2#0")
+    ])
+
+    found = await store.payloads(["d1#1", "d2#0", "missing#0"])
+    await store.close()
+
+    assert {c: p["text"] for c, p in found.items()} == {"d1#1": "text of d1#1", "d2#0": "text of d2#0"}

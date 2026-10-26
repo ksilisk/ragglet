@@ -12,8 +12,16 @@ from starlette.background import BackgroundTask
 from ragglet.api.deps import Svc
 from ragglet.api.problems import Problem, problem_error
 from ragglet.api.routers.runs import _record
-from ragglet.api.schemas import ArtifactOut, QueryDetail, QueryPageOut, ResultChunk, TruthDoc
+from ragglet.api.schemas import (
+    ArtifactOut,
+    Availability,
+    QueryDetail,
+    QueryPageOut,
+    ResultChunk,
+    TruthDoc,
+)
 from ragglet.registry.files import zip_artifacts
+from ragglet.registry.inspect import QueryInspector
 from ragglet.registry.per_query import result_chunks, truth_docs
 from ragglet.registry.protocol import QueryFilter, RegistryError
 
@@ -66,7 +74,11 @@ async def list_queries(
 
 @router.get("/runs/{run_id}/queries/{qid}", responses=ERRORS)
 async def get_query(run_id: str, qid: str, svc: Svc, repeat: Annotated[int, Query(ge=0)] = 0) -> QueryDetail:
-    """Один запрос: строка per-query, релевантные документы и финальная выдача с рангами."""
+    """
+    Один запрос: строка per-query, релевантные документы и финальная выдача с рангами. Оценки и
+    заголовки — из датасета прогона, тексты чанков — из Qdrant, если источники те же, что у
+    прогона; иначе grades и texts говорят, чего нет и почему.
+    """
     record = await _record(svc, run_id)
     with problems(run_id):
         row = await svc.registry.query_row(run_id, repeat, qid)
@@ -74,13 +86,36 @@ async def get_query(run_id: str, qid: str, svc: Svc, repeat: Annotated[int, Quer
         raise problem_error(404, "query.not_found", "Not found", f"query {qid!r} is not in repeat {repeat}",
                             where=f"runs/{run_id}")
     context_enabled = bool((record.scenario.get("context") or {}).get("enabled"))
+    chunks = result_chunks(row, context_enabled)
+
+    inspector = svc.query_inspector = svc.query_inspector or QueryInspector(svc.settings.probe_timeout_s)
+    manifest = await svc.registry.manifest(run_id)
+    dataset = await inspector.dataset(record, manifest)
+    payloads, texts = await inspector.texts(record, manifest, [c["chunk_id"] for c in chunks])
+    qrels = dataset.qrels.get(qid, {}) if dataset.qrels is not None else None
+    titles = dataset.titles or {}
+
+    def grade(doc_id: str) -> int | None:
+        return None if qrels is None else qrels.get(doc_id, 0)
+
     return QueryDetail(
         qid=qid,
         repeat=repeat,
         query=str(row.get("query") or ""),
         row=row,
-        truth=[TruthDoc(**doc) for doc in truth_docs(row)],
-        results=[ResultChunk(**chunk) for chunk in result_chunks(row, context_enabled)],
+        truth=[TruthDoc(**doc, grade=grade(doc["doc_id"]), title=titles.get(doc["doc_id"]))
+               for doc in truth_docs(row)],
+        results=[
+            ResultChunk(
+                **chunk,
+                grade=grade(chunk["doc_id"]),
+                title=(payloads.get(chunk["chunk_id"]) or {}).get("title") or titles.get(chunk["doc_id"]),
+                text=(payloads.get(chunk["chunk_id"]) or {}).get("text"),
+            )
+            for chunk in chunks
+        ],
+        grades=Availability(**vars(dataset.grades)),
+        texts=Availability(**vars(texts)),
     )
 
 

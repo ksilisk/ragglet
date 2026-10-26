@@ -20,7 +20,9 @@ class ResolvedDataset:
 class DatasetSource(Protocol):
     supports_revision: bool
 
-    def resolve(self, dataset_id: str, revision: str | None) -> ResolvedDataset: ...
+    def resolve(self, dataset_id: str, revision: str | None, offline: bool = False) -> ResolvedDataset:
+        """offline — только то, что уже на диске: нет — FileNotFoundError, без сети."""
+        ...
 
 
 class LocalSource:
@@ -28,7 +30,7 @@ class LocalSource:
 
     supports_revision = False
 
-    def resolve(self, dataset_id: str, revision: str | None) -> ResolvedDataset:
+    def resolve(self, dataset_id: str, revision: str | None, offline: bool = False) -> ResolvedDataset:
         path = Path(dataset_id)
         if not path.is_dir():
             # путь — на машине, где идёт проверка; через API это сервер, а не клиент
@@ -45,9 +47,10 @@ class HfSource:
 
     supports_revision = True
 
-    def resolve(self, dataset_id: str, revision: str | None) -> ResolvedDataset:
+    def resolve(self, dataset_id: str, revision: str | None, offline: bool = False) -> ResolvedDataset:
         data_rev, sep, qrels_rev = (revision or "").partition("+")
-        snap = _snapshot(dataset_id, data_rev or None)
+        fetch = _cached_snapshot if offline else _snapshot
+        snap = fetch(dataset_id, data_rev or None)
 
         # Зеркала, которые раздают BEIR как есть (corpus.jsonl/queries.jsonl/qrels).
         if (snap / "corpus.jsonl").exists() or (snap / "corpus.jsonl.gz").exists():
@@ -64,7 +67,7 @@ class HfSource:
                 raise ValueError(
                     f"{dataset_id} keeps qrels in {dataset_id}-qrels; pin both: '<data_sha>+<qrels_sha>'"
                 )
-            qrels_snap = _snapshot(f"{dataset_id}-qrels", qrels_rev or None)
+            qrels_snap = fetch(f"{dataset_id}-qrels", qrels_rev or None)
             qrels_src, resolved = qrels_snap, f"{snap.name}+{qrels_snap.name}"
 
         out = _cache_dir(dataset_id, resolved)
@@ -85,9 +88,12 @@ def check_source(source: str, revision: str | None) -> None:
         )
 
 
-def resolve_dataset(source: str, dataset_id: str, revision: str | None = None) -> ResolvedDataset:
+def resolve_dataset(
+        source: str, dataset_id: str, revision: str | None = None, *, offline: bool = False
+) -> ResolvedDataset:
+    """offline=True — без сети: hf только из локального кэша, иначе FileNotFoundError."""
     check_source(source, revision)
-    return SOURCES[source].resolve(dataset_id, revision)
+    return SOURCES[source].resolve(dataset_id, revision, offline)
 
 
 def describe_dataset(source: str, dataset_id: str, revision: str | None) -> str:
@@ -101,14 +107,19 @@ def _not_found(where: str, message: str, path: str) -> ValidationError:
     return ValidationError("Dataset not found", [error("dataset.not_found", where, message, path=path)])
 
 
-def _snapshot(repo_id: str, revision: str | None) -> Path:
+def _cached_snapshot(repo_id: str, revision: str | None) -> Path:
+    """Только из локального кэша HF: нет — LocalEntryNotFoundError (подкласс FileNotFoundError)."""
+    return _snapshot(repo_id, revision, local_files_only=True)
+
+
+def _snapshot(repo_id: str, revision: str | None, **download: bool) -> Path:
     try:
         from huggingface_hub import snapshot_download
         from huggingface_hub.errors import RepositoryNotFoundError, RevisionNotFoundError
     except ImportError as e:
         raise ImportError("source='hf' requires 'huggingface_hub' (project dependency).") from e
     try:
-        return Path(snapshot_download(repo_id=repo_id, repo_type="dataset", revision=revision))
+        return Path(snapshot_download(repo_id=repo_id, repo_type="dataset", revision=revision, **download))
     except RevisionNotFoundError as e:
         raise _not_found(f"{repo_id}@{revision}", f"revision {revision!r} not found in {repo_id}",
                          "dataset.revision") from e
