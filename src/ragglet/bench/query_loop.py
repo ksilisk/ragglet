@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 import time
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import anyio
 import anyio.lowlevel
@@ -18,14 +18,17 @@ from ragglet.context.engine import assemble_context
 from ragglet.core.errors import StageTimeout
 from ragglet.generation.base import Generator
 from ragglet.generation.engine import generate_answer
-from ragglet.modules.embedders.st_embedder import SentenceTransformerEmbedder
 from ragglet.rerank.base import Reranker
 from ragglet.rerank.engine import rerank_items
 from ragglet.retrieval.backends import BackendRegistry
 from ragglet.retrieval.engine import retrieve_items
 from ragglet.retrieval.merge import RetrievedItem
 
+if TYPE_CHECKING:  # только аннотация: модуль не должен тянуть torch (его импортирует API)
+    from ragglet.modules.embedders.st_embedder import SentenceTransformerEmbedder
+
 STAGES = ("embed", "retrieve", "rerank", "context", "generation")
+LATENCY_STEPS = (*STAGES, "total")  # стадии, для которых в строке есть lat_*_ms
 
 
 def _lap(lat: dict[str, float], stage: str, start: float, done: bool = True) -> float:

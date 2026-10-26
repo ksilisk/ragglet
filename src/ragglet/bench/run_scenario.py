@@ -9,7 +9,8 @@ from typing import Any
 import pandas as pd
 
 from ragglet.bench.artifacts import make_artifact_paths, save_config_snapshot, save_manifest
-from ragglet.bench.preflight import Preflight, preflight
+from ragglet.bench.plan import run_plan
+from ragglet.bench.preflight import Preflight, check_scenario, preflight
 from ragglet.bench.query_loop import run_queries_once
 from ragglet.bench.summarize import summarize_repeat, aggregate_over_repeats
 from ragglet.cache.manager import CacheManager
@@ -20,7 +21,6 @@ from ragglet.generation.engine import build_generator
 from ragglet.modules.embedders.st_embedder import SentenceTransformerEmbedder
 from ragglet.rerank.engine import build_reranker
 from ragglet.retrieval.backends import BackendRegistry
-from ragglet.storage.layout import build_storage_layout, require_implemented
 from ragglet.stores.qdrant_store_async import AsyncQdrantStore
 
 
@@ -37,10 +37,13 @@ async def run_scenario(
         *,
         dry_run: bool = False,
         progress: Progress = no_progress,
+        run_id: str | None = None,
 ) -> RunResult:
-    """Прогон сценария; `dry_run` — только preflight: без моделей, каталога прогона и запросов."""
-    layout = build_storage_layout(cfg.storage)
-    require_implemented(layout)
+    """
+    Прогон сценария; `dry_run` — только preflight: без моделей, каталога прогона и запросов.
+    `run_id` — имя каталога прогона, его выдаёт реестр; None — `<name>_<UTC сейчас>`.
+    """
+    layout = check_scenario(cfg)
 
     stores = {
         target.id: AsyncQdrantStore(target.endpoint, target.collection)
@@ -73,7 +76,7 @@ async def run_scenario(
         env["services"] = await describe_services(services)
 
         # каталог прогона — только когда всё загружено, но до запросов
-        paths = make_artifact_paths(cfg.run.artifacts_dir, cfg.name)
+        paths = make_artifact_paths(cfg.run.artifacts_dir, cfg.name, run_id)
         save_config_snapshot(paths.run_dir, cfg)
         save_manifest(
             paths.run_dir,
@@ -86,7 +89,7 @@ async def run_scenario(
 
         all_summaries: list[dict] = []
         base_rng = random.Random(cfg.seed)
-        done, total = 0, len(items) * cfg.run.repeats
+        done, total = 0, run_plan(cfg, len(items)).total
 
         def query_done() -> None:
             nonlocal done

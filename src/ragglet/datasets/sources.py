@@ -7,6 +7,9 @@ from pathlib import Path
 from typing import Protocol
 from uuid import uuid4
 
+from ragglet.config.errors import FieldError
+from ragglet.core.issues import ValidationError, error
+
 
 @dataclass(frozen=True)
 class ResolvedDataset:
@@ -27,8 +30,9 @@ class LocalSource:
 
     def resolve(self, dataset_id: str, revision: str | None) -> ResolvedDataset:
         path = Path(dataset_id)
-        if not path.exists():
-            raise FileNotFoundError(f"Local dataset directory not found: {path}")
+        if not path.is_dir():
+            # путь — на машине, где идёт проверка; через API это сервер, а не клиент
+            raise _not_found(str(path), f"local dataset directory not found: {path.resolve()}", "dataset.id")
         return ResolvedDataset(path=path, revision=None)
 
 
@@ -74,10 +78,10 @@ SOURCES: dict[str, DatasetSource] = {"local": LocalSource(), "hf": HfSource()}
 
 def check_source(source: str, revision: str | None) -> None:
     if source not in SOURCES:
-        raise ValueError(f"unknown dataset source {source!r}; available: {sorted(SOURCES)}")
+        raise FieldError("source", f"unknown dataset source {source!r}; available: {sorted(SOURCES)}")
     if revision is not None and not SOURCES[source].supports_revision:
-        raise ValueError(
-            f"dataset.revision is not supported for source {source!r}: its version is the content hash"
+        raise FieldError(
+            "revision", f"dataset.revision is not supported for source {source!r}: its version is the content hash"
         )
 
 
@@ -93,12 +97,25 @@ def describe_dataset(source: str, dataset_id: str, revision: str | None) -> str:
     return f"{source}:{dataset_id}@{short}"
 
 
+def _not_found(where: str, message: str, path: str) -> ValidationError:
+    return ValidationError("Dataset not found", [error("dataset.not_found", where, message, path=path)])
+
+
 def _snapshot(repo_id: str, revision: str | None) -> Path:
     try:
         from huggingface_hub import snapshot_download
+        from huggingface_hub.errors import RepositoryNotFoundError, RevisionNotFoundError
     except ImportError as e:
         raise ImportError("source='hf' requires 'huggingface_hub' (project dependency).") from e
-    return Path(snapshot_download(repo_id=repo_id, repo_type="dataset", revision=revision))
+    try:
+        return Path(snapshot_download(repo_id=repo_id, repo_type="dataset", revision=revision))
+    except RevisionNotFoundError as e:
+        raise _not_found(f"{repo_id}@{revision}", f"revision {revision!r} not found in {repo_id}",
+                         "dataset.revision") from e
+    except RepositoryNotFoundError as e:
+        # сетевые ошибки Hub остаются сбоем: это стенд, а не конфиг
+        raise _not_found(repo_id, f"dataset repository {repo_id!r} not found on HuggingFace Hub "
+                                  "(or access is denied)", "dataset.id") from e
 
 
 def _cache_dir(repo_id: str, revision: str) -> Path:

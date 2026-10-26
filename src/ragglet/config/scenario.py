@@ -7,7 +7,8 @@ import yaml
 from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator
 
 from ragglet.bench.load import load_params
-from ragglet.bench.metrics import METRICS
+from ragglet.bench.metrics import METRICS, metrics_for_level
+from ragglet.config.errors import FieldError
 from ragglet.datasets.sources import check_source
 
 
@@ -116,7 +117,7 @@ class StorageConfig(BaseModel):
     @model_validator(mode="after")
     def _validate_storage_shape(self) -> "StorageConfig":
         if self.mode != "single" and not self.backends:
-            raise ValueError("storage.backends must be provided when storage.mode is not 'single'")
+            raise FieldError("backends", "storage.backends must be provided when storage.mode is not 'single'")
         return self
 
 
@@ -169,7 +170,8 @@ class RetrievalConfig(BaseModel):
     @model_validator(mode="after")
     def _single_keyword_not_supported(self) -> "RetrievalConfig":
         if self.strategy == "single" and any(s.kind == "keyword" for s in self.sources):
-            raise ValueError(
+            raise FieldError(
+                "sources",
                 "retrieval.strategy='single' supports only vector sources; "
                 "keyword single retrieval is not implemented yet"
             )
@@ -189,7 +191,7 @@ class RerankConfig(BaseModel):
     @model_validator(mode="after")
     def _model_required_if_enabled(self) -> "RerankConfig":
         if self.enabled and self.provider == "cross_encoder" and not self.model:
-            raise ValueError("rerank.model is required when rerank.enabled=true and provider='cross_encoder'")
+            raise FieldError("model", "rerank.model is required when rerank.enabled=true and provider='cross_encoder'")
         return self
 
 
@@ -226,7 +228,7 @@ class GenerationConfig(BaseModel):
     @model_validator(mode="after")
     def _model_required_if_enabled(self) -> "GenerationConfig":
         if self.enabled and not self.model:
-            raise ValueError("generation.model is required when generation.enabled=true")
+            raise FieldError("model", "generation.model is required when generation.enabled=true")
         return self
 
 
@@ -257,7 +259,7 @@ class CacheConfig(BaseModel):
     @model_validator(mode="after")
     def _at_least_one_layer_if_enabled(self) -> "CacheConfig":
         if self.enabled and self.embedding is None and self.retrieval is None:
-            raise ValueError("At least one cache layer must be set when cache.enabled=true")
+            raise FieldError("enabled", "At least one cache layer must be set when cache.enabled=true")
         return self
 
 
@@ -296,7 +298,7 @@ class MetricsQualityConfig(BaseModel):
         if len(set(v)) != len(v):
             raise ValueError(f"metrics.quality.{level} values must be unique")
         if level == "chunk":
-            doc_only = [name for name in v if METRICS[name].needs_ideal]
+            doc_only = [name for name in v if name not in metrics_for_level("chunk")]
             if doc_only:
                 raise ValueError(
                     f"metrics.quality.chunk: {doc_only} need the total number of relevant units, "
@@ -360,7 +362,7 @@ class ScenarioConfig(BaseModel):
     @model_validator(mode="after")
     def _generation_requires_context(self) -> "ScenarioConfig":
         if self.generation.enabled and not self.context.enabled:
-            raise ValueError("context.enabled must be true when generation.enabled=true")
+            raise FieldError("generation.enabled", "context.enabled must be true when generation.enabled=true")
         return self
 
     @model_validator(mode="after")
@@ -368,7 +370,8 @@ class ScenarioConfig(BaseModel):
         # общий кэш не чистится между повторами: повтор 1 увидел бы записи повтора 0
         emb = self.cache.embedding
         if self.cache.enabled and emb is not None and emb.namespace is not None and self.run.repeats > 1:
-            raise ValueError(
+            raise FieldError(
+                "cache.embedding.namespace",
                 "cache.embedding.namespace is shared across runs and is not reset between repeats; "
                 "use run.repeats=1 and repeat the run instead"
             )
@@ -387,8 +390,8 @@ class ScenarioConfig(BaseModel):
                     depth, source = value, name
         max_k = max(self.metrics.quality.k)
         if max_k > depth:
-            raise ValueError(
-                f"metrics.quality.k={max_k} exceeds final list depth {depth} ({source})"
+            raise FieldError(
+                "metrics.quality.k", f"metrics.quality.k={max_k} exceeds final list depth {depth} ({source})"
             )
         return self
 

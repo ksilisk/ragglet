@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from hashlib import sha1
 from typing import Any
 
-from ragglet.core.issues import error, raise_on_errors
+from ragglet.core.issues import Issue, error, raise_on_errors
 
 # схема конфига знает и другие типы, но реализован только qdrant
 IMPLEMENTED_BACKENDS = {"qdrant"}
@@ -16,6 +16,7 @@ class StorageTarget:
     type: str
     endpoint: str
     collection: str
+    path: str = "storage"  # где цель в конфиге: storage.backend, storage.backends[1]
 
 
 @dataclass(frozen=True)
@@ -45,21 +46,22 @@ class StorageLayout:
         raise KeyError(f"Unknown storage backend_ref: {target_id}")
 
 
-def _target_from_backend(backend: Any, fallback_id: str) -> StorageTarget:
+def _target_from_backend(backend: Any, fallback_id: str, path: str) -> StorageTarget:
     target_id = getattr(backend, "id", None) or fallback_id
     return StorageTarget(
         id=str(target_id),
         type=str(getattr(backend, "type")),
         endpoint=str(getattr(backend, "endpoint")),
         collection=str(getattr(backend, "collection")),
+        path=path,
     )
 
 
-def _primary_backend(storage: Any) -> Any:
+def _primary_backend(storage: Any) -> tuple[Any, str]:
     backend = getattr(storage, "backend", None)
     if backend is not None:
-        return backend
-    return storage
+        return backend, "storage.backend"
+    return storage, "storage"
 
 
 def build_storage_layout(storage: Any) -> StorageLayout:
@@ -67,9 +69,10 @@ def build_storage_layout(storage: Any) -> StorageLayout:
     routing = getattr(storage, "routing", None)
     routing_key = str(getattr(routing, "key", "chunk_id"))
 
-    primary = _target_from_backend(_primary_backend(storage), "default")
+    backend, path = _primary_backend(storage)
+    primary = _target_from_backend(backend, "default", path)
     configured = [
-        _target_from_backend(backend, f"backend_{idx}")
+        _target_from_backend(backend, f"backend_{idx}", f"storage.backends[{idx}]")
         for idx, backend in enumerate(getattr(storage, "backends", []) or [])
     ]
 
@@ -77,10 +80,15 @@ def build_storage_layout(storage: Any) -> StorageLayout:
     if not targets:
         targets = [primary]
     target_ids = [target.id for target in targets]
-    if len(set(target_ids)) != len(target_ids):
-        raise ValueError(f"Storage backend ids must be unique: {target_ids}")
+    issues = [
+        error("storage.layout", "storage.backends", f"backend id {tid!r} is used more than once",
+              path="storage.backends")
+        for tid in sorted({tid for tid in target_ids if target_ids.count(tid) > 1})
+    ]
     if mode != "single" and len(targets) < 2:
-        raise ValueError(f"storage.mode='{mode}' requires at least two storage.backends")
+        issues.append(error("storage.layout", "storage.backends",
+                            f"storage.mode={mode!r} requires at least two storage.backends", path="storage.backends"))
+    raise_on_errors("Storage layout is invalid", issues)
 
     return StorageLayout(
         mode=mode,
@@ -90,16 +98,18 @@ def build_storage_layout(storage: Any) -> StorageLayout:
     )
 
 
+def unimplemented_targets(layout: StorageLayout) -> list[Issue]:
+    return [
+        error(
+            "storage.not_implemented",
+            f"target {target.id}",
+            f"backend {target.type!r} is not implemented, use one of {sorted(IMPLEMENTED_BACKENDS)}",
+            path=f"{target.path}.type",
+        )
+        for target in layout.targets
+        if target.type not in IMPLEMENTED_BACKENDS
+    ]
+
+
 def require_implemented(layout: StorageLayout) -> None:
-    raise_on_errors(
-        "Storage is not supported",
-        (
-            error(
-                "storage.not_implemented",
-                f"target {target.id}",
-                f"backend {target.type!r} is not implemented, use one of {sorted(IMPLEMENTED_BACKENDS)}",
-            )
-            for target in layout.targets
-            if target.type not in IMPLEMENTED_BACKENDS
-        ),
-    )
+    raise_on_errors("Storage is not supported", unimplemented_targets(layout))

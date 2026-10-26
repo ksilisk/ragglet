@@ -16,14 +16,15 @@ class Issue:
     severity: Severity
     where: str
     message: str
+    path: str | None = None  # поле конфига, к которому относится проблема: "retrieval.strategy"
 
 
-def error(code: str, where: str, message: str) -> Issue:
-    return Issue(code, Severity.ERROR, where, message)
+def error(code: str, where: str, message: str, *, path: str | None = None) -> Issue:
+    return Issue(code, Severity.ERROR, where, message, path)
 
 
-def warning(code: str, where: str, message: str) -> Issue:
-    return Issue(code, Severity.WARNING, where, message)
+def warning(code: str, where: str, message: str, *, path: str | None = None) -> Issue:
+    return Issue(code, Severity.WARNING, where, message, path)
 
 
 def render_issues(title: str, issues: list[Issue], hint: str | None = None, limit: int = 20) -> str:

@@ -145,3 +145,29 @@ def test_redis_embedding_key_includes_model_revision():
 
     cache = RedisEmbeddingCache("redis://localhost:6379/0", 60, "m", DATA_SHA, True, namespace="ns")
     assert cache._key("q").startswith(f"emb:m@{DATA_SHA}:1:ns:")
+
+
+def test_hf_missing_repository_or_revision_is_a_config_error(monkeypatch):
+    import httpx
+    import huggingface_hub
+    from huggingface_hub.errors import RepositoryNotFoundError, RevisionNotFoundError
+
+    from ragglet.core.issues import ValidationError
+
+    response = httpx.Response(404, request=httpx.Request("GET", "https://huggingface.co"))
+
+    def missing_repo(**kwargs):
+        raise RepositoryNotFoundError("404", response=response)
+
+    monkeypatch.setattr(huggingface_hub, "snapshot_download", missing_repo)
+    with pytest.raises(ValidationError) as exc:
+        resolve_dataset("hf", "BeIR/nope")
+    assert [(i.code, i.path, i.where) for i in exc.value.issues] == [("dataset.not_found", "dataset.id", "BeIR/nope")]
+
+    def missing_revision(**kwargs):
+        raise RevisionNotFoundError("404", response=response)
+
+    monkeypatch.setattr(huggingface_hub, "snapshot_download", missing_revision)
+    with pytest.raises(ValidationError) as exc:
+        resolve_dataset("hf", "BeIR/x", f"{DATA_SHA}+{QRELS_SHA}")
+    assert [(i.code, i.path) for i in exc.value.issues] == [("dataset.not_found", "dataset.revision")]
