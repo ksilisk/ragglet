@@ -38,7 +38,7 @@ Suggested / partially implemented modular split:
 - `src/ragglet/cache/`
   - embedding cache: Redis (`RedisEmbeddingCache`)
   - retrieval cache: in-memory LRU (`LRURetrievalCache`)
-  - cache manager (optional) to unify stats + get/set
+  - cache manager: get/set per layer, each lookup returns hit or miss for the per-query flags
 - `src/ragglet/bench/`
   - dataset loader: JSONL (`load_jsonl_dataset`)
   - dataset/index validation: compare JSONL relevant[] ids with indexed payload external_id values
@@ -106,7 +106,9 @@ Key sections:
   - `retrieval`: in-memory LRU cache for retrieval results, including retrieved ids and candidate payloads
   Notes:
   - every repeat starts with the cache as it was at run start: retrieval LRU is cleared, the run's own Redis keys are deleted;
-  - `embedding.namespace` shares the Redis cache across runs (warm start is a second run with the same namespace); it requires `repeats: 1` and is never deleted by ragglet.
+  - `embedding.namespace` shares the Redis cache across runs (warm start is a second run with the same namespace); it requires `repeats: 1` and is never deleted by ragglet;
+  - the retrieval cache is checked before embedding, a hit skips embedding and search;
+  - per-query `emb_cache`/`ret_cache` are `hit`, `miss` or empty (no lookup); summary has `<layer>_hits`, `<layer>_misses`, `<layer>_hit_rate` and `lat_total_<layer>_hit_p<P>`/`_miss_p<P>` for enabled layers.
 - `metrics`:
   - `quality.k`, `quality.doc`, `quality.chunk`
   - `percentiles` from YAML for emitted latency fields

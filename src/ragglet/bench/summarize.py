@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Any
 import pandas as pd
 from ragglet.bench.evaluation import quality_columns
@@ -17,6 +18,8 @@ _LATENCY_COLUMNS = {
 }
 
 OUTCOMES = ("ok", "timeout", "error")
+
+CACHE_LAYERS = {"emb": "embedding", "ret": "retrieval"}  # префикс колонки -> слой в cfg.cache
 
 
 def _latency_percentiles(cfg: ScenarioConfig, df: pd.DataFrame) -> dict[str, float]:
@@ -44,6 +47,26 @@ def _outcomes(df: pd.DataFrame) -> dict[str, float]:
     return out
 
 
+def _cache_summary(cfg: ScenarioConfig, df: pd.DataFrame) -> dict[str, float]:
+    """Только включённые слои: у выключенного полей нет, а не нули."""
+    out: dict[str, float] = {}
+    if not cfg.cache.enabled:
+        return out
+    for layer, field in CACHE_LAYERS.items():
+        if getattr(cfg.cache, field) is None:
+            continue
+        lookup = df[f"{layer}_cache"]
+        hits, misses = int((lookup == "hit").sum()), int((lookup == "miss").sum())
+        out[f"{layer}_hits"] = hits
+        out[f"{layer}_misses"] = misses
+        out[f"{layer}_hit_rate"] = hits / (hits + misses) if hits + misses else math.nan
+        for state in ("hit", "miss"):
+            lat = df.loc[lookup == state, "lat_total_ms"]
+            for percentile in cfg.metrics.percentiles:
+                out[f"lat_total_{layer}_{state}_p{percentile}"] = float(lat.quantile(percentile / 100.0))
+    return out
+
+
 def summarize_repeat(cfg: ScenarioConfig, df: pd.DataFrame) -> dict[str, Any]:
     """
     Итоги одного повтора, только из строк per_query. Правила (docs/metrics.md):
@@ -51,7 +74,8 @@ def summarize_repeat(cfg: ScenarioConfig, df: pd.DataFrame) -> dict[str, Any]:
     - throughput_qps — только ответы (outcome=ok) в секунду: таймаут и ошибка пользователю
       ничего не дали;
     - lat_total — по всем запросам, задержка этапа — по строкам, где этап завершился;
-    - запрос без ответа — промах: качество 0 ставит query_loop, в среднее он входит.
+    - запрос без ответа — промах: качество 0 ставит query_loop, в среднее он входит;
+    - доля попаданий кэша — из счётчиков отметок hit/miss, не среднее долей.
     """
     n = int(len(df))
     outcomes = _outcomes(df)
@@ -70,8 +94,7 @@ def summarize_repeat(cfg: ScenarioConfig, df: pd.DataFrame) -> dict[str, Any]:
         "wall_ms": wall_ms,
         "throughput_qps": outcomes["ok_count"] / (wall_ms / 1000.0) if wall_ms > 0 else 0.0,
         **_latency_percentiles(cfg, df),
-        "emb_hit_rate": float(df["emb_hit_rate"].mean()) if len(df) else 0.0,
-        "ret_hit_rate": float(df["ret_hit_rate"].mean()) if len(df) else 0.0,
+        **_cache_summary(cfg, df),
         "context_tokens_mean": float(df["context_tokens"].mean()) if "context_tokens" in df.columns and len(df) else 0.0,
         "context_chunks_mean": float(df["context_chunks"].mean()) if "context_chunks" in df.columns and len(df) else 0.0,
         "gen_input_tokens_mean": float(df["gen_input_tokens"].mean()) if "gen_input_tokens" in df.columns and len(df) else 0.0,

@@ -105,8 +105,6 @@ def test_summary_includes_generation_latency_and_tokens():
                 "lat_retrieve_ms": 2.0,
                 "lat_generation_ms": 5.0,
                 "lat_total_ms": 8.0,
-                "emb_hit_rate": 0.0,
-                "ret_hit_rate": 0.0,
                 "gen_input_tokens": 11,
                 "gen_output_tokens": 3,
                 "gen_total_tokens": 14,

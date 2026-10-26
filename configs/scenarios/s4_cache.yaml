@@ -1,7 +1,8 @@
 # S4 — Cache.
 # Redis embedding cache и in-process retrieval LRU. Каждый повтор начинается с пустого кэша,
 # поэтому S4 меряет холодный кэш. Тёплый старт кэша эмбеддингов — второй прогон с тем же
-# cache.embedding.namespace и repeats: 1.
+# cache.embedding.namespace и repeats: 1. Кэш retrieval проверяется до эмбеддинга, но на
+# уникальных текстах запросов не попадает: S4 показывает его накладные расходы.
 
 version: 1
 name: "s4_cache"

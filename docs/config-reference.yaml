@@ -317,7 +317,6 @@ scenario:
                 schema_enforced: ">= 1"
               status: implemented
               docs: "closed: how many queries are in flight at once, end to end from embedding to the LLM answer. Network stages (Redis, Qdrant, generation) run concurrently. Local CPU models (embedding, BM25, rerank) take one call at a time in a worker thread; waiting for them is part of lat_embed_ms, lat_retrieve_ms and lat_rerank_ms."
-              caveat: "Per-query emb_hit_rate/ret_hit_rate are cumulative, so with concurrency > 1 they depend on completion order; summary averages them."
     output:
       type: "object"
       status: partial
@@ -692,7 +691,7 @@ scenario:
           type: "boolean"
           default: false
           status: implemented
-          docs: "Master switch for cache layer construction. When true, at least one layer must be configured: embedding or retrieval."
+          docs: "Master switch for cache layer construction. When true, at least one layer must be configured: embedding or retrieval. Per-query emb_cache/ret_cache record hit, miss or no lookup; summary has <layer>_hits, <layer>_misses, <layer>_hit_rate and lat_total_<layer>_hit_p<P>/_miss_p<P> for enabled layers only. See docs/metrics.md."
         embedding:
           type: "object|null"
           default: null
@@ -714,12 +713,14 @@ scenario:
               type: "integer"
               default: 86400
               status: implemented
-              docs: "Redis TTL for embedding vectors."
+              docs: "Redis TTL for embedding vectors. Matters only for a shared namespace: keys that expired before the warm run show up as misses."
+              constraints:
+                schema_enforced: ">= 1 (Redis rejects SET with EX 0)"
             namespace:
               type: "string|null"
               default: null
               status: implemented
-              docs: "Shared cache scope: runs with the same namespace share embedding vectors, and ragglet never deletes them. A new namespace starts cold, reusing one after a run starts warm; the researcher owns its state. The snapshot does not show whether a namespace was empty, check emb_hit_rate in summary."
+              docs: "Shared cache scope: runs with the same namespace share embedding vectors, and ragglet never deletes them. A new namespace starts cold, reusing one after a run starts warm; the researcher owns its state. The snapshot does not show whether a namespace was empty, check emb_hit_rate in summary: below 1 means the namespace was only partly filled."
               constraints:
                 schema_enforced: "Requires run.repeats=1: a shared cache is not reset between repeats. For spread, repeat the run."
         retrieval:
@@ -727,7 +728,7 @@ scenario:
           default: null
           status: implemented
           docs: "In-process LRU cache for retrieved id lists."
-          caveat: "Lives inside one repeat: cleared before each repeat and not persisted across CLI processes. Hits come only from repeated queries within a repeat."
+          caveat: "Checked before embedding: a hit skips embedding and search, lat_embed_ms stays empty. Lives inside one repeat: cleared before each repeat and not persisted across CLI processes, so with unique query texts it never hits."
           fields:
             type:
               type: "enum"

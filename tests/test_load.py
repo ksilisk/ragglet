@@ -320,7 +320,6 @@ def _example_rows(cfg: ScenarioConfig) -> pd.DataFrame:
             **miss, "qid": qid, "t_start_ms": float(start),
             "lat_embed_ms": float(embed), "lat_retrieve_ms": retrieve, "lat_rerank_ms": rerank,
             "lat_total_ms": 300.0 if qid == "D" else float(embed + retrieve + rerank),
-            "emb_hit_rate": 0.0, "ret_hit_rate": 0.0,
             "outcome": "timeout" if qid == "D" else "ok",
             "timeout_stage": "total" if qid == "D" else None,
         }

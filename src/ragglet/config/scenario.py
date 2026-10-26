@@ -235,7 +235,7 @@ class CacheEmbeddingConfig(BaseModel):
 
     type: Literal["redis"] = "redis"
     endpoint: str
-    ttl_seconds: int = 86400
+    ttl_seconds: int = Field(86400, ge=1)  # Redis не принимает SET с EX 0
     # общий кэш для прогонов с тем же namespace; без него у прогона свои ключи
     namespace: str | None = Field(None, min_length=1)
 

@@ -124,8 +124,6 @@ def test_summary_includes_context_latency_and_counts():
                 "lat_total_ms": 7.0,
                 "context_tokens": 12,
                 "context_chunks": 3,
-                "emb_hit_rate": 0.0,
-                "ret_hit_rate": 0.0,
                 "t_start_ms": 0.0,
                 "outcome": "ok",
                 "timeout_stage": None,
