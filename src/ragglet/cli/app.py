@@ -33,7 +33,7 @@ def serve(
     settings = ServerSettings(**{k: v for k, v in {"host": host, "port": port}.items() if v is not None})
     typer.echo(settings.describe())
     registry = InMemoryRegistry(settings.artifacts_dir)  # ragglet-30 подставит свой
-    jobs = ProcessJobManager(registry, cancel_grace_s=settings.cancel_grace_s)
+    jobs = ProcessJobManager(registry, cancel_grace_s=settings.cancel_grace_s, builds_dir=settings.builds_dir)
     # один процесс: очередь задач и блокировки библиотеки живут в его памяти
     uvicorn.run(create_app(settings, jobs=jobs, registry=registry), host=settings.host, port=settings.port,
                 workers=1)

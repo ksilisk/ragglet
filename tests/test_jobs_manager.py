@@ -207,7 +207,7 @@ async def test_failures(tmp_path):
 
 async def test_spawn_failure_is_a_failed_task(tmp_path):
     registry = RecordingRegistry()
-    jobs = ProcessJobManager(registry, command=[str(tmp_path / "no-such-python")])
+    jobs = ProcessJobManager(registry, command=[str(tmp_path / "no-such-python")], builds_dir=tmp_path)
     async with jobs:
         a = await jobs.submit(spec(tmp_path, "a"))
         status = await until(jobs, a.ref, finished)

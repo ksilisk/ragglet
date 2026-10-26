@@ -26,9 +26,9 @@ def poll(client: TestClient, url: str, timeout: float = 10.0) -> dict:
 
 
 def test_run_and_build_complete_through_the_api(tmp_path, monkeypatch):
-    stand = make_stand(tmp_path, monkeypatch)
+    stand = make_stand(tmp_path, monkeypatch, builds_dir=tmp_path / "builds")
     jobs = ProcessJobManager(stand.registry, cancel_grace_s=0.5, command=[sys.executable, str(FAKE)],
-                             builds_dir=tmp_path / "builds")
+                             builds_dir=stand.settings.builds_dir)  # как в `ragglet serve`
     app = create_app(stand.settings, jobs=jobs, registry=stand.registry)
 
     with TestClient(app) as client:  # lifespan входит в менеджер
@@ -52,3 +52,5 @@ def test_run_and_build_complete_through_the_api(tmp_path, monkeypatch):
     assert tasks == []
     run_dir = stand.settings.artifacts_dir / run.json()["id"]
     assert files.read_outcome(run_dir).state.value == "completed"
+    build_dir = stand.settings.builds_dir / build.json()["id"]  # заглушка реестра каталога сборке не даёт
+    assert files.read_outcome(build_dir).result == {"documents": 3}

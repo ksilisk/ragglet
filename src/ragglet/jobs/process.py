@@ -126,15 +126,15 @@ class ProcessJobManager:
             self,
             registry: Registry,
             *,
+            builds_dir: Path,
             cancel_grace_s: float = 10.0,
             command: Sequence[str] = WORKER,
-            builds_dir: Path = Path("results/builds"),
             now: Callable[[], datetime] = lambda: datetime.now(UTC),
     ):
         self._registry = registry
         self._grace = cancel_grace_s
         self._command = list(command)
-        self._builds_dir = builds_dir  # до ragglet-30 реестр не создаёт каталог сборки
+        self._builds_dir = builds_dir  # settings.builds_dir: каталог сборки, если реестр его не задал
         self._now = now
         self._tasks: dict[TaskRef, _Task] = {}  # все задачи этого запуска сервера, и завершённые
         self._waiting: deque[TaskRef] = deque()
@@ -159,10 +159,10 @@ class ProcessJobManager:
     async def submit(self, spec: TaskSpec) -> TaskStatus:
         if self._tg is None or self._stopping:
             raise RuntimeError("ProcessJobManager is not running: enter it with `async with`")
-        if spec.run_dir is None:
+        if spec.run_dir is None:  # сборка, которой реестр не дал каталога (заглушка до ragglet-30)
             spec = replace(spec, run_dir=self._builds_dir / spec.ref.id)
         assert spec.run_dir is not None
-        spec.run_dir.mkdir(parents=True, exist_ok=True)  # обычно его уже создал реестр
+        spec.run_dir.mkdir(parents=True, exist_ok=True)  # реестр 30 создаёт его сам, заглушка — нет
         files.write_task(spec)
         self._tasks[spec.ref] = _Task(spec=spec, status=TaskStatus(
             ref=spec.ref, name=spec.name, state=TaskState.QUEUED, position=None, enqueued_at=self._now(),

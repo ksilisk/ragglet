@@ -75,7 +75,7 @@ async def test_build_then_run_on_the_real_core(tmp_path, collection, monkeypatch
     long = TaskSpec(TaskRef(TaskKind.RUN, "demo_run_2"), "baseline_qdrant", long_scenario,
                     tmp_path / "runs" / "demo_run_2")
 
-    async with ProcessJobManager(registry, cancel_grace_s=5) as jobs:
+    async with ProcessJobManager(registry, cancel_grace_s=5, builds_dir=tmp_path / "builds") as jobs:
         await jobs.submit(build)
         await jobs.submit(run)  # ждёт сборку в очереди
         built = await _finish(jobs, build.ref)

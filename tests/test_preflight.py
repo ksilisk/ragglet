@@ -447,6 +447,21 @@ async def test_run_id_names_the_run_dir_once(tmp_path, fake_runtime):
         await run_module.run_scenario(cfg, run_id="s_20261125T101540Z-2")
 
 
+async def test_run_id_accepts_a_dir_prepared_for_the_run(tmp_path, fake_runtime):
+    fake_runtime.metadata_for = {"chunks_v1": _meta()}
+    cfg = _scenario(tmp_path / "runs", dataset={"id": str(DEMO), "limit": 2})
+    run_dir = tmp_path / "runs" / "s_20261125T101540Z"
+    run_dir.mkdir(parents=True)
+    for name in ("run.json", "task.json", "task.log"):  # реестр и менеджер задач пишут их до старта
+        (run_dir / name).write_text("{}")
+
+    res = await run_module.run_scenario(cfg, run_id=run_dir.name)
+
+    assert res.run_dir == run_dir
+    assert (run_dir / "scenario.snapshot.json").exists()
+    assert (run_dir / "run.json").read_text() == "{}"
+
+
 def test_run_plan_matches_progress_total():
     from ragglet.bench.plan import run_plan
 

@@ -326,11 +326,16 @@ ragglet-30.
 
 ### 9. Подключение
 
-`ServerSettings`, одно поле:
+`ServerSettings`, два поля:
 
 ```python
+builds_dir: Path = Path("results/builds") # каталоги сборок: <builds_dir>/<id>/
 cancel_grace_s: float = 10.0              # SIGTERM → SIGKILL при отмене и остановке сервера
 ```
+
+`builds_dir` — единственный источник пути к каталогам сборок: реестр 30 создаёт там
+`<id>/` с записью сборки и передаёт его в `run_dir`, а менеджер берёт
+`builds_dir / id`, когда `run_dir` не задан (заглушка реестра).
 
 `create_app` получает минимальный lifespan: если `jobs` — асинхронный контекстный
 менеджер, lifespan входит в него. `ProcessJobManager.__aenter__` открывает task group, в
@@ -352,7 +357,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 ```python
 registry = InMemoryRegistry(settings.artifacts_dir)      # ragglet-30 подставит свой
-jobs = ProcessJobManager(registry, cancel_grace_s=settings.cancel_grace_s)
+jobs = ProcessJobManager(registry, cancel_grace_s=settings.cancel_grace_s, builds_dir=settings.builds_dir)
 uvicorn.run(create_app(settings, jobs=jobs, registry=registry), host=…, port=…, workers=1)
 ```
 
@@ -362,18 +367,17 @@ class ProcessJobManager:                   # реализует JobManager
             self,
             registry: Registry,
             *,
+            builds_dir: Path,                  # settings.builds_dir
             cancel_grace_s: float = 10.0,
             command: Sequence[str] = (sys.executable, "-m", "ragglet.jobs.worker"),
-            builds_dir: Path = Path("results/builds"),
             now: Callable[[], datetime] = lambda: datetime.now(UTC),
     ): ...
 ```
 
-`command` и `now` нужны тестам: фиктивный воркер и часы, как у заглушки. `builds_dir` — временный
-мостик до ragglet-30: пока реестр не создаёт каталоги сборок, у сборки без
-`TaskSpec.run_dir` менеджер берёт `builds_dir / id`, то есть ту же раскладку, что сделает
-30. Каталог задачи менеджер создаёт с `exist_ok=True`, так что с реестром 30, который
-создаёт его сам, ничего не меняется.
+`command` и `now` нужны тестам: фиктивный воркер и часы, как у заглушки. Каталог задачи
+менеджер при `submit` создаёт сам, `mkdir(parents=True, exist_ok=True)`: с реестром 30 он
+уже существует, с заглушкой — нет. `builds_dir` обязателен и приходит из настроек, чтобы
+путь к сборкам был задан в одном месте.
 
 ## Затрагиваемые модули
 
@@ -383,12 +387,12 @@ class ProcessJobManager:                   # реализует JobManager
 | `jobs/worker.py` (новый) | `python -m ragglet.jobs.worker <dir>`: `ThrottledProgress`, отмена, сторожевой поток, вызов ядра |
 | `jobs/process.py` (новый) | `ProcessJobManager` |
 | `jobs/protocol.py` | комментарий у `TaskSpec.run_dir`: «каталог задачи: прогона или сборки» |
-| `bench/artifacts.py` | каталог прогона с `run_id` может уже существовать, если в нём нет `scenario.snapshot.json` (та же правка, что п. 11.1 ragglet-30; кто вольётся вторым, берёт любую) |
-| `api/settings.py` | `cancel_grace_s` |
+| `bench/artifacts.py` | каталог прогона с `run_id` может уже существовать, если в нём нет `scenario.snapshot.json`; файлы менеджера и `run.json` реестра не мешают. Правка живёт только здесь, ragglet-30 её не повторяет |
+| `api/settings.py` | `builds_dir`, `cancel_grace_s` |
 | `api/app.py` | lifespan |
 | `cli/app.py` | `serve` создаёт `ProcessJobManager` |
 | `pyproject.toml` | маркер pytest `integration` |
-| `README.md` | задачи через API выполняются; файлы задачи; `RAGGLET_CANCEL_GRACE_S`; запуск воркера руками |
+| `README.md` | задачи через API выполняются; файлы задачи; `RAGGLET_BUILDS_DIR`, `RAGGLET_CANCEL_GRACE_S`; запуск воркера руками |
 
 Имена файлов: `process.py` назван по образцу `memory.py` с `InMemoryJobManager`, то есть
 по способу выполнения задач. `files.py` — файлы, через которые общаются два процесса.
@@ -546,6 +550,14 @@ class ProcessJobManager:                   # реализует JobManager
 6. **Lifespan** в `create_app` минимальный: вход в `jobs`, если это асинхронный
    контекстный менеджер. 30 добавит туда `recover`. Других правок в `api/app.py` нет, в
    `cli/app.py` — только создание `ProcessJobManager` в `serve` (п. 9).
+
+7. **Мостики до ragglet-30 — в одном экземпляре.** Правку ядра в `bench/artifacts.py`
+   делает 29, а 30 её у себя не делает. Каталог с `run_id` может существовать, если в нём
+   нет `scenario.snapshot.json`; служебные файлы менеджера (`task.json`, `task.log`,
+   `progress.json`, `result.json`) и `run.json` реестра не мешают. Если snapshot есть —
+   ошибка, как раньше. Каталог сборки без `run_dir` — не константа, а настройка
+   `ServerSettings.builds_dir` (`results/builds`): туда же 30 кладёт запись сборки и
+   передаёт этот каталог в `run_dir` (п. 9).
 
 Остальное принято как есть: FIFO, одна задача, `position`, троттлинг, `Registry.update`
 на переходах (ошибка реестра не останавливает очередь), старт следующей задачи только
