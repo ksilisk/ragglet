@@ -447,6 +447,22 @@ async def test_run_id_names_the_run_dir_once(tmp_path, fake_runtime):
         await run_module.run_scenario(cfg, run_id="s_20261125T101540Z-2")
 
 
+async def test_run_id_accepts_dir_reserved_by_registry(tmp_path, fake_runtime):
+    # реестр создаёт каталог при постановке: в нём только run.json и файлы менеджера
+    fake_runtime.metadata_for = {"chunks_v1": _meta()}
+    cfg = _scenario(tmp_path / "runs", dataset={"id": str(DEMO), "limit": 2})
+    reserved = tmp_path / "runs" / "s_20261125T101540Z"
+    reserved.mkdir(parents=True)
+    (reserved / "run.json").write_text("{}", encoding="utf-8")
+    (reserved / "task.log").write_text("started\n", encoding="utf-8")
+
+    res = await run_module.run_scenario(cfg, run_id="s_20261125T101540Z")
+
+    assert res.run_dir == reserved
+    assert (reserved / "summary.aggregate.csv").exists()
+    assert (reserved / "run.json").read_text(encoding="utf-8") == "{}"
+
+
 def test_run_plan_matches_progress_total():
     from ragglet.bench.plan import run_plan
 
