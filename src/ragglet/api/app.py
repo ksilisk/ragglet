@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -47,6 +49,14 @@ def create_app(
     registry = registry or InMemoryRegistry(settings.artifacts_dir)
     jobs = jobs or InMemoryJobManager(registry)
 
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        # менеджер задач (ragglet-29) живёт вместе с сервером, при остановке гасит процессы задач
+        async with AsyncExitStack() as stack:
+            if isinstance(jobs, AbstractAsyncContextManager):
+                await stack.enter_async_context(jobs)
+            yield
+
     app = FastAPI(
         title="Ragglet",
         summary="Single entry point to the benchmark stand: scenarios, indexes, runs.",
@@ -54,6 +64,7 @@ def create_app(
         openapi_url="/v1/openapi.json",
         docs_url="/v1/docs",
         redoc_url=None,
+        lifespan=lifespan,
     )
     app.state.services = Services(
         settings=settings,

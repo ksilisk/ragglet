@@ -27,8 +27,13 @@ def serve(
 
     from ragglet.api.app import create_app
     from ragglet.api.settings import ServerSettings
+    from ragglet.jobs.process import ProcessJobManager
+    from ragglet.registry.memory import InMemoryRegistry
 
     settings = ServerSettings(**{k: v for k, v in {"host": host, "port": port}.items() if v is not None})
     typer.echo(settings.describe())
+    registry = InMemoryRegistry(settings.artifacts_dir)  # ragglet-30 подставит свой
+    jobs = ProcessJobManager(registry, cancel_grace_s=settings.cancel_grace_s)
     # один процесс: очередь задач и блокировки библиотеки живут в его памяти
-    uvicorn.run(create_app(settings), host=settings.host, port=settings.port, workers=1)
+    uvicorn.run(create_app(settings, jobs=jobs, registry=registry), host=settings.host, port=settings.port,
+                workers=1)

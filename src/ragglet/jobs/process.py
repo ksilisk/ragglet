@@ -231,7 +231,8 @@ class ProcessJobManager:
             return await anyio.open_process(
                 [*self._command, str(task.dir)],
                 stdin=subprocess.DEVNULL, stdout=log_file, stderr=log_file,
-                env=os.environ | {"PYTHONUNBUFFERED": "1", "PYTHONFAULTHANDLER": "1"},
+                # полосы tqdm (загрузка модели, Hub) в файле лога — строки с \r, а не прогресс
+                env=os.environ | {"PYTHONUNBUFFERED": "1", "PYTHONFAULTHANDLER": "1", "TQDM_DISABLE": "1"},
             )
 
     async def _stop_on_cancel(self, task: _Task, process: Process) -> None:
