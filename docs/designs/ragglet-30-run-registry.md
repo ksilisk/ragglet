@@ -115,7 +115,8 @@
   где-то жить. `create_run` резервирует id через `mkdir(exist_ok=False)`: если каталог
   занят (CLI, другая постановка), берётся следующий суффикс `-2`, `-3`. Такая
   резервация атомарна, в отличие от проверки «есть ли» с последующим созданием. Ядро
-  принимает уже созданный каталог (п. 11). Прогон, отменённый в очереди, оставляет
+  принимает уже созданный каталог — эту правку делает ragglet-29 (п. 11). Прогон,
+  отменённый в очереди, оставляет
   каталог с одним `run.json`. Это и есть его запись.
 - **Пишет только сервер.** Запись атомарна: временный `.run.json.<uuid>.tmp` и
   `os.replace`, под `anyio.Lock` реестра (`update` может прийти конкурентно из одного
@@ -130,9 +131,10 @@
   каталог без записи (п. 3).
 - **Сборки** живут отдельно от прогонов: `results/builds/<id>/build.json` того же
   устройства (`BuildRecord`), рядом файлы менеджера. Продукт сборки — коллекция в
-  Qdrant, переносить каталог сборки незачем. Новая настройка
-  `builds_dir: Path = Path("results/builds")` (`RAGGLET_BUILDS_DIR`) и поле
-  `BuildRecord.build_dir`. Роутер сборок передаёт его в `TaskSpec(run_dir=…)`: имя поля
+  Qdrant, переносить каталог сборки незачем. Каталог берётся из настройки
+  `builds_dir: Path = Path("results/builds")` (`RAGGLET_BUILDS_DIR`), которую заводит
+  ragglet-29: `create_build` создаёт `builds_dir / <id>` и отдаёт его в поле
+  `BuildRecord.build_dir`. Своих настроек для сборок реестр не заводит. Роутер сборок передаёт его в `TaskSpec(run_dir=…)`: имя поля
   в `jobs/protocol.py` остаётся `run_dir`. Сборки CLI до 37 в реестр не попадают: от
   них не остаётся файлов. Их след — метаданные коллекции, их показывает
   `GET /v1/indexes`.
@@ -554,10 +556,12 @@ class Registry(Protocol):
 
 ### 11. Доработки ядра
 
-1. **Каталог прогона.** С `run_id` каталог может уже существовать (его создал реестр),
-   но в нём не должно быть `scenario.snapshot.json`. Иначе `FileExistsError`, то есть
-   защита из 28 от смешения артефактов двух прогонов сохраняется. Без `run_id` (CLI до
-   37) всё как сейчас.
+1. **Каталог прогона — правка ragglet-29** (PR #13), здесь её нет как своей. С `run_id`
+   каталог может уже существовать (его создали реестр или менеджер), но в нём не должно
+   быть `scenario.snapshot.json`; `run.json` и файлы менеджера не считаются. Иначе
+   `FileExistsError`, то есть защита из 28 от смешения артефактов двух прогонов
+   сохраняется. Без `run_id` (CLI до 37) всё как сейчас. Пока 29 не в master, в этой
+   ветке лежит дословная копия правки 29 и её теста; при слиянии берётся версия 29.
 2. Только для фазы 5: **`resolve_dataset(…, offline=False)`** (при `offline=True` у
    `hf` — `local_files_only=True`, нет в кэше — `FileNotFoundError` вместо скачивания) и
    **`AsyncQdrantStore.payloads(chunk_ids) -> dict[str, dict]`** (п. 8). Функция id точки
@@ -578,8 +582,9 @@ class Registry(Protocol):
    `run_scenario` вернул результат. Конкурентные `update` реестр сериализует сам.
 2. **Каталог задачи.** Реестр создаёт его при постановке и передаёт в `TaskSpec.run_dir`:
    у прогона `results/runs/<id>/`, у сборки `results/builds/<id>/`. Воркер вызывает
-   `run_scenario(cfg, run_id=record.id)`; ядро после фазы 1 принимает каталог, в котором
-   пока лежат только `run.json` и файлы менеджера.
+   `run_scenario(cfg, run_id=record.id)`; ядро (правка 29, п. 11) принимает каталог, в
+   котором пока лежат только `run.json` и файлы менеджера. Каталог сборок — настройка
+   `builds_dir` из 29, у реестра своей нет.
 3. **Файлы менеджера** — в каталоге задачи: `task.log`, `task.json`, `progress.json`,
    `result.json`. Реестр показывает `task.log` в артефактах и в zip, остальные скрывает, а
    после рестарта отдаёт `task.log` через `GET …/log` сам (п. 9).
@@ -615,8 +620,8 @@ class Registry(Protocol):
 | `api/routers/runs.py`, `builds.py` | `GET /v1/runs`, `GET /v1/builds`; `origin`, `scenario_file`, Optional `etag` и `plan`; `build_dir` в `TaskSpec`; лог из `task.log` |
 | `api/routers/results.py` (новый) | запросы, деталь запроса, артефакты, zip |
 | `api/routers/library.py`, `tasks.py` | `RunBrief.ndcg_at_10`; чтение `task.log` по смещению |
-| `api/schemas.py`, `api/app.py`, `api/settings.py`, `api/deps.py` | точечно: модели; `FileRegistry` по умолчанию и `lifespan`; `builds_dir`; `QueryInspector` в `Services` (фаза 5) |
-| `bench/artifacts.py` | каталог с `run_id` может существовать без snapshot |
+| `api/schemas.py`, `api/app.py`, `api/deps.py` | точечно: модели; `FileRegistry` по умолчанию и `recover` в lifespan; `QueryInspector` в `Services` (фаза 5) |
+| `api/settings.py`, `bench/artifacts.py`, `cli/app.py` | не свои: `builds_dir` и каталог с `run_id` делает ragglet-29 (до его слияния в ветке — дословная копия); в `ragglet serve` после слияния `InMemoryRegistry` из 29 заменяется на `FileRegistry` |
 | `datasets/sources.py`, `stores/qdrant_store_async.py` | фаза 5: `offline`, `payloads()` |
 | `README.md` | реестр, `RAGGLET_BUILDS_DIR`, новые endpoints |
 
@@ -671,8 +676,7 @@ formats, complete, manifest, generation)` в `tests/registry_support.py` соб�
    временных файлов; файл отдаётся байт в байт; `..%2Fx` и неизвестное имя — 404; в zip
    все показанные файлы под `<id>/`. `GET …/log` у задачи, которую менеджер не знает,
    читает `task.log` по смещению, кусок не рвёт символ UTF-8.
-9. **Ядро.** `run_id` на каталоге только с `run.json` работает, на каталоге со
-   snapshot — `FileExistsError`.
+9. Ядро: тест каталога с `run_id` — из ragglet-29.
 10. Существующие тесты, включая тесты API 28 на `InMemoryRegistry`, проходят без правок.
 
 Ручная проверка: `ragglet serve` на настоящем `results/runs` (55 каталогов трёх
@@ -681,11 +685,12 @@ zip.
 
 ## Фазы (отдельными коммитами)
 
-1. **Ядро**: каталог с `run_id` может уже существовать.
+1. ~~Ядро: каталог с `run_id` может уже существовать~~ — делает ragglet-29; в ветке
+   дословная копия его правки до слияния.
 2. **Реестр на файлах**: `run.json` и `build.json`, скан и импорт, `recover` в
    lifespan, `GET /v1/runs` и `GET /v1/builds` с колонками и фильтрами,
    `include=summary,manifest`, `origin`, `scenario_file`, `RunBrief.ndcg_at_10`,
-   `FileRegistry` по умолчанию, `builds_dir`.
+   `FileRegistry` по умолчанию.
 3. **Per-query**: список с фильтрами и рангом, деталь запроса по строке.
 4. **Артефакты и лог**: листинг, файл, zip, `task.log` после рестарта; README.
 5. **Обогащение детали запроса**: `resolve_dataset(offline)`, `payloads()`, оценки и
@@ -744,10 +749,11 @@ zip.
 
 1. **Каталог прогона создаёт реестр при постановке** (расхождение с 28 одобрено): атомарный
    `mkdir results/runs/<id>/`, суффикс `-2` при `EEXIST`; ядро принимает существующий
-   каталог без snapshot (п. 1, 11).
+   каталог без snapshot — правка ragglet-29, не дублируется (п. 1, 11).
 2. **Сборки — `results/builds/<id>/build.json`**, отдельно от прогонов: продукт сборки —
-   коллекция в Qdrant, переносить её каталог незачем. `BuildRecord.build_dir` уходит в
-   `TaskSpec(run_dir=…)`, имя поля в `jobs/protocol.py` не меняется (п. 1).
+   коллекция в Qdrant, переносить её каталог незачем. Каталог — `settings.builds_dir / <id>`,
+   настройка из ragglet-29; `BuildRecord.build_dir` уходит в `TaskSpec(run_dir=…)`, имя
+   поля в `jobs/protocol.py` не меняется (п. 1).
 3. **Лог и файлы менеджера — в каталоге задачи** (`task.log`, `task.json`,
    `progress.json`, `result.json`, решение 29). `task.log` — в артефактах и zip, служебные
    скрыты; после рестарта `GET …/log` читает `task.log` сам (п. 9).

@@ -61,10 +61,11 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        # менеджер задач (ragglet-29) живёт вместе с сервером, при остановке гасит процессы задач
         async with AsyncExitStack() as stack:
-            if isinstance(jobs, AbstractAsyncContextManager):  # вход в менеджер задач — ragglet-29
+            if isinstance(jobs, AbstractAsyncContextManager):
                 await stack.enter_async_context(jobs)
-            await registry.recover(jobs)  # после падения сервера: осиротевшие queued/running
+            await registry.recover(jobs)  # ragglet-30: после падения сервера — осиротевшие queued/running
             yield
 
     app = FastAPI(

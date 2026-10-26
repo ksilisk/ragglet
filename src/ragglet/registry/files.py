@@ -23,7 +23,6 @@ from typing import IO, Any
 import anyio
 from pydantic import TypeAdapter
 
-from ragglet.bench.artifacts import SNAPSHOT_FILE
 from ragglet.datasets.sources import describe_dataset
 from ragglet.jobs.protocol import JobManager, LogChunk, TaskFailure, TaskKind, TaskRef, TaskState
 from ragglet.registry import per_query
@@ -48,6 +47,7 @@ from ragglet.registry.protocol import (
 log = logging.getLogger(__name__)
 
 RUN_FILE = "run.json"
+SNAPSHOT_FILE = "scenario.snapshot.json"  # без него каталог — не прогон
 BUILD_FILE = "build.json"
 FORMAT = 1  # версия файла записи
 DONE_MARKER = "summary.aggregate.csv"  # ядро пишет его последним: прогон завершён

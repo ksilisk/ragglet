@@ -22,7 +22,7 @@ class ServerSettings(BaseSettings):
     scenarios_dir: Path = Path("configs/scenarios")
     index_profiles_dir: Path = Path("configs/indexes")
     artifacts_dir: Path = Path("results/runs")
-    builds_dir: Path = Path("results/builds")  # записи сборок: <id>/build.json
+    builds_dir: Path = Path("results/builds")  # каталоги сборок: <builds_dir>/<id>/
     dataset_roots: Annotated[list[Path], NoDecode] = [Path("datasets")]
     ui_dir: Path | None = None  # собранный UI (ragglet-31); None — UI не раздаётся
     probe_timeout_s: float = 2.0

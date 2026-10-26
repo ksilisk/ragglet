@@ -200,7 +200,7 @@ uv run ragglet serve
 | `RAGGLET_REDIS_URL` | `redis://localhost:6379/0` | Redis для страницы стенда; пусто — не показывать |
 | `RAGGLET_SCENARIOS_DIR`, `RAGGLET_INDEX_PROFILES_DIR` | `configs/scenarios`, `configs/indexes` | библиотека сценариев и профилей |
 | `RAGGLET_ARTIFACTS_DIR` | `results/runs` | куда пишутся прогоны (`run.artifacts_dir` из запроса игнорируется) |
-| `RAGGLET_BUILDS_DIR` | `results/builds` | записи сборок индекса: `<id>/build.json` |
+| `RAGGLET_BUILDS_DIR` | `results/builds` | каталоги сборок индексов: файлы задачи и лог |
 | `RAGGLET_DATASET_ROOTS` | `datasets` | где искать локальные датасеты для выбора в UI |
 | `RAGGLET_UI_DIR` | — | собранный веб-интерфейс, раздаётся с того же адреса |
 
