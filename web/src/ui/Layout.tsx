@@ -61,7 +61,7 @@ export function Actions({ children }: { children: ReactNode }) {
   return <div className={s.actions}>{children}</div>;
 }
 
-export function KeyValue({ items }: { items: Array<[ReactNode, ReactNode] | null | false> }) {
+export function KeyValue({ items }: { items: Array<[ReactNode, ReactNode] | null | false | undefined> }) {
   return (
     <dl className={s.kv}>
       {items.filter((x): x is [ReactNode, ReactNode] => Boolean(x)).map(([k, v], i) => (

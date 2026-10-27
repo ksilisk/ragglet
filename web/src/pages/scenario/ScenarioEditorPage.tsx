@@ -1,7 +1,8 @@
-import { useCallback, useMemo, useState, type ReactNode } from "react";
-import { useParams } from "react-router";
+import { useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useLocation, useNavigate, useParams } from "react-router";
 import { ApiProblem, type S } from "../../api/client";
-import { useIndexes, useScenarioMeta } from "../../api/queries";
+import { keys, useIndexes, useScenarioMeta } from "../../api/queries";
 import { scenarioHints } from "../../config/hints";
 import { bindIssues } from "../../config/registry";
 import { SCENARIO_REGISTRY, SCENARIO_SECTIONS } from "../../config/scenarioFields";
@@ -10,7 +11,9 @@ import { useValue } from "../../editor/derived";
 import s from "../../editor/editor.module.css";
 import { EditorShell } from "../../editor/EditorShell";
 import { FieldMessages, TagsField } from "../../editor/fields";
-import { EditorContext, createEditorStore, useEditor, useEditorContext, type CheckResult } from "../../editor/store";
+import { dryRun } from "../../editor/commands";
+import { launch } from "../../editor/launch";
+import { EditorContext, checkFromProblem, createEditorStore, useEditor, useEditorContext, type CheckResult } from "../../editor/store";
 import { useEditorPage, useLibraryDocument } from "../../editor/useEditorPage";
 import { fmtDataset, fmtNumber } from "../../lib/format";
 import { Button } from "../../ui/Button";
@@ -19,7 +22,9 @@ import { cx } from "../../ui/cx";
 import k from "../../ui/kit.module.css";
 import { Crumbs, Empty, Page } from "../../ui/Layout";
 import { Menu } from "../../ui/Menu";
+import { useConfirm } from "../../ui/Dialog";
 import { ErrorBox } from "../../ui/ProblemView";
+import { WarningsBody, enqueueScenario } from "../runs/enqueue";
 import { DataSection } from "./DataSection";
 import { RetrievalSection } from "./RetrievalSection";
 import { CacheSection, ContextSection, GenerationSection, LoadSection, MetricsSection, RerankSection, TimeoutsSection } from "./StageSections";
@@ -85,10 +90,57 @@ function ScenarioEditor({ doc, meta }: { doc: S["ConfigDocument"]; meta: S["Scen
   );
   const ctx = useMemo(() => ({ store, registry: SCENARIO_REGISTRY, defaults: meta.defaults, hints }), [store, meta.defaults, hints]);
 
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  const confirm = useConfirm();
+  const location = useLocation();
+
+  // «Открыть в редакторе» со страницы упавшего прогона: проблемы второго preflight — у полей.
+  useEffect(() => {
+    const problem = (location.state as { problem?: S["Problem"] } | null)?.problem;
+    if (!problem) return;
+    const check = checkFromProblem("task", problem);
+    store.getState().setCheck(check);
+    openErrorSections(check);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- один раз при открытии
+  }, []);
+
   const onCheck = async () => {
     const out = await page.onCheck();
     if (out?.kind === "problems") openErrorSections(out.check);
   };
+
+  // Запустить = сохранить → dry-run → подтвердить предупреждения → 202 → страница прогона.
+  const onLaunch = () =>
+    page.run("launch", async () => {
+      const result = await launch<S["RunCheck"]>({
+        save: page.doSave,
+        check: async () => {
+          const out = await dryRun(store);
+          if (out.kind === "problems") openErrorSections(out.check);
+          return out.kind === "ok" ? { kind: "ok", warnings: out.check.issues, report: out.check.report as S["RunCheck"] } : { kind: out.kind };
+        },
+        confirm: (warnings, check) =>
+          confirm({ title: "Запустить всё равно?", body: <WarningsBody warnings={warnings} check={check} />, confirm: "Запустить", wide: true }),
+        submit: async () => {
+          const st = store.getState();
+          const out = await enqueueScenario(st.checkedText ?? st.text, st.id);
+          if (out.ok) return { kind: "accepted", id: out.accepted.id, position: out.accepted.position ?? null };
+          const check = checkFromProblem("launch", out.problem);
+          st.setCheck(check, st.checkedText ?? st.text);
+          openErrorSections(check);
+          return { kind: "problems" };
+        },
+      });
+      if (result.kind === "started") {
+        void qc.invalidateQueries({ queryKey: keys.tasks });
+        void qc.invalidateQueries({ queryKey: keys.runs });
+        void qc.invalidateQueries({ queryKey: keys.scenarios });
+        page.leaving.current = true;
+        navigate(`/runs/${encodeURIComponent(result.id)}`);
+      }
+      return result;
+    });
   const openErrorSections = (check: CheckResult) => {
     for (const issue of bindIssues(check.issues, SCENARIO_REGISTRY)) if (issue.severity === "error") store.getState().setOpen(issue.section, true);
   };
@@ -100,6 +152,9 @@ function ScenarioEditor({ doc, meta }: { doc: S["ConfigDocument"]; meta: S["Scen
       </Button>
       <Button onClick={() => void onCheck()} disabled={page.broken || page.busy !== null} title={page.broken ? "YAML не разбирается" : undefined}>
         {page.busy === "check" ? "Проверка…" : "Проверить"}
+      </Button>
+      <Button variant="primary" onClick={() => void onLaunch()} disabled={page.broken || page.busy !== null} title={page.broken ? "YAML не разбирается" : "Сохранить, проверить и поставить в очередь"}>
+        {page.busy === "launch" ? "Запуск…" : "Запустить"}
       </Button>
       <Menu
         trigger={<Button aria-label="Ещё действия">⋯</Button>}

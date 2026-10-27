@@ -12,6 +12,7 @@ import { Button } from "../ui/Button";
 import { Dialog, useConfirm } from "../ui/Dialog";
 import { ErrorBox } from "../ui/ProblemView";
 import { dryRun, save } from "./commands";
+import type { SaveStep } from "./launch";
 import s from "./editor.module.css";
 import { isDirty, type EditorState } from "./store";
 import { useStore } from "zustand";
@@ -88,20 +89,26 @@ export function useEditorPage(store: StoreApi<EditorState>, kind: LibraryKind, s
     }
   }, []);
 
-  /** Сохранить; true — на сервере та же версия, что в редакторе. */
-  const doSave = useCallback(async (): Promise<boolean> => {
-    if (!isDirty(store.getState())) return true;
+  /** Сохранить, если есть правки: шаг save автомата запуска. */
+  const doSave = useCallback(async (): Promise<SaveStep> => {
+    if (!isDirty(store.getState())) return { kind: "saved", valid: store.getState().saved.valid };
     const out = await save(store);
     if (out.kind === "saved") {
       qc.setQueryData(docKey, out.doc);
       invalidateLibrary(qc, kind);
       setExternal(null);
       setNote(`Сохранено ${fmtTime(new Date())}${out.doc.valid ? "" : " · черновик: не проходит схему"}`);
-      return true;
+      return { kind: "saved", valid: out.doc.valid };
     }
-    if (out.kind === "conflict") setConflict(out.problem);
-    if (out.kind === "rejected") store.getState().setTab(out.problem.issues.some((i) => i.code === "config.yaml") ? "yaml" : store.getState().tab);
-    return false;
+    if (out.kind === "conflict") {
+      setConflict(out.problem);
+      return { kind: "conflict", problem: out.problem };
+    }
+    if (out.kind === "rejected") {
+      store.getState().setTab(out.problem.issues.some((i) => i.code === "config.yaml") ? "yaml" : store.getState().tab);
+      return { kind: "rejected" };
+    }
+    return { kind: "blocked" };
   }, [store, qc, docKey, kind]);
 
   const onSave = () => run("save", doSave);

@@ -15,6 +15,7 @@ import { StateChip } from "../../ui/states";
 import k from "../../ui/kit.module.css";
 import { ImportDialog, NameDialog } from "../library/LibraryDialogs";
 import { createDocument, deleteDocument, duplicate, exportYaml, invalidateLibrary, skeleton } from "../library/library";
+import { BatchLaunch } from "./BatchLaunch";
 import s from "./scenarios.module.css";
 
 export function pipelineChips(p: S["Pipeline"]): Array<{ label: string; on: boolean }> {
@@ -28,13 +29,14 @@ export function pipelineChips(p: S["Pipeline"]): Array<{ label: string; on: bool
   return chips;
 }
 
-type Dialogs = { kind: "new" } | { kind: "import" } | { kind: "duplicate"; id: string } | null;
+type Dialogs = { kind: "new" } | { kind: "import" } | { kind: "duplicate"; id: string } | { kind: "launch"; ids: string[] } | null;
 
 export default function ScenariosPage() {
   const scenarios = useScenarios();
   const stand = useStand();
   const [params, setParams] = useSearchParams();
   const [dialog, setDialog] = useState<Dialogs>(null);
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const q = params.get("q") ?? "";
   const dataset = params.get("dataset") ?? "";
 
@@ -81,6 +83,12 @@ export default function ScenariosPage() {
                 </option>
               ))}
             </select>
+            <Button
+              disabled={selected.size === 0}
+              onClick={() => setDialog({ kind: "launch", ids: shown.map((i) => i.id).filter((id) => selected.has(id)) })}
+            >
+              Запустить выбранные · {selected.size}
+            </Button>
             <Menu
               trigger={<Button variant="primary">Новый сценарий ▾</Button>}
               items={[
@@ -96,6 +104,14 @@ export default function ScenariosPage() {
         <table className={`${k.tbl} ${s.tight}`} aria-label="Библиотека сценариев">
           <thead>
             <tr>
+              <th>
+                <input
+                  type="checkbox"
+                  aria-label="Выбрать все"
+                  checked={shown.length > 0 && shown.every((i) => selected.has(i.id))}
+                  onChange={(e) => setSelected(e.target.checked ? new Set(shown.map((i) => i.id)) : new Set())}
+                />
+              </th>
               <th>Имя</th>
               <th>Описание</th>
               <th>Датасет</th>
@@ -108,7 +124,21 @@ export default function ScenariosPage() {
           </thead>
           <tbody>
             {shown.map((item) => (
-              <ScenarioRow key={item.id} item={item} onDuplicate={() => setDialog({ kind: "duplicate", id: item.id })} />
+              <ScenarioRow
+                key={item.id}
+                item={item}
+                selected={selected.has(item.id)}
+                onSelect={(on) =>
+                  setSelected((prev) => {
+                    const next = new Set(prev);
+                    if (on) next.add(item.id);
+                    else next.delete(item.id);
+                    return next;
+                  })
+                }
+                onDuplicate={() => setDialog({ kind: "duplicate", id: item.id })}
+                onLaunch={() => setDialog({ kind: "launch", ids: [item.id] })}
+              />
             ))}
           </tbody>
         </table>
@@ -144,11 +174,26 @@ export default function ScenariosPage() {
         />
       )}
       <ImportDialog kind="scenario" open={dialog?.kind === "import"} onClose={() => setDialog(null)} />
+      {dialog?.kind === "launch" && (
+        <BatchLaunch
+          ids={dialog.ids}
+          onClose={() => {
+            setDialog(null);
+            setSelected(new Set());
+          }}
+        />
+      )}
     </Page>
   );
 }
 
-function ScenarioRow({ item, onDuplicate }: { item: S["ScenarioItem"]; onDuplicate: () => void }) {
+function ScenarioRow({ item, selected, onSelect, onDuplicate, onLaunch }: {
+  item: S["ScenarioItem"];
+  selected: boolean;
+  onSelect: (on: boolean) => void;
+  onDuplicate: () => void;
+  onLaunch: () => void;
+}) {
   const qc = useQueryClient();
   const confirm = useConfirm();
   const navigate = useNavigate();
@@ -179,7 +224,10 @@ function ScenarioRow({ item, onDuplicate }: { item: S["ScenarioItem"]; onDuplica
   };
 
   return (
-    <tr>
+    <tr className={selected ? k.sel : undefined}>
+      <td>
+        <input type="checkbox" aria-label={`Выбрать ${item.id}`} checked={selected} onChange={(e) => onSelect(e.target.checked)} />
+      </td>
       <td>
         <Link className={`${k.rowLink} mono`} to={href}>
           {item.id}
@@ -199,7 +247,7 @@ function ScenarioRow({ item, onDuplicate }: { item: S["ScenarioItem"]; onDuplica
       <td>
         <div className={s.chips}>{item.pipeline && pipelineChips(item.pipeline).map((c) => <PipeChip key={c.label} on={c.on}>{c.label}</PipeChip>)}</div>
       </td>
-      <td className="nowrap">
+      <td>
         <LastRun run={item.last_run ?? null} />
       </td>
       <td className="muted nowrap">{fmtWhen(item.updated_at)}</td>
@@ -219,6 +267,7 @@ function ScenarioRow({ item, onDuplicate }: { item: S["ScenarioItem"]; onDuplica
             }
             items={[
               { label: "Открыть", onSelect: () => navigate(href) },
+              { label: "Запустить…", onSelect: onLaunch, disabled: !item.valid },
               { label: "Экспорт YAML", onSelect: () => void exportYaml("scenario", item.id) },
               { label: "Удалить…", onSelect: () => void onDelete(), danger: true },
             ]}
@@ -245,7 +294,7 @@ function LastRun({ run }: { run: S["RunBrief"] | null }) {
     detail = fmtWhen(run.enqueued_at);
   }
   return (
-    <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+    <span style={{ display: "inline-flex", gap: "2px 6px", alignItems: "center", flexWrap: "wrap", minWidth: 120 }}>
       <StateChip state={run.state} />
       <Link className="small" to={href}>
         {detail}

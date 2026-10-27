@@ -5,8 +5,8 @@
   width: auto;
 }
 .desc {
-  min-width: 180px;
-  max-width: 300px;
+  min-width: 150px;
+  max-width: 280px;
 }
 /* длинные описания — две строки, полностью во всплывающей подсказке */
 .clamp {
