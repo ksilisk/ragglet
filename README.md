@@ -278,6 +278,36 @@ uv run python -m ragglet.jobs.worker results/runs/<id>
 Интеграционный тест с настоящим ядром (`pytest -m integration`) нужен Qdrant на
 `localhost:6333`; без него тест пропускается.
 
+### 7. Веб-интерфейс
+
+SPA в каталоге `web/` (React + TypeScript + Vite) — клиент того же REST API: стенд, библиотека
+сценариев и профилей, редактор сценария с проверкой, запуск и страница прогона (дизайн —
+[docs/designs/ragglet-31-web-ui-app.md](docs/designs/ragglet-31-web-ui-app.md)). Нужен
+Node.js 22 или новее.
+
+```bash
+cd web && npm ci && npm run build      # → web/dist
+cd .. && RAGGLET_UI_DIR=web/dist uv run ragglet serve
+```
+
+UI откроется на `http://127.0.0.1:8000/` (тот же адрес, что и API). `RAGGLET_UI_DIR` можно
+записать в `.env`. Каталог должен существовать: без сборки сервер не стартует.
+
+Разработка — API и Vite-сервер рядом, `/v1` проксируется на API (`RAGGLET_API_URL`, по
+умолчанию `http://127.0.0.1:8000`):
+
+```bash
+uv run ragglet serve
+cd web && npm run dev                  # → http://localhost:5173
+```
+
+| Команда (в `web/`) | Что делает |
+|---|---|
+| `npm test` | unit- и компонентные тесты (Vitest) |
+| `npm run typecheck`, `npm run lint` | `tsc` и ESLint |
+| `npm run gen:api` | перегенерировать `src/api/schema.d.ts` из OpenAPI сервера (через `uv run`) после правок API |
+| `npm run check` | `gen:api` + проверка, что типы клиента свежие, + `tsc` + ESLint |
+
 ## Конфиги
 
 Подробный справочник по доступным параметрам, реальной поддержке и конфликтам находится в:

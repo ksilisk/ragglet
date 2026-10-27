@@ -1,0 +1,56 @@
+/* Токены из артбордов Design-канваса ragglet-15: значения переносятся буквально. */
+:root {
+  --bg: #f4f5f7;
+  --surface: #ffffff;
+  --text: #15181d;
+  --muted: #5f6873;
+  --faint: #9aa3ae;
+  --border: #e2e5ea;
+  --border-soft: #eef0f3;
+  --input-border: #cbd2da;
+  --hover: #f4f5f7;
+  --hover-strong: #eef0f3;
+
+  --accent: #1d4ed8;
+  --accent-hover: #1e40af;
+  --accent-soft: #e8eefc;
+  --accent-row: #f3f6fd;
+
+  --danger: #dc2626;
+  --danger-text: #b91c1c;
+  --danger-border: #f0c4c4;
+  --danger-soft: #fef2f2;
+  --warning: #d97706;
+  --warning-text: #92400e;
+  --ok: #16a34a;
+  --ok-line: #86efac;
+
+  --s-run-bg: #dbeafe;
+  --s-run: #1e40af;
+  --s-queued-bg: #e5e7eb;
+  --s-queued: #374151;
+  --s-ok-bg: #dcfce7;
+  --s-ok: #166534;
+  --s-fail-bg: #fee2e2;
+  --s-fail: #991b1b;
+  --s-cancel-bg: #f3f4f6;
+  --s-cancel: #4b5563;
+  --s-warn-bg: #fef3c7;
+  --s-warn: #92400e;
+  --s-tag-bg: #f1f3f6;
+  --s-tag: #374151;
+
+  --font-sans: "IBM Plex Sans", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  --radius-card: 8px;
+  --radius-control: 6px;
+  --control-h: 32px;
+  --control-h-sm: 26px;
+  --page-max: 1360px;
+
+  --log-bg: #15181d;
+  --log-text: #d7dce3;
+  --log-meta: #8b96a5;
+  --log-warn: #fcd34d;
+}
