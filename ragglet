@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Без расширения намеренно: ragglet.py в корне затенил бы пакет ragglet для `python -m ragglet.*` (сервер, воркеры).
 """
 Ragglet — клиент стенда: один файл, только стандартная библиотека, Python 3.9+.
 
@@ -728,7 +729,7 @@ def prepare_env() -> str:
     else:
         base = find_python()
         if base is None:
-            err("The server needs uv (https://docs.astral.sh/uv/getting-started/installation/) or Python 3.12+.")
+            err("The server needs Python 3.12+ or uv. Install uv: curl -LsSf https://astral.sh/uv/install.sh | sh")
             raise Exit(1)
         err("Note: without uv the dependencies are not pinned to uv.lock")
         steps = [[base, "-m", "venv", ".venv"], [str(python), "-m", "pip", "install", "-e", "."]]
