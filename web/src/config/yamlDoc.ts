@@ -33,7 +33,12 @@ export function parseYaml(text: string): Parsed {
     return {
       doc: null,
       data: null,
-      error: { message: first.message.split("\n")[0]!, line: pos?.line ?? null, col: pos?.col ?? null, offset: first.pos[0] },
+      error: {
+        message: first.message.split("\n")[0]!.replace(/ at line \d+, column \d+:?$/, ""),
+        line: pos?.line ?? null,
+        col: pos?.col ?? null,
+        offset: first.pos[0],
+      },
     };
   }
   const data: unknown = doc.toJS({ maxAliasCount: 100 });
@@ -50,7 +55,19 @@ export function detectIndentSeq(text: string): boolean {
 }
 
 function serialize(doc: Document, original: string): string {
+  separateNewSections(doc, original);
   return doc.toString({ lineWidth: 0, minContentWidth: 0, flowCollectionPadding: false, indentSeq: detectIndentSeq(original) });
+}
+
+/** Секции верхнего уровня в файле разделены пустой строкой — новая секция тоже. */
+function separateNewSections(doc: Document, original: string) {
+  if (!/\n[ \t]*\n[^\s#-]/.test(original) || !isMap(doc.contents)) return;
+  doc.contents.items.forEach((pair, i) => {
+    if (i === 0 || isScalar(pair.key)) return; // ключи из текста — узлы; новые, созданные setIn, — строки
+    const key = new Scalar(pair.key);
+    key.spaceBefore = true;
+    pair.key = key;
+  });
 }
 
 function mustParse(text: string): Document.Parsed {

@@ -81,6 +81,12 @@ describe("setIn", () => {
     expect(out).toContain("# глубина");
   });
 
+  it("новая секция отделена пустой строкой, если так оформлен файл", () => {
+    const text = "name: a\n\nretrieval:\n  top_k: 30\n";
+    expect(setIn(text, ["rerank", "enabled"], true)).toBe("name: a\n\nretrieval:\n  top_k: 30\n\nrerank:\n  enabled: true\n");
+    expect(setIn("name: a\nretrieval:\n  top_k: 30\n", ["rerank", "enabled"], true)).toBe("name: a\nretrieval:\n  top_k: 30\nrerank:\n  enabled: true\n");
+  });
+
   it("секция без значения («rerank:») становится словарём", () => {
     const out = setIn("name: a\nrerank:\n", ["rerank", "enabled"], true);
     expect(parseYaml(out).data!.rerank).toEqual({ enabled: true });

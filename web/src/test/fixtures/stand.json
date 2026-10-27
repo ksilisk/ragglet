@@ -1,0 +1,36 @@
+{
+ "qdrant": [
+  {
+   "url": "http://localhost:6333",
+   "available": true,
+   "version": "1.17.0",
+   "error": null,
+   "collections": 2
+  }
+ ],
+ "redis": {
+  "url": "redis://localhost:6379/0",
+  "available": true,
+  "version": "7.2.4",
+  "error": null,
+  "collections": null
+ },
+ "compute": {
+  "device": "mps",
+  "accelerator": null,
+  "torch_threads": 8
+ },
+ "system": {
+  "platform": "test",
+  "cpu": "test cpu",
+  "cpus": 8,
+  "ram_bytes": 1
+ },
+ "commit": "0123456789abcdef",
+ "python": "3.14.3",
+ "env": {
+  "OPENAI_API_KEY": false
+ },
+ "current": null,
+ "queued": 0
+}

@@ -10,7 +10,7 @@ export const router = createBrowserRouter([
     children: [
       { index: true, lazy: async () => ({ Component: (await import("./pages/stand/StandPage")).default }) },
       { path: "scenarios", lazy: async () => ({ Component: (await import("./pages/scenarios/ScenariosPage")).default }) },
-      { path: "scenarios/:id", element: <Soon title="Редактор сценария" /> },
+      { path: "scenarios/:id", lazy: async () => ({ Component: (await import("./pages/scenario/ScenarioEditorPage")).default }) },
       { path: "indexes", lazy: async () => ({ Component: (await import("./pages/indexes/IndexesPage")).default }) },
       { path: "indexes/profiles/:id", element: <Soon title="Профиль индекса" /> },
       { path: "runs", element: <Soon title="Прогоны" /> },

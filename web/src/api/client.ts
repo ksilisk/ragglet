@@ -5,7 +5,11 @@ export type S = components["schemas"];
 export type Problem = S["Problem"];
 export type ProblemIssue = S["ProblemIssue"];
 
-export const api = createClient<paths>({ baseUrl: "" });
+// fetch берётся в момент запроса, а не при создании клиента: так его можно подменить в тестах.
+export const api = createClient<paths>({
+  baseUrl: typeof window !== "undefined" ? window.location.origin : "",
+  fetch: (request) => globalThis.fetch(request),
+});
 
 /** Любой ответ не 2xx: тело всегда Problem (ragglet-28 §3); status 0 — API недоступен. */
 export class ApiProblem extends Error {
