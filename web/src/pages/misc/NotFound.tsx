@@ -27,12 +27,3 @@ export function RouteError() {
     </Page>
   );
 }
-
-export function Soon({ title }: { title: string }) {
-  return (
-    <Page>
-      <PageHead title={title} />
-      <p className="muted">Раздел появится на следующем этапе.</p>
-    </Page>
-  );
-}

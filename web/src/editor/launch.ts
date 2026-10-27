@@ -22,6 +22,8 @@ export interface LaunchSteps<R> {
   check: () => Promise<CheckStep<R>>;
   confirm: (warnings: ProblemIssue[], report: R) => Promise<boolean>;
   submit: () => Promise<SubmitStep>;
+  /** Спрашивать всегда, а не только при предупреждениях: сборка пересоздаёт коллекции. */
+  confirmAlways?: boolean;
 }
 
 export async function launch<R>(steps: LaunchSteps<R>): Promise<LaunchResult> {
@@ -35,7 +37,7 @@ export async function launch<R>(steps: LaunchSteps<R>): Promise<LaunchResult> {
   const checked = await steps.check();
   if (checked.kind === "blocked") return { kind: "blocked" };
   if (checked.kind === "problems") return { kind: "problems", stage: "check" };
-  if (checked.warnings.length > 0 && !(await steps.confirm(checked.warnings, checked.report))) return { kind: "cancelled" };
+  if ((checked.warnings.length > 0 || steps.confirmAlways) && !(await steps.confirm(checked.warnings, checked.report))) return { kind: "cancelled" };
   // постановка делает preflight ещё раз: индекс могли пересобрать между проверкой и запуском
   const submitted = await steps.submit();
   if (submitted.kind === "problems") return { kind: "problems", stage: "submit" };

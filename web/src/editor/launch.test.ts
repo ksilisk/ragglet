@@ -74,6 +74,13 @@ describe("запуск: сохранить → dry-run → подтвердит�
     expect(calls).toEqual(["check", "submit"]);
   });
 
+  it("сборка: подтверждение всегда, даже без предупреждений", async () => {
+    const { calls, steps: s } = steps();
+    s.confirmAlways = true;
+    expect((await launch(s)).kind).toBe("started");
+    expect(calls).toEqual(["save", "check", "confirm", "submit"]);
+  });
+
   it("битый YAML — стоп до сервера", async () => {
     const { steps: s } = steps({ save: async () => ({ kind: "blocked" }) });
     expect(await launch(s)).toEqual({ kind: "blocked" });
