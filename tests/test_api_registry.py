@@ -112,6 +112,7 @@ def test_api_run_gets_record_in_its_dir(stand):
     assert (item["id"], item["origin"], item["state"], item["tags"]) == (run_id, "api", "queued", ["night"])
     status = stand.client.get(f"/v1/runs/{run_id}").json()
     assert (status["origin"], status["plan"]["total"]) == ("api", 200)  # 100 запросов demo × 2 повтора
+    assert item["run_dir"] == status["run_dir"] == str(run_dir)  # путь, как его видит сервер
 
 
 def test_scenario_file_follows_library(stand):
@@ -195,6 +196,8 @@ def test_builds_list_and_dir(stand):
     assert (body["total"], item["id"], item["profile"], item["state"], item["documents"]) == (
         1, build_id, "demo_build", "completed", 50)
     assert item["targets"] == [{"endpoint": "http://q:6333", "collection": "chunks_v1"}]
+    build_dir = str(stand.settings.builds_dir / build_id)
+    assert item["build_dir"] == stand.client.get(f"/v1/builds/{build_id}").json()["build_dir"] == build_dir
     assert stand.client.get("/v1/builds", params={"collection": "other"}).json()["total"] == 0
     assert stand.client.get("/v1/builds", params={"sort": "ndcg"}).status_code == 422
 
