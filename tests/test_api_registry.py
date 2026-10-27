@@ -198,3 +198,45 @@ def test_restart_marks_orphans_failed(stand, tmp_path):
 
 def test_cfg_fixture_is_a_valid_scenario():
     assert demo_scenario().metrics.quality.k == [1, 3]
+
+
+def test_process_manager_with_file_registry_as_in_serve(tmp_path, monkeypatch):
+    """Как `ragglet serve`: менеджер задач ragglet-29 и реестр на файлах, затем рестарт сервера."""
+    import sys
+    import time
+    from pathlib import Path
+
+    from ragglet.jobs.process import ProcessJobManager
+
+    stand = make_stand(tmp_path, monkeypatch, file_registry=True)
+    fake = [sys.executable, str(Path(__file__).with_name("jobs_fake_worker.py"))]
+    jobs = ProcessJobManager(stand.registry, cancel_grace_s=0.5, command=fake, builds_dir=stand.settings.builds_dir)
+
+    def poll(client: TestClient, url: str) -> dict:
+        deadline = time.monotonic() + 10
+        while (body := client.get(url).json())["state"] in ("queued", "running"):
+            assert time.monotonic() < deadline, body
+            time.sleep(0.05)
+        return body
+
+    with TestClient(create_app(stand.settings, jobs=jobs, registry=stand.registry)) as client:
+        run_id = client.post("/v1/runs", json={"scenario": scenario_yaml()}).json()["id"]
+        build_id = client.post("/v1/builds", json={"profile": profile_yaml()}).json()["id"]
+        assert poll(client, f"/v1/runs/{run_id}")["state"] == "completed"
+        assert poll(client, f"/v1/builds/{build_id}")["state"] == "completed"
+
+    run_dir = stand.settings.artifacts_dir / run_id
+    assert json.loads((run_dir / "run.json").read_text())["state"] == "completed"
+    assert json.loads((stand.settings.builds_dir / build_id / "build.json").read_text())["result"] == {"documents": 3}
+
+    registry = FileRegistry(stand.settings.artifacts_dir, stand.settings.builds_dir)
+    restarted = create_app(stand.settings, jobs=InMemoryJobManager(registry), registry=registry)
+    with TestClient(restarted) as client:
+        item = client.get("/v1/runs").json()["items"][0]
+        log = client.get(f"/v1/runs/{run_id}/log").json()  # менеджер задачу уже не знает: task.log из каталога
+        names = [a["name"] for a in client.get(f"/v1/runs/{run_id}/artifacts").json()]
+
+    assert (item["id"], item["origin"], item["state"]) == (run_id, "api", "completed")  # recover не тронул
+    assert log["complete"] and log["text"].startswith(f"== run {run_id}")
+    assert "task.log" in names and "run.json" in names
+    assert not {"task.json", "progress.json", "result.json"} & set(names)

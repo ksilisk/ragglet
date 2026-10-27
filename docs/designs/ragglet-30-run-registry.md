@@ -560,8 +560,7 @@ class Registry(Protocol):
    каталог может уже существовать (его создали реестр или менеджер), но в нём не должно
    быть `scenario.snapshot.json`; `run.json` и файлы менеджера не считаются. Иначе
    `FileExistsError`, то есть защита из 28 от смешения артефактов двух прогонов
-   сохраняется. Без `run_id` (CLI до 37) всё как сейчас. Пока 29 не в master, в этой
-   ветке лежит дословная копия правки 29 и её теста; при слиянии берётся версия 29.
+   сохраняется. Без `run_id` (CLI до 37) всё как сейчас.
 2. Только для фазы 5: **`resolve_dataset(…, offline=False)`** (при `offline=True` у
    `hf` — `local_files_only=True`, нет в кэше — `FileNotFoundError` вместо скачивания) и
    **`AsyncQdrantStore.payloads(chunk_ids) -> dict[str, dict]`** (п. 8). Функция id точки
@@ -621,7 +620,7 @@ class Registry(Protocol):
 | `api/routers/results.py` (новый) | запросы, деталь запроса, артефакты, zip |
 | `api/routers/library.py`, `tasks.py` | `RunBrief.ndcg_at_10`; чтение `task.log` по смещению |
 | `api/schemas.py`, `api/app.py`, `api/deps.py` | точечно: модели; `FileRegistry` по умолчанию и `recover` в lifespan; `QueryInspector` в `Services` (фаза 5) |
-| `api/settings.py`, `bench/artifacts.py`, `cli/app.py` | не свои: `builds_dir` и каталог с `run_id` делает ragglet-29 (до его слияния в ветке — дословная копия); в `ragglet serve` после слияния `InMemoryRegistry` из 29 заменяется на `FileRegistry` |
+| `cli/app.py` | `ragglet serve` создаёт `FileRegistry(settings.artifacts_dir, settings.builds_dir)` вместо заглушки из 29; `builds_dir` и каталог с `run_id` (`api/settings.py`, `bench/artifacts.py`) — из 29 |
 | `datasets/sources.py`, `stores/qdrant_store_async.py` | фаза 5: `offline`, `payloads()` |
 | `README.md` | реестр, `RAGGLET_BUILDS_DIR`, новые endpoints |
 
@@ -685,8 +684,8 @@ zip.
 
 ## Фазы (отдельными коммитами)
 
-1. ~~Ядро: каталог с `run_id` может уже существовать~~ — делает ragglet-29; в ветке
-   дословная копия его правки до слияния.
+1. ~~Ядро: каталог с `run_id` может уже существовать~~ — сделано в ragglet-29 (PR #13).
+   Здесь — `FileRegistry` в `ragglet serve` вместо заглушки.
 2. **Реестр на файлах**: `run.json` и `build.json`, скан и импорт, `recover` в
    lifespan, `GET /v1/runs` и `GET /v1/builds` с колонками и фильтрами,
    `include=summary,manifest`, `origin`, `scenario_file`, `RunBrief.ndcg_at_10`,

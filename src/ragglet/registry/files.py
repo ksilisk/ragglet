@@ -24,6 +24,7 @@ import anyio
 from pydantic import TypeAdapter
 
 from ragglet.datasets.sources import describe_dataset
+from ragglet.jobs.files import LOG, PROGRESS, RESULT, TASK
 from ragglet.jobs.protocol import JobManager, LogChunk, TaskFailure, TaskKind, TaskRef, TaskState
 from ragglet.registry import per_query
 from ragglet.registry.listing import run_metrics, select_builds, select_runs
@@ -52,8 +53,8 @@ BUILD_FILE = "build.json"
 FORMAT = 1  # версия файла записи
 DONE_MARKER = "summary.aggregate.csv"  # ядро пишет его последним: прогон завершён
 AGGREGATE_FILE = "summary.aggregate.json"
-TASK_LOG = "task.log"  # вывод воркера: менеджер задач (ragglet-29) пишет его в каталог задачи
-SERVICE_FILES = frozenset({"task.json", "progress.json", "result.json"})  # служебные файлы менеджера
+TASK_LOG = LOG  # вывод воркера: менеджер задач (ragglet-29) пишет его в каталог задачи
+SERVICE_FILES = frozenset({TASK, PROGRESS, RESULT})  # служебные файлы менеджера: в артефактах не показываем
 RUN_DIR_NAME = re.compile(r"^(?P<name>.+)_(?P<at>\d{8}T\d{6}Z)(?:-\d+)?$")
 ACTIVE = (TaskState.QUEUED, TaskState.RUNNING)
 
