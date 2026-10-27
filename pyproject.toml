@@ -74,6 +74,7 @@ ignore = ["E501"]  # длину строк держим в line-length, но н�
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = ["integration: needs Qdrant at localhost:6333 and the embedding model"]
 
 [tool.mypy]
 python_version = "3.12"

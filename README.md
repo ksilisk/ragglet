@@ -200,8 +200,10 @@ uv run ragglet serve
 | `RAGGLET_REDIS_URL` | `redis://localhost:6379/0` | Redis для страницы стенда; пусто — не показывать |
 | `RAGGLET_SCENARIOS_DIR`, `RAGGLET_INDEX_PROFILES_DIR` | `configs/scenarios`, `configs/indexes` | библиотека сценариев и профилей |
 | `RAGGLET_ARTIFACTS_DIR` | `results/runs` | куда пишутся прогоны (`run.artifacts_dir` из запроса игнорируется) |
+| `RAGGLET_BUILDS_DIR` | `results/builds` | каталоги сборок индексов: файлы задачи и лог |
 | `RAGGLET_DATASET_ROOTS` | `datasets` | где искать локальные датасеты для выбора в UI |
 | `RAGGLET_UI_DIR` | — | собранный веб-интерфейс, раздаётся с того же адреса |
+| `RAGGLET_CANCEL_GRACE_S` | `10` | отмена задачи и остановка сервера: SIGTERM, через столько секунд — SIGKILL |
 
 Основные endpoints: `GET /v1/stand`, `GET /v1/indexes`, `GET /v1/datasets`, библиотека
 `/v1/scenarios` и `/v1/index-profiles` (YAML-текст как есть, версия — `etag`, правка поверх
@@ -217,8 +219,39 @@ uv run ragglet serve
 jq -n --rawfile s configs/scenarios/baseline_qdrant.yaml '{scenario: $s, dry_run: true}' | curl -s -X POST localhost:8000/v1/runs -H 'content-type: application/json' -d @-
 ```
 
-Выполнение задач появится в ragglet-29: до него поставленные через API прогоны остаются в
-очереди (`queued`), а реальные прогоны запускаются из CLI, как выше.
+**Задачи.** Прогоны и сборки, поставленные через API, выполняются по одной на стенд, по
+очереди, каждая в свежем процессе `python -m ragglet.jobs.worker <каталог задачи>`
+(дизайн — [docs/designs/ragglet-29-job-manager.md](docs/designs/ragglet-29-job-manager.md)).
+Статус и прогресс — `GET /v1/runs/{id}`, очередь — `GET /v1/tasks`, отмена —
+`POST /v1/runs/{id}/cancel`, лог — `GET /v1/runs/{id}/log?offset=`; то же у `/v1/builds`.
+Сервер и воркер общаются файлами в каталоге задачи (`results/runs/<id>/`,
+`results/builds/<id>/`):
+
+| Файл | Что в нём |
+|---|---|
+| `task.json` | что выполнять: тип, id, конфиг; пишет сервер при постановке |
+| `task.log` | stdout и stderr воркера: трейсбек, таблица проблем preflight, вывод библиотек |
+| `progress.json` | `{stage, done, total, first_at, updated_at}`, не чаще раза в секунду |
+| `result.json` | итог: `completed`, `failed` с ошибкой или `cancelled`, последний прогресс |
+
+Если процесс умер, не записав `result.json` (OOM, segfault), задача становится `failed` с
+`WorkerCrashed` и последними строками лога. При остановке сервера текущая и ожидающие
+задачи становятся `failed` с `ServerShutdown`; если сервер упал, воркер сам завершается
+через несколько секунд.
+
+Упавшую задачу можно повторить руками, без сервера, для отладки:
+
+```bash
+uv run python -m ragglet.jobs.worker results/runs/<id>
+```
+
+Воркер прочитает `task.json` и выполнит задачу, вывод — в терминал. Прогон, у которого
+уже есть `scenario.snapshot.json`, ядро повторить не даст: это защита от смеси
+артефактов двух прогонов. До ragglet-37 CLI (`ragglet bench run`) вызывает ядро
+напрямую, в обход очереди.
+
+Интеграционный тест с настоящим ядром (`pytest -m integration`) нужен Qdrant на
+`localhost:6333`; без него тест пропускается.
 
 ## Конфиги
 
@@ -295,7 +328,8 @@ Ragglet можно использовать как компактную эксп
 ## Ограничения текущей версии
 
 - основной поддерживаемый backend для экспериментов — `Qdrant`;
-- генерация ответа LLM пока не является завершенным модулем; REST API принимает прогоны, но выполнять их начнёт менеджер задач (ragglet-29);
+- генерация ответа LLM пока не является завершенным модулем;
+- реестр прогонов пока живёт в памяти сервера: после рестарта API не видит прогоны, поставленные раньше, хотя их каталоги на месте (ragglet-30);
 - проект ориентирован на исследование retrieval-контура, а не на промышленный production-ready пайплайн.
 
 ## Архитектура

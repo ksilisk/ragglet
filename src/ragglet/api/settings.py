@@ -22,9 +22,11 @@ class ServerSettings(BaseSettings):
     scenarios_dir: Path = Path("configs/scenarios")
     index_profiles_dir: Path = Path("configs/indexes")
     artifacts_dir: Path = Path("results/runs")
+    builds_dir: Path = Path("results/builds")  # каталоги сборок: <builds_dir>/<id>/
     dataset_roots: Annotated[list[Path], NoDecode] = [Path("datasets")]
     ui_dir: Path | None = None  # собранный UI (ragglet-31); None — UI не раздаётся
     probe_timeout_s: float = 2.0
+    cancel_grace_s: float = 10.0  # отмена задачи и остановка сервера: SIGTERM, через столько — SIGKILL
 
     @field_validator("qdrant_endpoints", "dataset_roots", mode="before")
     @classmethod
@@ -43,6 +45,7 @@ class ServerSettings(BaseSettings):
             "scenarios": self.scenarios_dir,
             "index profiles": self.index_profiles_dir,
             "artifacts": self.artifacts_dir,
+            "builds": self.builds_dir,
             "dataset roots": ", ".join(str(p.resolve()) for p in self.dataset_roots),
             "ui": self.ui_dir.resolve() if self.ui_dir else "not served",
         }
