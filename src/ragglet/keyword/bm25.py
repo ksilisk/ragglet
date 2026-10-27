@@ -17,8 +17,11 @@ class BM25Params:
     b: float = 0.75
 
 
+DEFAULT_PARAMS = BM25Params()
+
+
 class BM25Index:
-    def __init__(self, docs_tokens: list[list[str]], params: BM25Params = BM25Params()):
+    def __init__(self, docs_tokens: list[list[str]], params: BM25Params = DEFAULT_PARAMS):
         self.params = params
         self.docs_tokens = docs_tokens
         self.N = len(docs_tokens)

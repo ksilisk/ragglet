@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from typing import Any
 
 # Подстрой под свой клиент; названия методов могут слегка отличаться по версии.

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime, timezone
-from pathlib import Path
 import json
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
+
 import yaml
 
 from ragglet.config.scenario import ScenarioConfig
@@ -16,7 +17,7 @@ class ArtifactPaths:
     timestamp: str
 
 def make_artifact_paths(artifacts_dir: str, scenario_name: str, run_id: str | None = None) -> ArtifactPaths:
-    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     base_dir = Path(artifacts_dir)
     run_dir = base_dir / (run_id or f"{scenario_name}_{ts}")
     run_dir.mkdir(parents=True, exist_ok=True)

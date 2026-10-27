@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from ragglet.stores.qdrant_store_async import AsyncQdrantStore
 from ragglet.stores.bm25_store import KeywordBm25Store
 from ragglet.stores.qdrant_export import export_all_payloads
+from ragglet.stores.qdrant_store_async import AsyncQdrantStore
 
 
 @dataclass
@@ -27,7 +27,7 @@ class BackendRegistry:
         cfg,
         vector_store: AsyncQdrantStore,
         vector_stores: dict[str, AsyncQdrantStore] | None = None,
-    ) -> "BackendRegistry":
+    ) -> BackendRegistry:
         vector_stores = vector_stores or {"default": vector_store}
         reg = cls(vector=vector_store, vectors=vector_stores, keyword=None)
 

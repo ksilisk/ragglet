@@ -12,7 +12,7 @@ from ragglet.bench.artifacts import make_artifact_paths, save_config_snapshot, s
 from ragglet.bench.plan import run_plan
 from ragglet.bench.preflight import Preflight, check_scenario, preflight
 from ragglet.bench.query_loop import run_queries_once
-from ragglet.bench.summarize import summarize_repeat, aggregate_over_repeats
+from ragglet.bench.summarize import aggregate_over_repeats, summarize_repeat
 from ragglet.cache.manager import CacheManager
 from ragglet.config.scenario import ScenarioConfig
 from ragglet.core.environment import Service, capture_env, describe_services
