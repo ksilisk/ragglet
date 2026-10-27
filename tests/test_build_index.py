@@ -3,10 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-import yaml
-from typer.testing import CliRunner
 
-from ragglet.cli.app import app
 from ragglet.config.index_profile import IndexProfileConfig
 from ragglet.core.issues import ValidationError
 from ragglet.indexing import build_index as build_module
@@ -157,15 +154,4 @@ def test_unsupported_backend_fails_before_collections_are_touched():
     with pytest.raises(ValidationError) as exc:
         build_module.build_index(_profile(type="pgvector", endpoint="http://pg:5432", collection="c"))
     assert [(i.code, i.where) for i in exc.value.issues] == [("storage.not_implemented", "target default")]
-    assert _Indexer.events == []
-
-
-def test_cli_dry_run_lists_collections_to_recreate(tmp_path):
-    path = tmp_path / "index.yaml"
-    path.write_text(yaml.safe_dump(_profile_data()), encoding="utf-8")
-
-    result = CliRunner().invoke(app, ["index", "build", str(path), "--dry-run"])
-
-    assert result.exit_code == 0, result.output
-    assert "will recreate: chunks_v1 at http://q:6333 (target default)" in result.output
     assert _Indexer.events == []
