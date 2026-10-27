@@ -14,8 +14,11 @@ RAG generation can be enabled as an optional post-context stage; retrieval-only 
 ---
 ## Repo layout (current direction)
 Suggested / partially implemented modular split:
-- `src/ragglet/cli/`  
-  Typer CLI: `ragglet bench run ... [--dry-run]`, `ragglet index build ... [--dry-run]`, `ragglet dataset import ...`
+- `ragglet` (repo root)  
+  Stand client: one stdlib-only Python 3.9+ file, no install. `start|stop|status`, `run|build ... [--dry-run]`,
+  `cancel|log|queue`, `scenarios|profiles ...`, `runs|builds ...`, `indexes`; all through the REST API.
+- `src/ragglet/server.py`  
+  `python -m ragglet.server`: the REST API server that `ragglet start` launches in the background.
 - `src/ragglet/config/`  
   Pydantic v2 schemas:
   - `scenario.py` for `scenario.yaml`
@@ -50,8 +53,9 @@ Suggested / partially implemented modular split:
 ---
 ## Single API surface (stage 3)
 Frame: `docs/designs/ragglet-38-api-surface.md`. Everything that touches the stand (run, dry-run, index build)
-goes through one REST API; CLI, web UI and curl are its clients. Until the API (ragglet-28) and the job manager
-(ragglet-29) exist, the CLI calls the core directly; then it switches to an API client in one step (ragglet-37).
+goes through one REST API; CLI, web UI and curl are its clients. The CLI is the stdlib client `ragglet` in the
+repo root (ragglet-37): `python3 ragglet start` prepares the environment and starts the server, every other command
+is an API call; there is no local mode.
 - The core is a library. Operations share one shape: `op(cfg, *, dry_run=False, progress=...) -> Result`
   (`run_scenario -> RunResult`, `build_index -> BuildResult`). `dry_run` only checks: no run dir, no collection
   recreate, no model load. `progress(stage, done, total)` reports `queries` / `corpus`.
@@ -167,7 +171,7 @@ Put ~50 markdown/text files into:
 
 3) Build index
 
-ragglet index build configs/indexes/demo.yaml
+python3 ragglet build configs/indexes/demo.yaml
 
 4) Prepare queries with ground truth (manual)
 
@@ -179,7 +183,7 @@ relevant must match payload external_id.
 
 5) Run benchmark
 
-ragglet bench run configs/scenarios/baseline_qdrant.yaml
+python3 ragglet run configs/scenarios/baseline_qdrant.yaml
 
 Artifacts:
 
@@ -296,7 +300,7 @@ Current limitations / TODO
 Notes from recent debugging
 
 * Qdrant requires point IDs be UUID or uint64; human-readable IDs must be stored in payload (external_id) for evaluation.
-* If `bench run` reports `Index is not compatible with scenario`: the index was built from another corpus, with another embedding model or storage layout, or the build did not finish; rebuild it. `ragglet bench run <scenario> --dry-run` prints the same preflight report without running queries.
+* If `run` reports `Index is not compatible with scenario`: the index was built from another corpus, with another embedding model or storage layout, or the build did not finish; rebuild it. `python3 ragglet run <scenario> --dry-run` prints the same preflight report without running queries.
 * AnyIO timeouts don’t work with sync clients; async Qdrant store is required for correct per-query and per-stage timeouts.
 
 ⸻
