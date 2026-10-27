@@ -157,8 +157,7 @@ def make_stand(tmp_path: Path, monkeypatch, *, file_registry: bool = False, **se
         artifacts_dir=tmp_path / "runs",
         dataset_roots=[ROOT / "datasets"],
         qdrant_endpoints=[QDRANT],
-        builds_dir=tmp_path / "builds",
-        **settings,
+        **{"builds_dir": tmp_path / "builds", **settings},
     )
     clock = Clock()
     registry = (FileRegistry(config.artifacts_dir, config.builds_dir, now=clock) if file_registry

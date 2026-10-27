@@ -26,6 +26,7 @@ class ServerSettings(BaseSettings):
     dataset_roots: Annotated[list[Path], NoDecode] = [Path("datasets")]
     ui_dir: Path | None = None  # собранный UI (ragglet-31); None — UI не раздаётся
     probe_timeout_s: float = 2.0
+    cancel_grace_s: float = 10.0  # отмена задачи и остановка сервера: SIGTERM, через столько — SIGKILL
 
     @field_validator("qdrant_endpoints", "dataset_roots", mode="before")
     @classmethod

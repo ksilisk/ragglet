@@ -54,7 +54,7 @@ def create_app(
         jobs: JobManager | None = None,
         registry: Registry | None = None,
 ) -> FastAPI:
-    """Приложение API; без registry — реестр на файлах, без jobs — заглушка менеджера до ragglet-29."""
+    """Приложение API; без registry — реестр на файлах, без jobs — заглушка менеджера (её зовут тесты)."""
     settings = settings or ServerSettings()
     registry = registry or FileRegistry(settings.artifacts_dir, settings.builds_dir)
     jobs = jobs or InMemoryJobManager(registry)
