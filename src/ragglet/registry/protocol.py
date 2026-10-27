@@ -18,7 +18,7 @@ class NewRun:
     name: str
     scenario_id: str | None  # ссылка на сценарий библиотеки из запроса
     scenario: dict[str, Any]  # cfg.model_dump(): ровно то, что ляжет в scenario.snapshot
-    etag: str  # sha256 текста сценария: для «изменился после прогона»
+    etag: str  # sha256 текста сценария (у «Повторить» — версия файла библиотеки): «изменился после прогона»
     tags: list[str]
     dataset: str  # label
     collection: str  # primary target

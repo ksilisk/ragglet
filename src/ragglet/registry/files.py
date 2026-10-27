@@ -24,8 +24,16 @@ import anyio
 from pydantic import TypeAdapter
 
 from ragglet.datasets.sources import describe_dataset
-from ragglet.jobs.files import LOG, PROGRESS, RESULT, TASK
-from ragglet.jobs.protocol import JobManager, LogChunk, TaskFailure, TaskKind, TaskRef, TaskState
+from ragglet.jobs.files import LOG, PROGRESS, RESULT, TASK, read_outcome, read_progress
+from ragglet.jobs.protocol import (
+    JobManager,
+    LogChunk,
+    ProgressInfo,
+    TaskFailure,
+    TaskKind,
+    TaskRef,
+    TaskState,
+)
 from ragglet.registry import per_query
 from ragglet.registry.listing import run_metrics, select_builds, select_runs
 from ragglet.registry.protocol import (
@@ -383,15 +391,18 @@ class FileRegistry:
         await self._ensure_loaded()
         now = self._now()
         active = [(TaskKind.RUN, r.id, r.state, r.run_dir) for r in self._runs.values() if r.state in ACTIVE]
-        active += [(TaskKind.BUILD, b.id, b.state, None) for b in self._builds.values() if b.state in ACTIVE]
-        for kind, task_id, state, run_dir in active:
+        active += [(TaskKind.BUILD, b.id, b.state, b.build_dir) for b in self._builds.values() if b.state in ACTIVE]
+        for kind, task_id, state, task_dir in active:
             ref = TaskRef(kind, task_id)
             if await jobs.status(ref) is not None:
                 continue
-            if run_dir is not None and (run_dir / DONE_MARKER).is_file():
-                change = TaskChange(state=TaskState.COMPLETED, finished_at=now)
+            # последний прогресс воркера, как у штатной остановки: «выполнено 635 / 3000»
+            progress = await anyio.to_thread.run_sync(_last_progress, task_dir)
+            if kind is TaskKind.RUN and (task_dir / DONE_MARKER).is_file():
+                change = TaskChange(state=TaskState.COMPLETED, finished_at=now, final_progress=progress)
             else:
-                change = TaskChange(state=TaskState.FAILED, finished_at=now, failure=_restart_failure(kind, state))
+                change = TaskChange(state=TaskState.FAILED, finished_at=now, failure=_restart_failure(kind, state),
+                                    final_progress=progress)
             log.warning("recovering %s %s after a server restart: %s", kind, task_id, change.state)
             await self.update(ref, change)
 
@@ -452,6 +463,12 @@ class FileRegistry:
 
     async def query_row(self, run_id: str, repeat: int, qid: str) -> dict[str, Any] | None:
         return await anyio.to_thread.run_sync(per_query.query_row, await self._run_dir(run_id), repeat, qid)
+
+
+def _last_progress(task_dir: Path) -> ProgressInfo | None:
+    """result.json — последний вызов (сторожевой поток воркера успел его записать), progress.json — раз в секунду."""
+    outcome = read_outcome(task_dir)
+    return (outcome.final_progress if outcome else None) or read_progress(task_dir)
 
 
 def _restart_failure(kind: TaskKind, state: TaskState) -> TaskFailure:

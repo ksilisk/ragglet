@@ -130,6 +130,25 @@ def test_scenario_file_follows_library(stand):
     assert stand.client.get(f"/v1/runs/{_enqueue(stand)}").json()["scenario_file"] is None  # без ссылки
 
 
+def test_repeat_from_snapshot_keeps_library_version(stand):
+    text = scenario_yaml("demo_lib")
+    assert stand.client.post("/v1/scenarios", json={"yaml": text}).status_code == 201
+    first = _enqueue(stand, text, scenario_id="demo_lib")
+    snapshot = stand.client.get(f"/v1/runs/{first}", params={"include": "scenario"}).json()["scenario_yaml"]
+    assert snapshot != text
+
+    # «Повторить» (ragglet-28): snapshot содержимым и та же ссылка на библиотеку
+    repeat = _enqueue(stand, snapshot, scenario_id="demo_lib")
+    unsaved = _enqueue(stand, text.replace("repeats: 2", "repeats: 3"), scenario_id="demo_lib")
+    get = lambda run_id: stand.client.get(f"/v1/runs/{run_id}").json()["scenario_file"]  # noqa: E731
+
+    assert (get(first), get(repeat), get(unsaved)) == ("unchanged", "unchanged", "changed")
+    etag = stand.client.get("/v1/scenarios/demo_lib").json()["etag"]
+    edited = text.replace("repeats: 2", "repeats: 4")
+    assert stand.client.put("/v1/scenarios/demo_lib", json={"yaml": edited, "etag": etag}).status_code == 200
+    assert (get(first), get(repeat)) == ("changed", "changed")
+
+
 def test_include_fills_summary_and_manifest(stand, runs):
     body = stand.client.get(f"/v1/runs/{RUN_ID}", params={"include": "summary,manifest,scenario"}).json()
 
