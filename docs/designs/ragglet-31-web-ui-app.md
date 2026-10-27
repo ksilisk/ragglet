@@ -70,7 +70,7 @@ YAML-текст сценария**, форма — вид поверх разо�
 | Состояние редактора | `zustand` | один store на открытый документ, поля подписываются на свой путь |
 | YAML | `yaml` (eemeli) 2.x | `parseDocument` с комментариями и диапазонами узлов, режим YAML 1.1 как у PyYAML |
 | Редактор YAML | CodeMirror 6 (`@codemirror/lang-yaml`, `lint`) | лёгкий, диагностика по диапазонам; грузится лениво только на страницах редакторов |
-| Таблицы | TanStack Table 8 | headless; в 32 понадобится для «Запросов» на тысячи строк |
+| Таблицы | обычные `<table>` с классами артбордов | в 31 таблицы короткие, сортировка и фильтры — на сервере или в URL; TanStack Table подключит 32 для «Запросов» на тысячи строк |
 | Примитивы | Radix UI: Dialog, DropdownMenu, Tooltip, Popover | доступность и фокус без дизайн-системы; стили свои |
 | Стили | CSS Modules + `tokens.css` (custom properties) | токены из макетов в одном месте, без Tailwind и UI-фреймворка |
 | Шрифты | `@fontsource/ibm-plex-sans`, `@fontsource/ibm-plex-mono` | локально в бандле: стенд может быть без интернета, Google Fonts не нужен |
@@ -93,7 +93,7 @@ web/
       client.ts                          openapi-fetch, ApiProblem, разбор Problem
       queries.ts                         ключи и хуки: useRun, useTasks, useScenario, …
     ui/                                  tokens.css, Button, Chip/StateChip, Card, Tabs, Dialog,
-                                         DataTable, ProgressBar, ProblemList, KeyValue, поля ввода
+                                         ProgressBar, ProblemList, KeyValue, Menu, поля ввода
     shell/                               AppShell: навигация и полоса стенда
     config/                              не зависит от React
       yamlDoc.ts                         разбор, чтение по пути, точечная запись, сериализация
@@ -411,7 +411,7 @@ saving ──PUT {yaml, etag}──► checking ──dry-run──► confirmin
 | `.chip` + `.c-run` / `.c-q` / `.c-ok` / `.c-fail` / `.c-cancel` / `.c-warn` / `.c-tag` | `StateChip`, `Tag` |
 | `.btn`, `.btn.pri`, `.btn.danger`, `.btn.sm`, `.btn[disabled]` | `Button` |
 | `.inp`, `.inp.ro`, `.inp.err`, `.field`, `label`, `.hint` / `.hint.err` / `.hint.warn`, `.chk` | поля формы |
-| `.tbl` (`th` капсом 11 px, `td.r`, `tr.sel`, `tr.act`) | `DataTable` |
+| `.tbl` (`th` капсом 11 px, `td.r`, `tr.sel`, `tr.act`) | классы таблиц `kit.module.css` |
 | `.tabs`, `.tabs a.on`, `.tabs a.off` | `Tabs` (`off` — вкладки 32) |
 | `.secnav`, `.sdot.e` / `.sdot.w`, `.sec`, `.sec.err`, `.sec-h`, `.sum`, `.caret` | секции редактора |
 | `.problems`, `.row`, `.x` | панель «Проверка» |
@@ -489,8 +489,8 @@ saving ──PUT {yaml, etag}──► checking ──dry-run──► confirmin
 Артборды `RunOverview` и `RunQueries` целиком. Графики (библиотека с экспортом SVG/PNG и
 error bars) и они же в «Обзоре» (полоса задержек по стадиям, качество по k); вкладки «Качество», «Задержки и нагрузка», «Запросы» с панелью
 запроса, «Условия» (`manifest` структурно); сравнение прогонов из чекбоксов списка;
-экспорт таблиц для статьи. Каркас для этого готов: реестр вкладок, `DataTable` на TanStack
-Table, фильтры в URL, `include=summary,manifest`. 33 (Парето) — поверх того же.
+экспорт таблиц для статьи. Каркас для этого готов: реестр вкладок, классы таблиц артбордов, фильтры в URL,
+`include=summary,manifest`. 33 (Парето) — поверх того же.
 
 ## Тесты (критерий приёмки)
 

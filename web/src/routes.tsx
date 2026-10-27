@@ -9,8 +9,10 @@ export const router = createBrowserRouter([
     errorElement: <RouteError />,
     children: [
       { index: true, lazy: async () => ({ Component: (await import("./pages/stand/StandPage")).default }) },
-      { path: "scenarios", element: <Soon title="Сценарии" /> },
-      { path: "indexes", element: <Soon title="Индексы" /> },
+      { path: "scenarios", lazy: async () => ({ Component: (await import("./pages/scenarios/ScenariosPage")).default }) },
+      { path: "scenarios/:id", element: <Soon title="Редактор сценария" /> },
+      { path: "indexes", lazy: async () => ({ Component: (await import("./pages/indexes/IndexesPage")).default }) },
+      { path: "indexes/profiles/:id", element: <Soon title="Профиль индекса" /> },
       { path: "runs", element: <Soon title="Прогоны" /> },
       { path: "*", element: <NotFound /> },
     ],
