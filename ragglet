@@ -233,7 +233,7 @@ def table(headers: list[str], rows: list[list[Any]], right: tuple[int, ...] = ()
     def line(values: list[str]) -> str:
         return "  ".join(v.rjust(w) if i in right else v.ljust(w) for i, (v, w) in enumerate(zip(values, widths)))
 
-    return "\n".join([line(headers)] + [line(r) for r in cells]).rstrip()
+    return "\n".join(line(r).rstrip() for r in [headers] + cells)
 
 
 def cell(value: Any) -> str:
