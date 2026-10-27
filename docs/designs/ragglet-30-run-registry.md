@@ -212,7 +212,9 @@ id прогона — `<name>_<UTC постановки>[-N]` (решено в 2
 | сборка `running` | | `failed`, `ServerRestart`: «… the collection may be left without metadata: rebuild it» |
 | сборка `queued` | | `failed`, `ServerRestart` |
 
-`finished_at` у упавших — время восстановления. Запись меняется через обычный `update`,
+`finished_at` у упавших — время восстановления, `final_progress` — последний прогресс воркера
+(`result.json`, если сторожевой поток успел его записать, иначе `progress.json`), как у штатной
+остановки (ragglet-35). Запись меняется через обычный `update`,
 поэтому `run.json` обновляется так же, как при любом переходе. Сами задачи заново не
 ставятся (см. «Рассмотренные альтернативы»). `TestClient` без `with` lifespan не
 запускает, поэтому тесты 28 это не затрагивает.

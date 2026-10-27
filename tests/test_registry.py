@@ -10,6 +10,7 @@ from registry_support import RUN_ID, make_feb_run_dir, make_run_dir
 
 from ragglet.bench.plan import RunPlan
 from ragglet.core.issues import warning
+from ragglet.jobs.files import PROGRESS, Outcome, progress_to_json, write_json, write_outcome
 from ragglet.jobs.memory import InMemoryJobManager
 from ragglet.jobs.protocol import ProgressInfo, TaskFailure, TaskKind, TaskRef, TaskSpec, TaskState
 from ragglet.registry.files import FileRegistry
@@ -188,6 +189,29 @@ async def test_recover_finishes_orphans_only(registry):
     }
     assert "before the run started" in (await restarted.get_run(queued.id)).failure.message
     assert (await restarted.get_build(build.id)).failure.type == "ServerRestart"
+
+
+async def test_recover_keeps_last_progress_of_the_worker(registry):
+    running = await registry.create_run(new_run("a"))
+    cancelled = await registry.create_run(new_run("b"))
+    build = await registry.create_build(new_build())
+    progress = ProgressInfo(stage="queries", done=635, total=3000, first_at=AT, updated_at=AT)
+    last = ProgressInfo(stage="queries", done=641, total=3000, first_at=AT, updated_at=AT)
+    for ref, task_dir in ((TaskRef(TaskKind.RUN, running.id), running.run_dir),
+                          (TaskRef(TaskKind.RUN, cancelled.id), cancelled.run_dir),
+                          (TaskRef(TaskKind.BUILD, build.id), build.build_dir)):
+        await registry.update(ref, TaskChange(state=TaskState.RUNNING, started_at=AT))
+        write_json(task_dir / PROGRESS, progress_to_json(progress))  # воркер успел до падения сервера
+    # сторожевой поток воркера отменил прогон и записал итог: в нём последний вызов, а не раз в секунду
+    write_outcome(cancelled.run_dir, Outcome(state=TaskState.CANCELLED, final_progress=last))
+
+    await registry.recover(InMemoryJobManager(registry))
+
+    restarted = reopen(registry)
+    run = await restarted.get_run(running.id)
+    assert (run.failure.type, run.final_progress) == ("ServerRestart", progress)
+    assert (await restarted.get_run(cancelled.id)).final_progress == last
+    assert (await restarted.get_build(build.id)).final_progress == progress
 
 
 async def test_summary_and_manifest(registry):
