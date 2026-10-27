@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Collection
 from dataclasses import asdict
 from datetime import datetime
+from pathlib import Path
 from typing import Annotated
 
 import anyio
@@ -51,6 +52,25 @@ def check_library_ref(ref: str | None, declared: str, field: str) -> None:
                             f"{field}={ref!r} does not match {declared!r} in the config", path=field)
 
 
+def with_artifacts_dir(cfg: ScenarioConfig, artifacts_dir: Path) -> ScenarioConfig:
+    return cfg.model_copy(update={"run": cfg.run.model_copy(update={"artifacts_dir": str(artifacts_dir)})})
+
+
+async def library_etag(svc: Services, req: RunRequest, cfg: ScenarioConfig) -> str:
+    """
+    Версия сценария для `scenario_file`. «Повторить» присылает snapshot, а не текст файла:
+    если конфиг совпадает с файлом библиотеки, прогон поставлен с этой версией файла.
+    """
+    etag = etag_of(req.scenario)
+    if req.scenario_id is None:
+        return etag
+    entry = await anyio.to_thread.run_sync(svc.scenarios.find, req.scenario_id)
+    if entry is None or entry.etag == etag or entry.config is None:
+        return etag
+    same = with_artifacts_dir(entry.config, svc.settings.artifacts_dir) == cfg
+    return entry.etag if same else etag
+
+
 def run_check(cfg: ScenarioConfig, checked: Preflight) -> RunCheck:
     dataset = checked.dataset
     targets = [
@@ -88,7 +108,7 @@ async def post_run(req: RunRequest, response: Response, svc: Svc) -> RunCheck | 
     cfg = parse_config(req.scenario, ScenarioConfig, TITLE)
     check_library_ref(req.scenario_id, cfg.name, "scenario_id")
     # серверный путь: его назначает сервер, а не клиент
-    cfg = cfg.model_copy(update={"run": cfg.run.model_copy(update={"artifacts_dir": str(svc.settings.artifacts_dir)})})
+    cfg = with_artifacts_dir(cfg, svc.settings.artifacts_dir)
     checked = (await check_run(cfg)).preflight  # preflight №1; ValidationError — 422
     check = run_check(cfg, checked)
     if req.dry_run:
@@ -99,7 +119,7 @@ async def post_run(req: RunRequest, response: Response, svc: Svc) -> RunCheck | 
         name=cfg.name,
         scenario_id=req.scenario_id,
         scenario=cfg.model_dump(),  # ровно то, что ляжет в scenario.snapshot
-        etag=etag_of(req.scenario),
+        etag=await library_etag(svc, req, cfg),
         tags=req.tags,
         dataset=check.dataset.label,
         collection=build_storage_layout(cfg.storage).primary.collection,
