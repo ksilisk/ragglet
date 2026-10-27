@@ -1,0 +1,1399 @@
+#!/usr/bin/env python3
+"""
+Ragglet — клиент стенда: один файл, только стандартная библиотека, Python 3.9+.
+
+    python3 ragglet start      # первый раз сам готовит окружение и поднимает Qdrant/Redis
+    python3 ragglet run configs/scenarios/baseline_qdrant.yaml
+    python3 ragglet stop
+
+Всё, что трогает стенд, идёт через REST API сервера (ragglet-28, рамка ragglet-38): этот файл —
+фасад, логики бенчмарка в нём нет. Дизайн — docs/designs/ragglet-37-cli-client.md.
+"""
+from __future__ import annotations
+
+import argparse
+import io
+import json
+import os
+import re
+import shlex
+import shutil
+import signal
+import socket
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+import webbrowser
+import zipfile
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Callable
+
+ROOT = Path(__file__).resolve().parent
+CMD = ("py " if os.name == "nt" else "python3 ") + Path(__file__).name  # как запускать: для подсказок
+RESULTS = ROOT / "results"  # server.json (pid и адрес сервера, которого поднял start), server.log, env.log
+COMPOSE = ["docker", "compose", "-f", "docker/docker-compose.yaml", "--profile", "qdrant"]
+DEFAULT_API = "http://127.0.0.1:8000"
+TERMINAL = ("completed", "failed", "cancelled")
+POLL_S = 1.0
+TIMEOUT_S = 30.0
+
+HELP = """\
+commands:
+  stand        start [--port --host --open --no-services --foreground] | stop [--services] | status
+  tasks        run <scenario.yaml | id> [--dry-run] [--tag T] [--no-wait]
+               build <profile.yaml | id> [--dry-run] [--no-wait]
+               cancel <id> | log <id> [--follow] | queue
+  library      scenarios list | show | edit | new <id> --from <id | run-id> | check | delete
+               profiles  list | show | edit | new <id> --from <id | build-id> | check | delete
+  results      runs list [--state --scenario --tag -n -k] | show | files | export | queries
+               builds list | show <id>
+               indexes
+
+global options: --json (raw API response), --api URL (or RAGGLET_API_URL)
+exit codes: 0 done, 1 task failed or cancelled, 2 config/dataset/index problems, 3 server not running
+"""
+
+sleep = time.sleep  # тесты подменяют: на каждом тике двигают заглушку менеджера задач
+
+
+# -----------------------
+# Ошибки и коды выхода
+# -----------------------
+
+
+class Unreachable(Exception):
+    """Сервер не отвечает или отвечает не ragglet: код 3."""
+
+
+class ApiError(Exception):
+    """Ответ не 2xx с телом Problem: 422 — код 2, остальное — 1."""
+
+    def __init__(self, status: int, problem: dict[str, Any]):
+        super().__init__(problem.get("title", ""))
+        self.status = status
+        self.problem = problem
+
+
+class Exit(Exception):
+    def __init__(self, code: int):
+        super().__init__(code)
+        self.code = code
+
+
+def die_by_sigint() -> int:
+    """
+    Выйти сигналом SIGINT, а не exit(130): иначе `for` в bash после Ctrl-C идёт на следующую
+    итерацию — он останавливается, только если дочерний процесс умер от SIGINT.
+    """
+    sys.stdout.flush()
+    sys.stderr.flush()
+    if os.name != "nt":
+        signal.signal(signal.SIGINT, signal.SIG_DFL)
+        os.kill(os.getpid(), signal.SIGINT)
+        time.sleep(1)
+    return 130
+
+
+# -----------------------
+# HTTP
+# -----------------------
+
+_opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))  # стенд локальный: без прокси
+
+
+def transport(method: str, url: str, body: bytes | None, timeout: float | None) -> tuple[int, bytes]:
+    """Один HTTP-запрос; тесты подменяют. Нет соединения — Unreachable."""
+    headers = {"Accept": "application/json"}
+    if body is not None:
+        headers["Content-Type"] = "application/json"
+    request = urllib.request.Request(url, data=body, method=method, headers=headers)
+    try:
+        with _opener.open(request, timeout=timeout) as response:
+            return response.status, response.read()
+    except urllib.error.HTTPError as e:
+        return e.code, e.read()
+    except (urllib.error.URLError, OSError) as e:
+        reason = getattr(e, "reason", e)
+        raise Unreachable(f"cannot reach the ragglet server at {_origin(url)} ({reason})") from e
+
+
+def _origin(url: str) -> str:
+    parts = urllib.parse.urlsplit(url)
+    return f"{parts.scheme}://{parts.netloc}"
+
+
+class Api:
+    def __init__(self, base: str):
+        self.base = base.rstrip("/")
+
+    def call(self, method: str, path: str, body: Any = None, *, params: dict[str, Any] | None = None,
+             timeout: float | None = TIMEOUT_S, raw: bool = False) -> Any:
+        query = {k: v for k, v in (params or {}).items() if v is not None and v is not False}
+        url = self.base + path + ("?" + urllib.parse.urlencode(query, doseq=True) if query else "")
+        data = None if body is None else json.dumps(body).encode("utf-8")
+        status, content = transport(method, url, data, timeout)
+        if raw and 200 <= status < 300:
+            return content
+        try:
+            parsed = json.loads(content) if content else None
+        except ValueError:
+            parsed = None
+        if status >= 400:
+            if isinstance(parsed, dict) and "title" in parsed and "issues" in parsed:
+                raise ApiError(status, parsed)
+            raise Unreachable(f"{self.base} does not look like a ragglet server ({method} {path} -> {status})")
+        if content and parsed is None:
+            raise Unreachable(f"{self.base} does not look like a ragglet server ({method} {path}: not JSON)")
+        return parsed
+
+    def get(self, path: str, **params: Any) -> Any:
+        return self.call("GET", path, params=params)
+
+
+def api_url(args: argparse.Namespace) -> str:
+    """--api, затем RAGGLET_API_URL, затем адрес из results/server.json, затем 127.0.0.1:8000."""
+    if getattr(args, "api", None):
+        return args.api
+    if os.environ.get("RAGGLET_API_URL"):
+        return os.environ["RAGGLET_API_URL"]
+    state = read_state()
+    return state.get("url") or DEFAULT_API
+
+
+def read_state() -> dict[str, Any]:
+    try:
+        return json.loads((RESULTS / "server.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+# -----------------------
+# Вывод
+# -----------------------
+
+
+def out(text: str = "") -> None:
+    print(text, flush=True)
+
+
+def err(text: str = "") -> None:
+    print(text, file=sys.stderr, flush=True)
+
+
+def color(text: str, code: str, stream: Any = None) -> str:
+    stream = stream or sys.stdout
+    if os.environ.get("NO_COLOR") or not hasattr(stream, "isatty") or not stream.isatty():
+        return text
+    return f"\033[{code}m{text}\033[0m"
+
+
+def emit_json(value: Any) -> None:
+    out(json.dumps(value, indent=2, ensure_ascii=False))
+
+
+def render_issues(title: str, issues: list[dict[str, Any]], hint: str | None = None, limit: int = 20) -> str:
+    """Копия ragglet.core.issues.render_issues: где — `where`, иначе путь поля. Тест сверяет вывод."""
+    n_errors = sum(1 for i in issues if i["severity"] == "error")
+    n_warnings = len(issues) - n_errors
+    counts = [f"{n_errors} error{'s' if n_errors != 1 else ''}"] if n_errors else []
+    if n_warnings:
+        counts.append(f"{n_warnings} warning{'s' if n_warnings != 1 else ''}")
+    ordered = sorted(issues, key=lambda i: i["severity"] != "error")
+    where = [i.get("where") or i.get("path") or "" for i in ordered]
+    code_w = max((len(i["code"]) for i in ordered[:limit]), default=0)
+    where_w = max((len(w) for w in where[:limit]), default=0)
+    lines = [f"{title} ({', '.join(counts)})"]
+    lines += [f"  {i['code']:<{code_w}}  {w:<{where_w}}  {i['message']}" for i, w in zip(ordered[:limit], where)]
+    if len(ordered) > limit:
+        lines.append(f"  ... and {len(ordered) - limit} more")
+    if hint:
+        lines.append(hint)
+    return "\n".join(lines)
+
+
+def echo_problem(problem: dict[str, Any]) -> None:
+    err(render_issues(problem["title"], problem.get("issues") or [], problem.get("hint")))
+
+
+def echo_warnings(title: str, warnings: list[dict[str, Any]]) -> None:
+    if warnings:
+        err(render_issues(title, warnings))
+
+
+def table(headers: list[str], rows: list[list[Any]], right: tuple[int, ...] = ()) -> str:
+    """Таблица фиксированной ширины; колонки с индексами из right выравниваются вправо."""
+    cells = [[cell(v) for v in row] for row in rows]
+    widths = [max([len(h)] + [len(r[i]) for r in cells]) for i, h in enumerate(headers)]
+
+    def line(values: list[str]) -> str:
+        return "  ".join(v.rjust(w) if i in right else v.ljust(w) for i, (v, w) in enumerate(zip(values, widths)))
+
+    return "\n".join([line(headers)] + [line(r) for r in cells]).rstrip()
+
+
+def cell(value: Any) -> str:
+    if value is None:
+        return "-"
+    if isinstance(value, bool):
+        return "yes" if value else "no"
+    if isinstance(value, float):
+        return number(value)
+    return str(value)
+
+
+def number(value: Any) -> str:
+    if isinstance(value, float):
+        if value != value:  # NaN
+            return "-"
+        return f"{value:.4f}".rstrip("0").rstrip(".") if abs(value) < 1000 else f"{value:.1f}"
+    return "-" if value is None else str(value)
+
+
+def parse_time(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))  # 3.9: fromisoformat не знает Z
+
+
+def clock(seconds: float | None) -> str:
+    if seconds is None:
+        return "-"
+    seconds = int(round(seconds))
+    hours, rest = divmod(seconds, 3600)
+    return f"{hours}:{rest // 60:02d}:{rest % 60:02d}" if hours else f"{rest // 60}:{rest % 60:02d}"
+
+
+def short_time(value: str | None) -> str:
+    moment = parse_time(value)
+    return moment.astimezone().strftime("%Y-%m-%d %H:%M") if moment else "-"
+
+
+# -----------------------
+# Задачи: run, build
+# -----------------------
+
+KINDS = {
+    "runs": {"library": "scenarios", "field": "scenario", "ref": "scenario_id", "noun": "scenario",
+             "warnings": "Preflight warnings", "finishing": "writing summary",
+             "preparing": "preflight, loading models"},
+    "builds": {"library": "index-profiles", "field": "profile", "ref": "profile_id", "noun": "index profile",
+               "warnings": "Dataset warnings", "finishing": "writing index metadata",
+               "preparing": "dataset, loading the model"},
+}
+
+
+def load_config(api: Api, kind: str, arg: str) -> tuple[str, str | None]:
+    """Путь к файлу — его текст без ссылки; иначе id библиотеки сервера — его YAML и ссылка."""
+    path = Path(arg)
+    if path.is_file():
+        return path.read_text(encoding="utf-8"), None
+    spec = KINDS[kind]
+    try:
+        doc = api.get(f"/v1/{spec['library']}/{urllib.parse.quote(arg, safe='')}")
+    except ApiError as e:
+        if e.status in (404, 422):
+            err(f"{arg}: no such file and no such {spec['noun']} in the library")
+            raise Exit(1) from e
+        raise
+    return doc["yaml"], arg
+
+
+def submit(args: argparse.Namespace, kind: str) -> int:
+    api = Api(api_url(args))
+    spec = KINDS[kind]
+    text, ref = load_config(api, kind, args.config)
+    body: dict[str, Any] = {spec["field"]: text, spec["ref"]: ref, "dry_run": args.dry_run}
+    if kind == "runs":
+        body["tags"] = args.tag or []
+    try:
+        answer = api.call("POST", f"/v1/{kind}", body, timeout=None)  # preflight синхронный, hf качается
+    except KeyboardInterrupt:
+        err(f"Interrupted before the server answered; it may still queue the task: {CMD} queue")
+        return die_by_sigint()
+    if args.json and (args.dry_run or args.no_wait):
+        emit_json(answer)
+        return 0
+    if args.dry_run:
+        (echo_run_check if kind == "runs" else echo_build_check)(answer)
+        return 0
+    if not args.json:
+        echo_warnings(spec["warnings"], answer.get("warnings") or [])
+    if args.no_wait:
+        out(answer["id"])
+        err(f"{'Queued' if answer['state'] == 'queued' else 'Started'}: {answer['id']}. "
+            f"Follow: {CMD} log {answer['id']} --follow")
+        return 0
+    return watch(api, kind, answer["id"], json_out=args.json)
+
+
+def echo_run_check(check: dict[str, Any]) -> None:
+    dataset, index, plan = check["dataset"], check.get("index") or {}, check["plan"]
+    chunking = str(index.get("chunking_method"))
+    if index.get("chunk_size") is not None:
+        chunking += f" {index['chunk_size']}/{index['chunk_overlap']}"
+    load = plan.get("load") or {}
+    params = ", ".join(f"{k} {v}" for k, v in load.items() if k != "type")
+    out("Preflight: " + color("OK", "32"))
+    out(f"scenario: {check['scenario']}")
+    out(f"dataset: {dataset['label']}")
+    out(f"split: {dataset['split']}, queries: {dataset['queries']}")
+    out(f"corpus sha256: {dataset['corpus_sha256']}")
+    out(f"eval sha256: {dataset['eval_sha256']}")
+    out(f"index: {index.get('index_profile_id')}, built {index.get('built_at')}")
+    out(f"embedding: {index.get('embedding_model')}@{index.get('embedding_revision')}")
+    out(f"chunking: {chunking}")
+    repeats = plan["repeats"]
+    out(f"plan: {plan['queries_per_repeat']} queries x {repeats} repeat{'s' if repeats != 1 else ''}, "
+        f"load {load.get('type')}" + (f" ({params})" if params else ""))
+    for t in check.get("targets") or []:
+        out(f"target {t['id']}: {t['collection']} at {t['endpoint']}, {t['status']}, {cell(t['points'])} points")
+    echo_warnings("Preflight warnings", check.get("warnings") or [])
+
+
+def echo_build_check(check: dict[str, Any]) -> None:
+    echo_warnings("Dataset warnings", check.get("warnings") or [])
+    out(f"dataset: {check['dataset']}, documents: {check['documents']}")
+    out(f"corpus sha256: {check['corpus_sha256']}")
+    for t in check.get("targets") or []:
+        if not t["reachable"]:
+            state = f"unreachable: {t.get('error')}"
+        elif not t.get("exists"):
+            state = "does not exist yet"
+        else:
+            state = f"exists, {cell(t.get('points'))} points, built {cell(t.get('built_at'))}"
+            if t.get("used_by"):
+                state += f", used by: {', '.join(t['used_by'])}"
+        out(f"will recreate: {t['collection']} at {t['endpoint']} (target {t['id']}); {state}")
+
+
+# -----------------------
+# Ожидание задачи
+# -----------------------
+
+
+class Bar:
+    """Полоса прогресса одной строкой через \\r в stderr — только в терминале."""
+
+    def __init__(self) -> None:
+        self.tty = sys.stderr.isatty()
+        self.shown = False
+
+    def draw(self, progress: dict[str, Any]) -> None:
+        if not self.tty:
+            return
+        sys.stderr.write("\r" + bar_line(progress) + "\033[K")
+        sys.stderr.flush()
+        self.shown = True
+
+    def close(self) -> None:
+        if self.shown:
+            sys.stderr.write("\n")
+            sys.stderr.flush()
+            self.shown = False
+
+
+def bar_line(progress: dict[str, Any], width: int = 30) -> str:
+    done, total = progress["done"], progress["total"]
+    filled = int(width * done / total) if total else 0
+    first, updated = parse_time(progress.get("first_at")), parse_time(progress.get("updated_at"))
+    spent = (updated - first).total_seconds() if first and updated else None
+    line = f"{progress['stage']} [{'#' * filled}{'-' * (width - filled)}] {done}/{total}  {clock(spent)}"
+    if spent and 0 < done < total:
+        line += f"  ~{clock(spent / done * (total - done))} left"
+    return line
+
+
+def watch(api: Api, kind: str, task_id: str, *, json_out: bool = False) -> int:
+    """Опрос раз в секунду до конца задачи; Ctrl-C отменяет её на сервере."""
+    bar = Bar()
+    seen: tuple[Any, ...] = ()
+    try:
+        while True:
+            status = api.get(f"/v1/{kind}/{task_id}")
+            if not json_out:
+                seen = show_status(api, kind, status, seen, bar)
+            if status["state"] in TERMINAL:
+                bar.close()
+                return finish(api, kind, status, json_out)
+            sleep(POLL_S)
+    except KeyboardInterrupt:
+        bar.close()
+        return cancel_on_interrupt(api, kind, task_id)
+    except Unreachable as e:
+        bar.close()
+        raise Unreachable(f"lost connection to the server while waiting for {task_id} ({e}); "
+                          f"check later: {CMD} runs show {task_id}") from e
+
+
+def show_status(api: Api, kind: str, status: dict[str, Any], seen: tuple[Any, ...], bar: Bar) -> tuple[Any, ...]:
+    """Строка на каждую смену состояния или фазы; в фазе progress — полоса."""
+    state, phase, progress = status["state"], status.get("phase"), status.get("progress")
+    key = (state, phase, status.get("position"))
+    if key != seen:
+        if seen[1:2] == ("progress",) and progress:
+            bar.draw(progress)  # последнее значение перед finishing или концом
+        bar.close()
+        spec = KINDS[kind]
+        if state == "queued":
+            err(f"Queued: {status['id']} (position {status.get('position')}{running_now(api, status['id'])})")
+        elif state == "running":
+            if seen[:1] != ("running",):
+                err(f"Started: {status['id']}")
+            if phase == "preparing":
+                err(f"Preparing ({spec['preparing']})...")
+            elif phase == "finishing":
+                err(f"Finishing ({spec['finishing']})...")
+    if phase == "progress" and progress:
+        bar.draw(progress)
+    return key
+
+
+def running_now(api: Api, task_id: str) -> str:
+    current = [t for t in api.get("/v1/tasks") if t["state"] == "running" and t["id"] != task_id]
+    return f"; running now: {current[0]['kind']} {current[0]['id']}" if current else ""
+
+
+def finish(api: Api, kind: str, status: dict[str, Any], json_out: bool) -> int:
+    state = status["state"]
+    if state == "completed" and kind == "runs":
+        status = api.get(f"/v1/runs/{status['id']}", include="summary")
+    if json_out:
+        emit_json(status)
+        return task_code(status)
+    if state == "completed":
+        if kind == "runs":
+            out("Done")
+            echo_summary((status.get("summary") or {}).get("aggregate") or {})
+            out(f"Artifacts: {status['run_dir']} (on the server)")
+        else:
+            documents = (status.get("result") or {}).get("documents")
+            out(f"Done: {cell(documents)} documents")
+            for t in status.get("targets") or []:
+                out(f"  {t['collection']} at {t['endpoint']}")
+        return 0
+    if state == "cancelled":
+        err("Cancelled" + progress_note(status))
+        return 1
+    echo_failure(api, kind, status)
+    return task_code(status)
+
+
+def task_code(status: dict[str, Any]) -> int:
+    if status["state"] == "completed":
+        return 0
+    error = status.get("error") or {}
+    return 2 if status["state"] == "failed" and error.get("problem") else 1
+
+
+def progress_note(status: dict[str, Any]) -> str:
+    p = status.get("progress")
+    return f" at {p['stage']} {p['done']}/{p['total']}" if p else ""
+
+
+def echo_failure(api: Api, kind: str, status: dict[str, Any]) -> None:
+    error = status.get("error") or {}
+    if error.get("problem"):
+        echo_problem(error["problem"])
+        return
+    qid = f" (qid={error['qid']})" if error.get("qid") else ""
+    err(f"Failed{progress_note(status)}: {error.get('type')}: {error.get('message')}{qid}")
+    tail = read_log(api, kind, status["id"]).rstrip("\n").splitlines()[-20:]
+    if tail:
+        err("--- last lines of the task log ---")
+        err("\n".join(tail))
+    err(f"Full log: {CMD} log {status['id']}")
+
+
+def read_log(api: Api, kind: str, task_id: str, offset: int = 0) -> str:
+    parts = []
+    while True:
+        chunk = api.get(f"/v1/{kind}/{task_id}/log", offset=offset)
+        if not chunk["text"]:
+            return "".join(parts)
+        parts.append(chunk["text"])
+        offset = chunk["next_offset"]
+
+
+def cancel_on_interrupt(api: Api, kind: str, task_id: str) -> int:
+    err(f"Cancelling {task_id}... (Ctrl-C again to stop waiting)")
+    try:
+        try:
+            status = api.call("POST", f"/v1/{kind}/{task_id}/cancel")
+        except ApiError as e:  # 409: уже завершилась
+            if e.status != 409:
+                raise
+            status = api.get(f"/v1/{kind}/{task_id}")
+        while status["state"] not in TERMINAL:
+            sleep(POLL_S)
+            status = api.get(f"/v1/{kind}/{task_id}")
+        if status["state"] == "cancelled":
+            err("Cancelled" + progress_note(status))
+        else:
+            err(f"The task finished before the cancel: {status['state']}")
+    except KeyboardInterrupt:
+        err(f"Stopped waiting; the cancel was sent. Check: {CMD} queue")
+    return die_by_sigint()
+
+
+def echo_summary(aggregate: dict[str, Any]) -> None:
+    """Средние по повторам из summary.aggregate: ключи *_mean_over_repeats без суффикса."""
+    suffix = "_mean_over_repeats"
+    rows = [("repeats", aggregate.get("repeats"))] if "repeats" in aggregate else []
+    rows += [(k[: -len(suffix)], v) for k, v in aggregate.items() if k.endswith(suffix)]
+    width = max((len(k) for k, _ in rows), default=0)
+    for key, value in rows:
+        out(f"  {key:<{width}}  {number(value)}")
+
+
+# -----------------------
+# Задачи: cancel, log, queue
+# -----------------------
+
+
+def active_kind(api: Api, task_id: str) -> str | None:
+    for task in api.get("/v1/tasks"):
+        if task["id"] == task_id:
+            return "runs" if task["kind"] == "run" else "builds"
+    return None
+
+
+def cmd_cancel(args: argparse.Namespace) -> int:
+    api = Api(api_url(args))
+    kind = active_kind(api, args.id)
+    if kind is None:
+        err(f"{args.id} is not queued or running")
+        return 1
+    status = api.call("POST", f"/v1/{kind}/{args.id}/cancel")
+    if status["state"] not in TERMINAL:
+        err(f"Cancelling {args.id}...")
+    while status["state"] not in TERMINAL:
+        sleep(POLL_S)
+        status = api.get(f"/v1/{kind}/{args.id}")
+    if args.json:
+        emit_json(status)
+    elif status["state"] == "cancelled":
+        out("Cancelled" + progress_note(status))
+    else:
+        out(f"Finished before the cancel: {status['state']}")
+    return 0 if status["state"] == "cancelled" else 1
+
+
+def log_kind(api: Api, task_id: str) -> str:
+    try:
+        api.get(f"/v1/runs/{task_id}")
+        return "runs"
+    except ApiError as e:
+        if e.status != 404:
+            raise
+    api.get(f"/v1/builds/{task_id}")  # 404 — нет ни прогона, ни сборки
+    return "builds"
+
+
+def cmd_log(args: argparse.Namespace) -> int:
+    api = Api(api_url(args))
+    kind = log_kind(api, args.id)
+    offset, parts = 0, []
+    try:
+        while True:
+            chunk = api.get(f"/v1/{kind}/{args.id}/log", offset=offset)
+            if chunk["text"]:
+                offset = chunk["next_offset"]
+                if args.json:
+                    parts.append(chunk["text"])
+                else:
+                    sys.stdout.write(chunk["text"])
+                    sys.stdout.flush()
+                continue
+            if chunk["complete"] or not args.follow:
+                break
+            sleep(POLL_S)
+    except KeyboardInterrupt:
+        return 0  # --follow: Ctrl-C только прекращает чтение, задачу не трогает
+    if args.json:
+        emit_json({"id": args.id, "text": "".join(parts), "next_offset": offset})
+    return 0
+
+
+def cmd_queue(args: argparse.Namespace) -> int:
+    tasks = Api(api_url(args)).get("/v1/tasks")
+    if args.json:
+        emit_json(tasks)
+        return 0
+    if not tasks:
+        out("No active tasks")
+        return 0
+    rows = [[t["kind"], t["id"], t["state"], t.get("position"), task_progress(t), short_time(t.get("started_at"))]
+            for t in tasks]
+    out(table(["kind", "id", "state", "position", "progress", "started"], rows))
+    return 0
+
+
+def task_progress(task: dict[str, Any]) -> str:
+    p = task.get("progress")
+    return f"{p['stage']} {p['done']}/{p['total']}" if p else "-"
+
+
+# -----------------------
+# Стенд: start, stop, status
+# -----------------------
+
+
+def responds(api: Api) -> dict[str, Any] | None:
+    try:
+        return api.get("/v1/stand")
+    except Unreachable:
+        return None
+
+
+def services() -> list[tuple[str, str, str | None]]:
+    """(имя, адрес, сервис compose) из тех же переменных, что читает сервер; compose — только локальные умолчания."""
+    qdrant = os.environ.get("RAGGLET_QDRANT_ENDPOINTS", "http://localhost:6333")
+    redis = os.environ.get("RAGGLET_REDIS_URL", "redis://localhost:6379/0")
+    found = [("Qdrant", url.strip(), "qdrant") for url in qdrant.split(",") if url.strip()]
+    if redis:
+        found.append(("Redis", redis, "redis"))
+    return [(name, url, svc if address(url) in LOCAL[svc] else None) for name, url, svc in found]
+
+
+LOCAL = {"qdrant": {("localhost", 6333), ("127.0.0.1", 6333)}, "redis": {("localhost", 6379), ("127.0.0.1", 6379)}}
+
+
+def address(url: str) -> tuple[str, int]:
+    parts = urllib.parse.urlsplit(url)
+    default = 6379 if parts.scheme.startswith("redis") else 6333
+    return parts.hostname or "localhost", parts.port or default
+
+
+def port_open(url: str, timeout: float = 1.0) -> bool:
+    try:
+        with socket.create_connection(address(url), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def ensure_services() -> None:
+    """Недоступные Qdrant и Redis поднимаются через docker compose; без Docker — команда и выход."""
+    down = [(name, url, svc) for name, url, svc in services() if not port_open(url)]
+    for name, url, svc in down:
+        if svc is None:
+            err(f"Warning: {name} at {url} is not reachable; start it yourself")
+    startable = sorted({svc for _, _, svc in down if svc})
+    if not startable:
+        return
+    names = " and ".join(f"{name} ({url})" for name, url, svc in down if svc)
+    command = COMPOSE + ["up", "-d"] + startable
+    if shutil.which("docker") is None:
+        err(f"{names} {'is' if len(startable) == 1 else 'are'} down and Docker is not installed. Start them:")
+        err("  " + " ".join(command))
+        raise Exit(1)
+    err(f"{names} {'is' if len(startable) == 1 else 'are'} down, starting with Docker...")
+    done = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
+    if done.returncode != 0:
+        err(done.stdout + done.stderr)
+        raise Exit(1)
+    deadline = time.monotonic() + 60
+    while any(not port_open(url) for _, url, svc in down if svc):
+        if time.monotonic() > deadline:
+            err("Docker started the services, but they do not answer after 60 s: docker compose logs")
+            raise Exit(1)
+        time.sleep(0.5)
+
+
+def venv_python() -> Path:
+    return ROOT / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+
+
+def prepare_env() -> str:
+    """
+    Окружение сервера в .venv. С uv — `uv sync --frozen --inexact` на каждом старте: по uv.lock,
+    после git pull догоняет новые зависимости, пакеты разработки не трогает. Без uv — один раз
+    venv и pip install -e . на Python 3.12+ (версии тогда не по uv.lock).
+    """
+    python = venv_python()
+    uv = shutil.which("uv")
+    if uv is None and python.exists():
+        return str(python)
+    if not python.exists():
+        err("Preparing the environment (the first time takes a few minutes)...")
+    RESULTS.mkdir(parents=True, exist_ok=True)
+    log = RESULTS / "env.log"
+    if uv is not None:
+        steps = [[uv, "sync", "--frozen", "--inexact"]]
+    else:
+        base = find_python()
+        if base is None:
+            err("The server needs uv (https://docs.astral.sh/uv/getting-started/installation/) or Python 3.12+.")
+            raise Exit(1)
+        err("Note: without uv the dependencies are not pinned to uv.lock")
+        steps = [[base, "-m", "venv", ".venv"], [str(python), "-m", "pip", "install", "-e", "."]]
+    with log.open("ab") as sink:
+        for step in steps:
+            if subprocess.run(step, cwd=ROOT, stdin=subprocess.DEVNULL, stdout=sink, stderr=subprocess.STDOUT).returncode:
+                err(f"Failed: {' '.join(step)}; last lines of {log}:")
+                err(tail(log))
+                raise Exit(1)
+    return str(python)
+
+
+def find_python() -> str | None:
+    for name in ("python3.14", "python3.13", "python3.12", "python3"):
+        exe = shutil.which(name)
+        if exe and subprocess.run([exe, "-c", "import sys; sys.exit(sys.version_info < (3, 12))"]).returncode == 0:
+            return exe
+    return None
+
+
+def tail(path: Path, lines: int = 20) -> str:
+    try:
+        return "\n".join(path.read_text(encoding="utf-8", errors="replace").splitlines()[-lines:])
+    except OSError:
+        return ""
+
+
+def server_command(python: str, host: str, port: int) -> list[str]:
+    return [python, "-m", "ragglet.server", "--host", host, "--port", str(port)]
+
+
+def server_env() -> dict[str, str]:
+    env = dict(os.environ)
+    if "RAGGLET_UI_DIR" not in env and (ROOT / "web" / "dist" / "index.html").is_file():
+        env["RAGGLET_UI_DIR"] = "web/dist"  # собранный UI (ragglet-31) — по тому же адресу
+    return env
+
+
+def cmd_start(args: argparse.Namespace) -> int:
+    host = "127.0.0.1" if args.host in ("0.0.0.0", "::", "") else args.host
+    url = f"http://{host}:{args.port}"
+    state = read_state()
+    for known in dict.fromkeys([url, state.get("url")]):
+        if known and (stand := responds(Api(known))) is not None:
+            return started(known, stand, args, already=True)
+    if os.name == "nt":
+        err("The server runs on macOS and Linux; on Windows use Docker or WSL.")
+        return 1
+    if not (ROOT / "src" / "ragglet").is_dir():
+        err(f"{ROOT} is not a ragglet checkout: keep {Path(__file__).name} in the repository root")
+        return 1
+    if not args.no_services:
+        ensure_services()
+    python = prepare_env()
+    command = server_command(python, args.host, args.port)
+    if args.foreground:
+        os.chdir(ROOT)
+        os.execve(command[0], command, server_env())  # Ctrl-C останавливает сервер
+    RESULTS.mkdir(parents=True, exist_ok=True)
+    log = RESULTS / "server.log"
+    err(f"Starting the server, log: {display(log)}")
+    with log.open("ab") as sink:
+        process = subprocess.Popen(command, cwd=ROOT, env=server_env(), stdin=subprocess.DEVNULL, stdout=sink,
+                                   stderr=subprocess.STDOUT, start_new_session=True)
+    (RESULTS / "server.json").write_text(json.dumps({
+        "pid": process.pid, "url": url, "started_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }), encoding="utf-8")
+    deadline = time.monotonic() + 120  # импорт FastAPI и ядра, скан реестра
+    while (stand := responds(Api(url))) is None:
+        if process.poll() is not None or time.monotonic() > deadline:
+            if process.poll() is None:
+                process.terminate()
+            (RESULTS / "server.json").unlink()
+            err(f"The server did not start; last lines of {display(log)}:")
+            err(tail(log))
+            return 1
+        time.sleep(0.3)
+    return started(url, stand, args, already=False)
+
+
+def started(url: str, stand: dict[str, Any], args: argparse.Namespace, *, already: bool) -> int:
+    if args.json:
+        emit_json(stand)
+    else:
+        if already:
+            echo_stand(url, stand)
+        out(f"Ragglet is {'already ' if already else ''}running: {url} (API /v1, docs /v1/docs)")
+    if args.open:
+        webbrowser.open(url)
+    return 0
+
+
+def display(path: Path) -> str:
+    try:
+        return str(path.relative_to(Path.cwd()))
+    except ValueError:
+        return str(path)
+
+
+def alive(pid: int) -> bool:
+    try:
+        if os.waitpid(pid, os.WNOHANG)[0] == pid:  # наш потомок (тесты) — уже вышел
+            return False
+    except ChildProcessError:
+        pass
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def confirm(question: str) -> bool:
+    if not sys.stdin.isatty():
+        err(f"{question} [y/N]: no terminal to ask; cancel the tasks first ({CMD} cancel <id>)")
+        return False
+    return input(f"{question} [y/N] ").strip().lower() in ("y", "yes")
+
+
+def cmd_stop(args: argparse.Namespace) -> int:
+    state = read_state()
+    pid, url = state.get("pid"), state.get("url") or api_url(args)
+    code = 0
+    if not pid or not alive(pid):
+        (RESULTS / "server.json").unlink(missing_ok=True)
+        if responds(Api(url)) is not None:
+            err(f"The server at {url} was not started by `{CMD} start`; stop it where it runs.")
+            code = 1
+        else:
+            out("The server is not running")
+    else:
+        try:
+            active = Api(url).get("/v1/tasks")
+        except Unreachable:
+            active = []
+        if active:
+            names = ", ".join(f"{t['kind']} {t['id']} ({t['state']})" for t in active)
+            if not confirm(f"Active tasks: {names}. Stopping the server fails them. Stop anyway?"):
+                return 1
+        os.kill(pid, signal.SIGTERM)
+        deadline = time.monotonic() + 15  # cancel_grace_s сервера и запас
+        while alive(pid):
+            if time.monotonic() > deadline:
+                os.kill(pid, signal.SIGKILL)
+                break
+            time.sleep(0.2)
+        (RESULTS / "server.json").unlink(missing_ok=True)
+        out("Stopped the server")
+    if args.services:
+        if shutil.which("docker") is None:
+            err("Docker is not installed: nothing to stop")
+            return 1
+        if subprocess.run(COMPOSE + ["stop", "qdrant", "redis"], cwd=ROOT).returncode:
+            return 1
+        out("Stopped Qdrant and Redis")
+    return code
+
+
+def cmd_status(args: argparse.Namespace) -> int:
+    url = api_url(args)
+    stand = responds(Api(url))
+    if stand is None:
+        if args.json:
+            emit_json({"url": url, "server": None})
+        else:
+            out(f"server: not running at {url} ({CMD} start)")
+            for name, svc_url, _ in services():
+                out(f"{name.lower()}: {svc_url} {'up' if port_open(svc_url) else 'down'}")
+        return 3
+    if args.json:
+        emit_json(stand)
+    else:
+        echo_stand(url, stand)
+    return 0
+
+
+def echo_stand(url: str, stand: dict[str, Any]) -> None:
+    state = read_state()
+    line = f"server: {url}"
+    if state.get("url") == url and state.get("pid"):
+        since = parse_time(state.get("started_at"))
+        up = (datetime.now(timezone.utc) - since).total_seconds() if since else None
+        line += f", pid {state['pid']}, up {clock(up)}, log {display(RESULTS / 'server.log')}"
+    out(line)
+    for svc in stand.get("qdrant") or []:
+        out("qdrant: " + service_line(svc))
+    out("redis: " + (service_line(stand["redis"]) if stand.get("redis") else "not configured"))
+    compute = stand.get("compute") or {}
+    if compute:
+        out(f"compute: {compute.get('device')}, {compute.get('torch_threads')} torch threads")
+    out(f"commit: {(stand.get('commit') or '-')[:12]}, python {stand.get('python')}")
+    current = stand.get("current")
+    out(f"running: {current['kind']} {current['id']} {task_progress(current)}" if current else "running: nothing")
+    out(f"queued: {stand.get('queued', 0)}")
+
+
+def service_line(svc: dict[str, Any]) -> str:
+    if not svc.get("available"):
+        return f"{svc['url']} down ({svc.get('error')})"
+    extra = f", {svc['collections']} collections" if svc.get("collections") is not None else ""
+    return f"{svc['url']} up, {svc.get('version')}{extra}"
+
+
+# -----------------------
+# Библиотека: scenarios, profiles
+# -----------------------
+
+LIBRARY = {
+    "scenarios": {"path": "scenarios", "key": "name", "noun": "scenario", "kind": "runs"},
+    "profiles": {"path": "index-profiles", "key": "id", "noun": "index profile", "kind": "builds"},
+}
+
+
+def entry_path(group: str, entry_id: str) -> str:
+    return f"/v1/{LIBRARY[group]['path']}/{urllib.parse.quote(entry_id, safe='')}"
+
+
+def cmd_lib_list(args: argparse.Namespace) -> int:
+    items = Api(api_url(args)).get(f"/v1/{LIBRARY[args.group]['path']}")
+    if args.json:
+        emit_json(items)
+        return 0
+    if args.group == "scenarios":
+        rows = [[i["id"], "yes" if i["valid"] else "draft", i.get("dataset"),
+                 ", ".join(c["collection"] for c in i.get("collections") or []) or None, brief(i.get("last_run"))]
+                for i in items]
+        out(table(["id", "valid", "dataset", "collections", "last run"], rows))
+    else:
+        rows = [[i["id"], "yes" if i["valid"] else "draft", i.get("dataset"), i.get("chunking"), i.get("embedding_model"),
+                 ", ".join(t["collection"] for t in i.get("targets") or []) or None, brief(i.get("last_build"))]
+                for i in items]
+        out(table(["id", "valid", "dataset", "chunking", "model", "targets", "last build"], rows))
+    return 0
+
+
+def brief(last: dict[str, Any] | None) -> str | None:
+    return f"{last['state']} {short_time(last['enqueued_at'])}" if last else None
+
+
+def cmd_lib_show(args: argparse.Namespace) -> int:
+    doc = Api(api_url(args)).get(entry_path(args.group, args.id))
+    if args.json:
+        emit_json(doc)
+        return 0
+    sys.stdout.write(doc["yaml"] if doc["yaml"].endswith("\n") else doc["yaml"] + "\n")
+    if not doc["valid"] and doc.get("problem"):
+        err(f"{args.id} is a draft:")
+        echo_problem(doc["problem"])
+    return 0
+
+
+def editor_command() -> list[str]:
+    editor = os.environ.get("VISUAL") or os.environ.get("EDITOR") or ("notepad" if os.name == "nt" else "vi")
+    return shlex.split(editor, posix=os.name != "nt")
+
+
+def cmd_lib_edit(args: argparse.Namespace) -> int:
+    """GET, временный файл, $EDITOR, PUT с etag: правка поверх чужой — 409, текст не теряется."""
+    api = Api(api_url(args))
+    path = entry_path(args.group, args.id)
+    doc = api.get(path)
+    draft = Path(tempfile.mkdtemp(prefix="ragglet-")) / f"{args.id}.yaml"
+    draft.write_text(doc["yaml"], encoding="utf-8")
+    if subprocess.run(editor_command() + [str(draft)]).returncode:
+        err(f"The editor failed; the text is in {draft}")
+        return 1
+    text = draft.read_text(encoding="utf-8")
+    if text == doc["yaml"]:
+        out("No changes")
+        shutil.rmtree(draft.parent, ignore_errors=True)
+        return 0
+    try:
+        saved = api.call("PUT", path, {"yaml": text, "etag": doc["etag"]})
+    except ApiError as e:
+        if e.status == 409:
+            err(f"{args.id} changed on the server since you opened it. Your text is kept in {draft}")
+            return 1
+        if e.status == 422:
+            echo_problem(e.problem)
+            err(f"Not saved. Your text is kept in {draft}")
+            return 2
+        raise
+    shutil.rmtree(draft.parent, ignore_errors=True)
+    return saved_note(args, saved, "Saved")
+
+
+def saved_note(args: argparse.Namespace, doc: dict[str, Any], verb: str) -> int:
+    if args.json:
+        emit_json(doc)
+    elif doc["valid"]:
+        out(f"{verb} {doc['id']}")
+    else:
+        out(f"{verb} {doc['id']} as a draft")
+        if doc.get("problem"):
+            echo_problem(doc["problem"])
+    return 0
+
+
+def rename(text: str, key: str, value: str) -> str:
+    """Новый id в тексте: строка верхнего уровня `name:` (у профиля `id:`); комментарии остаются."""
+    pattern = re.compile(rf"^{key}[ \t]*:.*$", re.MULTILINE)
+    if not pattern.search(text):
+        err(f"No top-level `{key}:` line to rename")
+        raise Exit(2)
+    return pattern.sub(f'{key}: "{value}"', text, count=1)
+
+
+def cmd_lib_new(args: argparse.Namespace) -> int:
+    """Копия записи библиотеки под новым id; у сценария источником может быть прогон, у профиля — сборка."""
+    api = Api(api_url(args))
+    spec = LIBRARY[args.group]
+    try:
+        source = api.get(entry_path(args.group, args.source))["yaml"]
+    except ApiError as e:
+        if e.status not in (404, 422):
+            raise
+        source = None
+    if source is None and args.group == "scenarios":
+        created = api.call("POST", "/v1/scenarios", {"from_run": args.source, "name": args.id})
+        return saved_note(args, created, "Created")
+    if source is None:
+        source = api.get(f"/v1/builds/{urllib.parse.quote(args.source, safe='')}", include="profile")["profile_yaml"]
+    created = api.call("POST", f"/v1/{spec['path']}", {"yaml": rename(source, spec["key"], args.id)})
+    return saved_note(args, created, "Created")
+
+
+def cmd_lib_check(args: argparse.Namespace) -> int:
+    args.config, args.dry_run, args.no_wait, args.tag = args.id, True, False, None
+    return submit(args, LIBRARY[args.group]["kind"])
+
+
+def cmd_lib_delete(args: argparse.Namespace) -> int:
+    api = Api(api_url(args))
+    path = entry_path(args.group, args.id)
+    doc = api.get(path)
+    if not confirm(f"Delete {LIBRARY[args.group]['noun']} {args.id}?"):
+        return 1
+    api.call("DELETE", path, params={"etag": doc["etag"]})
+    if args.json:
+        emit_json({"deleted": args.id})
+    else:
+        out(f"Deleted {args.id}")
+    return 0
+
+
+# -----------------------
+# Результаты: runs, builds, indexes
+# -----------------------
+
+
+def task_path(kind: str, task_id: str, tail_path: str = "") -> str:
+    return f"/v1/{kind}/{urllib.parse.quote(task_id, safe='')}{tail_path}"
+
+
+def cmd_runs_list(args: argparse.Namespace) -> int:
+    page = Api(api_url(args)).get("/v1/runs", state=args.state, scenario=args.scenario, tag=args.tag,
+                                  limit=args.n, k=args.k)
+    if args.json:
+        emit_json(page)
+        return 0
+    k = page["k"]
+    rows = [[i["id"], i["state"], clock(i.get("duration_s")), i.get("ndcg"), i.get("recall"), i.get("p50_ms"),
+             i.get("p95_ms"), i.get("qps"), percent(i.get("timeout_rate"))] for i in page["items"]]
+    out(table(["id", "state", "duration", f"ndcg@{k}", f"recall@{k}", "p50 ms", "p95 ms", "qps", "timeouts"], rows,
+              right=(2, 3, 4, 5, 6, 7, 8)))
+    out(f"{len(page['items'])} of {page['total']}")
+    return 0
+
+
+def percent(value: float | None) -> str | None:
+    return None if value is None else f"{value * 100:.1f}%"
+
+
+def cmd_runs_show(args: argparse.Namespace) -> int:
+    run = Api(api_url(args)).get(task_path("runs", args.id), include="summary,manifest")
+    if args.json:
+        emit_json(run)
+        return 0
+    manifest = run.get("manifest") or {}
+    out(f"id: {run['id']} ({run['origin']})")
+    library = ""
+    if run.get("scenario_id"):
+        library = f" (library: {run['scenario_id']}, file {run.get('scenario_file') or '-'})"
+    out(f"scenario: {run['scenario']}{library}")
+    echo_live(run)
+    if run.get("tags"):
+        out(f"tags: {', '.join(run['tags'])}")
+    out(f"artifacts: {run['run_dir']} (on the server)")
+    dataset = manifest.get("dataset") or {}
+    out(f"dataset: {run['dataset']}" + (f", corpus sha256 {dataset['corpus_sha256'][:12]}, "
+                                        f"eval sha256 {dataset['eval_sha256'][:12]}" if dataset else ""))
+    index = manifest.get("index") or {}
+    out(f"index: {run['collection']}" + (f", profile {index.get('profile_id')}, built {index.get('built_at')}, "
+                                         f"embedding revision {str(index.get('embedding_revision'))[:12]}"
+                                         if index else ""))
+    env = manifest.get("env") or {}
+    if env:
+        system, compute = env.get("system") or {}, env.get("compute") or {}
+        out(f"environment: commit {str(env.get('commit'))[:12]}, {compute.get('device', '-')}, "
+            f"{system.get('platform', '-')}, {system.get('cpu', '-')}")
+    echo_warnings("Preflight warnings", run.get("warnings") or [])
+    echo_error(run)
+    if run.get("summary"):
+        out("summary:")
+        echo_summary(run["summary"].get("aggregate") or {})
+    return 0
+
+
+def echo_live(task: dict[str, Any]) -> None:
+    state = task["state"]
+    if state == "queued":
+        state += f", position {task.get('position')}"
+    elif state == "running":
+        state += f", {task.get('phase')}"
+    if task.get("progress"):
+        p = task["progress"]
+        state += f", {p['stage']} {p['done']}/{p['total']}"
+    out(f"state: {state}")
+    started, finished = parse_time(task.get("started_at")), parse_time(task.get("finished_at"))
+    times = f"queued {short_time(task.get('enqueued_at'))}"
+    if started:
+        times += f", started {short_time(task.get('started_at'))}"
+    if started and finished:
+        times += f", took {clock((finished - started).total_seconds())}"
+    out(f"time: {times}")
+
+
+def echo_error(task: dict[str, Any]) -> None:
+    error = task.get("error")
+    if not error:
+        return
+    if error.get("problem"):
+        echo_problem(error["problem"])
+    else:
+        qid = f" (qid={error['qid']})" if error.get("qid") else ""
+        err(f"error: {error['type']}: {error['message']}{qid}")
+
+
+def cmd_runs_files(args: argparse.Namespace) -> int:
+    files = Api(api_url(args)).get(task_path("runs", args.id, "/artifacts"))
+    if args.json:
+        emit_json(files)
+        return 0
+    out(table(["name", "size", "modified"], [[f["name"], size(f["size"]), short_time(f["modified_at"])] for f in files],
+              right=(1,)))
+    return 0
+
+
+def size(n: int) -> str:
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024 or unit == "GB":
+            return f"{n} {unit}" if unit == "B" else f"{n:.1f} {unit}"
+        n /= 1024
+    return str(n)
+
+
+def cmd_runs_export(args: argparse.Namespace) -> int:
+    content = Api(api_url(args)).call("GET", task_path("runs", args.id, "/artifacts.zip"), raw=True, timeout=None)
+    target = Path(args.o)
+    target.mkdir(parents=True, exist_ok=True)
+    if args.zip:
+        path = target / f"{args.id}.zip"
+        path.write_bytes(content)
+    else:
+        path = target / args.id
+        with zipfile.ZipFile(io.BytesIO(content)) as archive:
+            root = target.resolve()
+            for name in archive.namelist():
+                if not (root / name).resolve().is_relative_to(root):
+                    err(f"Refusing to extract {name}: outside {target}")
+                    return 1
+            archive.extractall(target)
+    if args.json:
+        emit_json({"path": str(path)})
+    else:
+        out(str(path))
+    return 0
+
+
+def cmd_runs_queries(args: argparse.Namespace) -> int:
+    page = Api(api_url(args)).get(task_path("runs", args.id, "/queries"), outcome=args.outcome,
+                                  miss_at=args.k if args.miss else None, limit=args.n)
+    if args.json:
+        emit_json(page)
+        return 0
+    wanted = [c for c in ("qid", "outcome", "first_relevant_rank", "lat_total_ms", "query") if c in page["columns"]
+              or c == "first_relevant_rank"]
+    rows = [[shorten(item.get(c)) for c in wanted] for item in page["items"]]
+    out(table(["rank" if c == "first_relevant_rank" else c for c in wanted], rows))
+    out(f"{len(page['items'])} of {page['total']} (repeat {page['repeat']}, {page['source']})")
+    return 0
+
+
+def shorten(value: Any, width: int = 60) -> Any:
+    if isinstance(value, str) and len(value) > width:
+        return value[: width - 3] + "..."
+    return value
+
+
+def cmd_builds_list(args: argparse.Namespace) -> int:
+    page = Api(api_url(args)).get("/v1/builds", limit=args.n)
+    if args.json:
+        emit_json(page)
+        return 0
+    rows = [[i["id"], i["state"], clock(i.get("duration_s")), i["dataset"],
+             ", ".join(t["collection"] for t in i.get("targets") or []), i.get("documents")] for i in page["items"]]
+    out(table(["id", "state", "duration", "dataset", "targets", "documents"], rows, right=(2, 5)))
+    out(f"{len(page['items'])} of {page['total']}")
+    return 0
+
+
+def cmd_builds_show(args: argparse.Namespace) -> int:
+    build = Api(api_url(args)).get(task_path("builds", args.id))
+    if args.json:
+        emit_json(build)
+        return 0
+    out(f"id: {build['id']}")
+    library = f" (library: {build['profile_id']})" if build.get("profile_id") else ""
+    out(f"profile: {build['profile']}{library}")
+    echo_live(build)
+    out(f"dataset: {build['dataset']}")
+    for t in build.get("targets") or []:
+        out(f"target: {t['collection']} at {t['endpoint']}")
+    result = build.get("result") or {}
+    if result:
+        out(f"documents: {result.get('documents')}")
+    out(f"task dir: {build['build_dir']} (on the server)")
+    echo_warnings("Dataset warnings", build.get("warnings") or [])
+    echo_error(build)
+    return 0
+
+
+def cmd_indexes(args: argparse.Namespace) -> int:
+    found = Api(api_url(args)).get("/v1/indexes")
+    if args.json:
+        emit_json(found)
+        return 0
+    for endpoint in found["endpoints"]:
+        if not endpoint["available"]:
+            err(f"{endpoint['url']}: down ({endpoint.get('error')})")
+    rows = [[c["endpoint"], c["name"], c["state"], c["status"], c.get("points"), ", ".join(c.get("profiles") or []) or None,
+             ", ".join(c.get("used_by") or []) or None] for c in found["collections"]]
+    out(table(["endpoint", "collection", "state", "status", "points", "profiles", "used by"], rows, right=(4,)))
+    return 0
+
+
+# -----------------------
+# Разбор аргументов
+# -----------------------
+
+
+def build_parser() -> argparse.ArgumentParser:
+    # --api и --json — в любом месте команды: у подкоманд SUPPRESS, чтобы не затирать значение корня
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("--api", default=argparse.SUPPRESS, help="server URL (default: RAGGLET_API_URL, "
+                        "then the server started by `start`, then http://127.0.0.1:8000)")
+    common.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="print the raw API response")
+
+    parser = argparse.ArgumentParser(prog=CMD, description="Ragglet stand client.", epilog=HELP,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--api", default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--json", action="store_true", default=False, help=argparse.SUPPRESS)
+    commands = parser.add_subparsers(dest="command", metavar="<command>")
+
+    def command(name: str, func: Callable[[argparse.Namespace], int], help_text: str,
+                group: Any = commands) -> argparse.ArgumentParser:
+        sub = group.add_parser(name, parents=[common], help=help_text, description=help_text)
+        sub.set_defaults(func=func)
+        return sub
+
+    run = command("run", lambda a: submit(a, "runs"), "run a scenario: a YAML file or an id from the library")
+    run.add_argument("config", metavar="SCENARIO", help="scenario.yaml or scenario id")
+    run.add_argument("--dry-run", action="store_true", help="only check the dataset and the index")
+    run.add_argument("--tag", action="append", help="tag of the run in the registry (repeatable)")
+    run.add_argument("--no-wait", action="store_true", help="queue the run, print its id and exit")
+
+    build = command("build", lambda a: submit(a, "builds"), "build an index: a profile YAML file or an id")
+    build.add_argument("config", metavar="PROFILE", help="profile.yaml or index profile id")
+    build.add_argument("--dry-run", action="store_true", help="only check the dataset and the storage")
+    build.add_argument("--no-wait", action="store_true", help="queue the build, print its id and exit")
+
+    command("cancel", cmd_cancel, "cancel a queued or running run or build").add_argument("id")
+    log = command("log", cmd_log, "print the task log of a run or build")
+    log.add_argument("id")
+    log.add_argument("--follow", action="store_true", help="keep reading until the task finishes")
+    command("queue", cmd_queue, "the running task and the queue")
+
+    start = command("start", cmd_start, "start the stand: services, environment, server; prints the UI address")
+    start.add_argument("--port", type=int, default=8000)
+    start.add_argument("--host", default="127.0.0.1", help="bind address; 0.0.0.0 opens the server to the network")
+    start.add_argument("--open", action="store_true", help="open the UI in the browser")
+    start.add_argument("--no-services", action="store_true", help="do not start Qdrant and Redis with Docker")
+    start.add_argument("--foreground", action="store_true", help="run the server in this terminal (Ctrl-C stops)")
+    stop = command("stop", cmd_stop, "stop the server started by start")
+    stop.add_argument("--services", action="store_true", help="also stop Qdrant and Redis (docker compose)")
+    command("status", cmd_status, "services, server, running task and queue")
+
+    for group, noun, source in (("scenarios", "scenario", "scenario id or run id"),
+                                ("profiles", "index profile", "profile id or build id")):
+        lib = commands.add_parser(group, help=f"the {noun} library on the server")
+        lib.set_defaults(group=group)
+        actions = lib.add_subparsers(dest="action", metavar="<action>", required=True)
+        command("list", cmd_lib_list, f"{noun}s of the library", actions)
+        command("show", cmd_lib_show, f"print the {noun} YAML", actions).add_argument("id")
+        command("edit", cmd_lib_edit, f"edit the {noun} in $EDITOR", actions).add_argument("id")
+        new = command("new", cmd_lib_new, f"a new {noun} copied from another", actions)
+        new.add_argument("id", help="id of the new entry")
+        new.add_argument("--from", dest="source", required=True, help=source)
+        command("check", cmd_lib_check, f"dry-run of the {noun}", actions).add_argument("id")
+        command("delete", cmd_lib_delete, f"delete the {noun} (asks first)", actions).add_argument("id")
+
+    runs = commands.add_parser("runs", help="runs in the registry")
+    actions = runs.add_subparsers(dest="action", metavar="<action>", required=True)
+    listing = command("list", cmd_runs_list, "runs with summary columns", actions)
+    listing.add_argument("--state", choices=["queued", "running", "completed", "failed", "cancelled"])
+    listing.add_argument("--scenario", help="scenario name")
+    listing.add_argument("--tag")
+    listing.add_argument("-n", type=int, default=20, help="how many (default 20)")
+    listing.add_argument("-k", type=int, default=10, help="k for ndcg and recall (default 10)")
+    command("show", cmd_runs_show, "summary, conditions, warnings, error", actions).add_argument("id")
+    command("files", cmd_runs_files, "artifacts of the run", actions).add_argument("id")
+    export = command("export", cmd_runs_export, "download the artifacts", actions)
+    export.add_argument("id")
+    export.add_argument("--zip", action="store_true", help="keep the zip instead of extracting")
+    export.add_argument("-o", default=".", metavar="DIR", help="where to put them (default: current directory)")
+    queries = command("queries", cmd_runs_queries, "per-query rows", actions)
+    queries.add_argument("id")
+    queries.add_argument("--outcome", choices=["ok", "timeout", "error"])
+    queries.add_argument("--miss", action="store_true", help="only queries without a relevant document in top k")
+    queries.add_argument("-n", type=int, default=50, help="how many (default 50)")
+    queries.add_argument("-k", type=int, default=10, help="k for --miss (default 10)")
+
+    builds = commands.add_parser("builds", help="index builds in the registry")
+    actions = builds.add_subparsers(dest="action", metavar="<action>", required=True)
+    command("list", cmd_builds_list, "builds", actions).add_argument("-n", type=int, default=20)
+    command("show", cmd_builds_show, "one build", actions).add_argument("id")
+    command("indexes", cmd_indexes, "collections in Qdrant and their state")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if not getattr(args, "func", None):
+        parser.print_help()
+        return 0
+    try:
+        return args.func(args)
+    except ApiError as e:
+        if args.json:
+            emit_json(e.problem)
+        else:
+            echo_problem(e.problem)
+        return 2 if e.status == 422 else 1
+    except Unreachable as e:
+        err(f"Error: {e}.")
+        err(f"Start the stand: {CMD} start (or set --api / RAGGLET_API_URL).")
+        return 3
+    except Exit as e:
+        return e.code
+    except KeyboardInterrupt:
+        return 130
+
+
+if __name__ == "__main__":
+    sys.exit(main())
