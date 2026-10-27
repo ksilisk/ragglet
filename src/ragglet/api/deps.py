@@ -8,6 +8,7 @@ from fastapi import Depends, Request
 from ragglet.api.library import ConfigLibrary
 from ragglet.api.settings import ServerSettings
 from ragglet.jobs.protocol import JobManager
+from ragglet.registry.inspect import QueryInspector
 from ragglet.registry.protocol import Registry
 
 
@@ -21,6 +22,7 @@ class Services:
     jobs: JobManager
     registry: Registry
     compute: dict[str, Any] | None = None  # predicted_compute(): считается один раз, лениво
+    query_inspector: QueryInspector | None = None  # датасет и Qdrant для детали запроса, лениво
 
 
 def get_services(request: Request) -> Services:

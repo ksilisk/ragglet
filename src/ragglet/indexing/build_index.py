@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Any
-from uuid import NAMESPACE_URL, uuid5
 
 from ragglet.config.index_profile import IndexProfileConfig
 from ragglet.core.environment import capture_env
@@ -13,7 +12,7 @@ from ragglet.datasets.beir import document_text, read_corpus
 from ragglet.datasets.checks import validate_dataset
 from ragglet.datasets.sources import describe_dataset, resolve_dataset
 from ragglet.indexing.chunking import chunk_document
-from ragglet.indexing.metadata import RAGGLET_METADATA_KEY, build_index_metadata
+from ragglet.indexing.metadata import RAGGLET_METADATA_KEY, build_index_metadata, chunk_point_id
 from ragglet.indexing.qdrant_indexer import QdrantIndexer, QdrantIndexSpec
 from ragglet.modules.embedders.st_embedder import SentenceTransformerEmbedder
 from ragglet.storage.layout import StorageTarget, build_storage_layout, require_implemented
@@ -27,11 +26,6 @@ class BuildResult:
     targets: list[StorageTarget]  # коллекции, которые пересоздаются
     warnings: list[Issue]  # валидации датасета
     index: dict[str, Any] | None = None  # записанные метаданные ragglet; у dry_run их нет
-
-
-def _make_point_id(chunk_id: str) -> str:
-    # детерминированный UUID по строке -> одинаковый при пересборке
-    return str(uuid5(NAMESPACE_URL, chunk_id))
 
 
 def build_index(
@@ -112,7 +106,7 @@ def build_index(
 
         for idx, chunk_text in enumerate(chunks):
             chunk_id = f"{doc.doc_id}#{idx}"
-            point_id = _make_point_id(chunk_id)
+            point_id = chunk_point_id(chunk_id)
             batch_ids.append(point_id)
             batch_texts.append(chunk_text)
             batch_payloads.append(

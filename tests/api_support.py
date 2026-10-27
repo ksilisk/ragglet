@@ -15,6 +15,7 @@ from ragglet.config.index_profile import IndexProfileConfig
 from ragglet.core.errors import ServiceUnavailable
 from ragglet.indexing.metadata import build_index_metadata
 from ragglet.jobs.memory import InMemoryJobManager
+from ragglet.registry.files import FileRegistry
 from ragglet.registry.memory import InMemoryRegistry
 from ragglet.stores.qdrant_store_async import CollectionInfo, ServerCollections
 
@@ -52,6 +53,7 @@ class FakeQdrant:
 
     collections: dict[tuple[str, str], CollectionInfo] = field(default_factory=dict)
     down: set[str] = field(default_factory=set)
+    points: dict[tuple[str, str], dict[str, dict]] = field(default_factory=dict)  # коллекция -> chunk_id -> payload
 
     def store_class(self):
         fake = self
@@ -67,6 +69,12 @@ class FakeQdrant:
 
             async def describe(self):
                 return {"type": "qdrant", "version": "1.17.0"}
+
+            async def payloads(self, chunk_ids):
+                if self.endpoint in fake.down:
+                    raise ServiceUnavailable(self.endpoint, "ConnectError: refused")
+                stored = fake.points.get((self.endpoint, self.collection), {})
+                return {c: stored[c] for c in chunk_ids if c in stored}
 
             async def close(self):
                 pass
@@ -115,16 +123,17 @@ class Clock:
 class Stand:
     client: TestClient
     settings: ServerSettings
-    registry: InMemoryRegistry
+    registry: InMemoryRegistry | FileRegistry
     jobs: InMemoryJobManager
     qdrant: FakeQdrant
     clock: Clock
 
 
-def make_stand(tmp_path: Path, monkeypatch, **settings) -> Stand:
+def make_stand(tmp_path: Path, monkeypatch, *, file_registry: bool = False, **settings) -> Stand:
     from ragglet.api import probes
     from ragglet.bench import preflight as preflight_module
     from ragglet.bench import run_scenario as run_module
+    from ragglet.registry import inspect as inspect_module
 
     scenarios, profiles = tmp_path / "scenarios", tmp_path / "indexes"
     shutil.copytree(ROOT / "configs" / "scenarios", scenarios)
@@ -132,6 +141,7 @@ def make_stand(tmp_path: Path, monkeypatch, **settings) -> Stand:
     qdrant = FakeQdrant({(QDRANT, "chunks_v1"): collection(index_meta())})
     monkeypatch.setattr(run_module, "AsyncQdrantStore", qdrant.store_class())
     monkeypatch.setattr(probes, "AsyncQdrantStore", qdrant.store_class())
+    monkeypatch.setattr(inspect_module, "AsyncQdrantStore", qdrant.store_class())
     monkeypatch.setattr(probes, "list_collections", qdrant.list_collections)
 
     async def redis_down(endpoint, timeout):
@@ -147,10 +157,11 @@ def make_stand(tmp_path: Path, monkeypatch, **settings) -> Stand:
         artifacts_dir=tmp_path / "runs",
         dataset_roots=[ROOT / "datasets"],
         qdrant_endpoints=[QDRANT],
-        **settings,
+        **{"builds_dir": tmp_path / "builds", **settings},
     )
     clock = Clock()
-    registry = InMemoryRegistry(config.artifacts_dir, now=clock)
+    registry = (FileRegistry(config.artifacts_dir, config.builds_dir, now=clock) if file_registry
+                else InMemoryRegistry(config.artifacts_dir, now=clock))
     jobs = InMemoryJobManager(registry, now=clock)
     client = TestClient(create_app(config, jobs=jobs, registry=registry))
     return Stand(client=client, settings=config, registry=registry, jobs=jobs, qdrant=qdrant, clock=clock)

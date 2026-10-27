@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+from uuid import NAMESPACE_URL, uuid5
 
 from ragglet.config.index_profile import IndexProfileConfig
 
@@ -22,6 +23,11 @@ REQUIRED_FIELDS = (
     "storage_backend_count",
     "build_env",
 )
+
+
+def chunk_point_id(chunk_id: str) -> str:
+    """id точки чанка в Qdrant: детерминированный UUID по chunk_id, одинаковый при пересборке."""
+    return str(uuid5(NAMESPACE_URL, chunk_id))
 
 
 def build_index_metadata(

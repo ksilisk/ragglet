@@ -24,6 +24,7 @@ from ragglet.api.schemas import (
 from ragglet.config.index_profile import IndexProfileConfig
 from ragglet.config.scenario import ScenarioConfig
 from ragglet.datasets.sources import describe_dataset
+from ragglet.registry.listing import summary_column
 from ragglet.registry.protocol import BuildQuery, RunQuery
 
 router = APIRouter()
@@ -79,7 +80,8 @@ async def list_scenarios(svc: Svc) -> list[ScenarioItem]:
     for entry in await anyio.to_thread.run_sync(svc.scenarios.list):
         page = await svc.registry.list_runs(RunQuery(scenario_id=entry.id, limit=1))
         last = page.items[0] if page.items else None
-        items.append(scenario_item(entry, RunBrief(id=last.id, state=last.state, enqueued_at=last.enqueued_at)
+        items.append(scenario_item(entry, RunBrief(id=last.id, state=last.state, enqueued_at=last.enqueued_at,
+                                                   ndcg_at_10=summary_column(last, "ndcg", 10))
                                    if last else None))
     return items
 

@@ -13,14 +13,24 @@ from starlette.types import Scope
 from ragglet.api.deps import Services
 from ragglet.api.library import ConfigLibrary
 from ragglet.api.problems import install_handlers
-from ragglet.api.routers import builds, datasets, indexes, library, meta, runs, stand, tasks
+from ragglet.api.routers import (
+    builds,
+    datasets,
+    indexes,
+    library,
+    meta,
+    results,
+    runs,
+    stand,
+    tasks,
+)
 from ragglet.api.schemas import RootInfo
 from ragglet.api.settings import ServerSettings
 from ragglet.config.index_profile import IndexProfileConfig
 from ragglet.config.scenario import ScenarioConfig
 from ragglet.jobs.memory import InMemoryJobManager
 from ragglet.jobs.protocol import JobManager
-from ragglet.registry.memory import InMemoryRegistry
+from ragglet.registry.files import FileRegistry
 from ragglet.registry.protocol import Registry
 
 
@@ -44,9 +54,9 @@ def create_app(
         jobs: JobManager | None = None,
         registry: Registry | None = None,
 ) -> FastAPI:
-    """Приложение API; без jobs и registry — in-memory заглушки до ragglet-29 и ragglet-30."""
+    """Приложение API; без registry — реестр на файлах, без jobs — заглушка менеджера (её зовут тесты)."""
     settings = settings or ServerSettings()
-    registry = registry or InMemoryRegistry(settings.artifacts_dir)
+    registry = registry or FileRegistry(settings.artifacts_dir, settings.builds_dir)
     jobs = jobs or InMemoryJobManager(registry)
 
     @asynccontextmanager
@@ -55,6 +65,7 @@ def create_app(
         async with AsyncExitStack() as stack:
             if isinstance(jobs, AbstractAsyncContextManager):
                 await stack.enter_async_context(jobs)
+            await registry.recover(jobs)  # ragglet-30: после падения сервера — осиротевшие queued/running
             yield
 
     app = FastAPI(
@@ -76,7 +87,7 @@ def create_app(
         registry=registry,
     )
     install_handlers(app)
-    for module in (meta, stand, library, indexes, datasets, runs, builds, tasks):
+    for module in (meta, stand, library, indexes, datasets, runs, results, builds, tasks):
         app.include_router(module.router, prefix="/v1")
 
     if settings.ui_dir is not None:
