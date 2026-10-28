@@ -550,3 +550,16 @@ textarea.inp {
   max-width: 360px;
   z-index: 70;
 }
+.info {
+  border: none;
+  background: none;
+  padding: 0 2px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--muted);
+  cursor: help;
+}
+.info:hover {
+  color: var(--accent);
+}

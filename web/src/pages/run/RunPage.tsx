@@ -25,6 +25,8 @@ import { WarningsBody, checkStep, dryRunScenario, enqueueScenario } from "../run
 import { LogView } from "../task/LogView";
 import { PhaseSteps } from "../task/PhaseSteps";
 import s from "../task/task.module.css";
+import { LatencyTab } from "./LatencyTab";
+import { QualityTab } from "./QualityTab";
 import { RunOverview } from "./RunOverview";
 
 type TabId = "overview" | "quality" | "latency" | "queries" | "conditions" | "config" | "log" | "files";
@@ -35,8 +37,8 @@ type TabId = "overview" | "quality" | "latency" | "queries" | "conditions" | "co
  */
 export const RUN_TABS: Array<{ id: TabId; title: string; available: (run: S["RunStatus"]) => boolean | "soon"; Component?: ComponentType<{ run: S["RunStatus"] }> }> = [
   { id: "overview", title: msg("Обзор"), available: (r) => r.state === "completed", Component: RunOverview },
-  { id: "quality", title: msg("Качество"), available: () => "soon" },
-  { id: "latency", title: msg("Задержки и нагрузка"), available: () => "soon" },
+  { id: "quality", title: msg("Качество"), available: (r) => r.state === "completed", Component: QualityTab },
+  { id: "latency", title: msg("Задержки и нагрузка"), available: (r) => r.state === "completed", Component: LatencyTab },
   { id: "queries", title: msg("Запросы"), available: () => "soon" },
   { id: "conditions", title: msg("Условия"), available: () => "soon" },
   { id: "config", title: msg("Конфиг"), available: () => true, Component: RunConfig },

@@ -133,3 +133,17 @@ def test_query_detail_from_the_row(stand):
     assert timeout["row"]["outcome"] == "timeout"
 
     assert _problem(stand, f"/v1/runs/{RUN_ID}/queries/q999")[:2] == (404, "query.not_found")
+
+
+def test_fields_project_columns_for_charts(stand):
+    make_run_dir(stand.settings.artifacts_dir)
+
+    body = _page(stand, fields="qid, lat_total_ms,outcome,first_relevant_rank,nope", sort="-lat_total_ms", limit=5000)
+
+    assert body["columns"] == ["qid", "lat_total_ms", "outcome", "first_relevant_rank"]  # nope пропущен
+    assert all(set(item) == set(body["columns"]) for item in body["items"])
+    totals = [item["lat_total_ms"] for item in body["items"]]
+    assert totals == sorted(totals, reverse=True)
+    # сортировать можно по колонке, которой нет в проекции
+    assert _page(stand, fields="qid", sort="t_start_ms")["columns"] == ["qid"]
+    assert stand.client.get(f"/v1/runs/{RUN_ID}/queries", params={"limit": 5001}).status_code == 422

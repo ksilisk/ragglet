@@ -272,6 +272,7 @@ export interface paths {
         /**
          * List Queries
          * @description Строки per-query повтора: parquet или CSV, NaN -> null; списки и длинные тексты — в детали запроса.
+         *     fields — проекция для графиков: задержки всех запросов повтора одним ответом, без лишних колонок.
          */
         get: operations["list_queries_v1_runs__run_id__queries_get"];
         put?: never;
@@ -2105,6 +2106,8 @@ export interface operations {
                 q?: string | null;
                 /** @description колонка или first_relevant_rank, '-' — по убыванию */
                 sort?: string | null;
+                /** @description колонки строки через запятую; незнакомые пропускаются */
+                fields?: string | null;
                 offset?: number;
                 limit?: number;
             };
