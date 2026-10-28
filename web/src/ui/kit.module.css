@@ -77,13 +77,13 @@
   color: var(--text);
 }
 .btn.pri {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
+  background: var(--accent-solid);
+  border-color: var(--accent-solid);
+  color: var(--on-accent);
 }
 .btn.pri:hover {
-  background: var(--accent-hover);
-  color: #fff;
+  background: var(--accent-solid-hover);
+  color: var(--on-accent);
 }
 .btn.danger {
   color: var(--s-fail);
@@ -101,9 +101,9 @@
   background: var(--surface);
 }
 .btn.pri:disabled {
-  background: #93a9e8;
-  border-color: #93a9e8;
-  color: #fff;
+  background: var(--accent-disabled);
+  border-color: var(--accent-disabled);
+  color: var(--on-accent);
 }
 
 /* .chip, .c-* */
@@ -237,8 +237,9 @@
 .tbl.compact td {
   padding: 9px 12px;
 }
-.tbl td.r,
-.tbl th.r {
+/* класс r — глобальный (base.css): прижимает к правому краю и заголовок, и значения колонки */
+.tbl :global(td.r),
+.tbl :global(th.r) {
   text-align: right;
 }
 .tbl tr.sel td {
@@ -307,7 +308,7 @@
 }
 .tab.off,
 .tab.off:hover {
-  color: #b3bac3;
+  color: var(--tab-off);
   cursor: default;
 }
 
@@ -393,7 +394,7 @@ textarea.inp {
 .overlay {
   position: fixed;
   inset: 0;
-  background: rgba(21, 24, 29, 0.32);
+  background: var(--overlay);
   z-index: 50;
 }
 .dlg {
@@ -408,7 +409,7 @@ textarea.inp {
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 20px 24px;
-  box-shadow: 0 12px 32px rgba(21, 24, 29, 0.12);
+  box-shadow: var(--shadow-lg);
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -434,7 +435,7 @@ textarea.inp {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-control);
-  box-shadow: 0 8px 24px rgba(21, 24, 29, 0.12);
+  box-shadow: var(--shadow-md);
   padding: 4px;
   min-width: 180px;
   z-index: 60;
@@ -473,8 +474,8 @@ textarea.inp {
   font-size: 13px;
 }
 .problem.warnBox {
-  border-color: #f3d48a;
-  background: #fffbeb;
+  border-color: var(--warn-border);
+  background: var(--warn-soft);
 }
 .problemTitle {
   font-weight: 600;
@@ -512,8 +513,8 @@ textarea.inp {
 }
 
 .tooltip {
-  background: var(--text);
-  color: #fff;
+  background: var(--tooltip-bg);
+  color: var(--tooltip-text);
   border-radius: 4px;
   padding: 4px 8px;
   font-size: 12px;

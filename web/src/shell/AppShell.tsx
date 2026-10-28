@@ -1,5 +1,6 @@
 import { NavLink, Outlet, useLocation } from "react-router";
 import { cx } from "../ui/cx";
+import { Prefs } from "./Prefs";
 import { StandStrip } from "./StandStrip";
 import s from "./shell.module.css";
 
@@ -24,6 +25,7 @@ export function AppShell() {
           </NavLink>
         ))}
         <StandStrip />
+        <Prefs />
       </nav>
       <Outlet />
     </>

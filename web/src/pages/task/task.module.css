@@ -58,8 +58,8 @@
   color: var(--s-ok);
 }
 .ic.now {
-  background: var(--accent);
-  color: #fff;
+  background: var(--accent-solid);
+  color: var(--on-accent);
 }
 .ic.next {
   background: var(--s-queued-bg);
@@ -105,7 +105,7 @@
   color: var(--log-warn);
 }
 .logErr {
-  color: #fca5a5;
+  color: var(--log-err);
 }
 .tiles {
   display: grid;

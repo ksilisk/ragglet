@@ -1,12 +1,15 @@
-// Числа и даты — по-русски (ru-RU): «0,331», «9 696». Времена с сервера в UTC, показываются локально.
+// Числа и даты по языку UI: ru — «0,331», «9 696»; en — «0.331», «9,696». Времена с сервера в UTC,
+// показываются в локальной зоне.
+import { msg, numberLocale, pluralize, translate } from "../i18n/i18n";
 
-const formats = new Map<number, Intl.NumberFormat>();
+const formats = new Map<string, Intl.NumberFormat>();
 
 function numberFormat(digits: number): Intl.NumberFormat {
-  let f = formats.get(digits);
+  const key = `${numberLocale()}:${digits}`;
+  let f = formats.get(key);
   if (!f) {
-    f = new Intl.NumberFormat("ru-RU", { minimumFractionDigits: digits, maximumFractionDigits: digits });
-    formats.set(digits, f);
+    f = new Intl.NumberFormat(numberLocale(), { minimumFractionDigits: digits, maximumFractionDigits: digits });
+    formats.set(key, f);
   }
   return f;
 }
@@ -50,7 +53,7 @@ export function fmtWhen(value: string | Date | null | undefined, now: Date = new
   const d = toDate(value);
   if (!d) return DASH;
   const time = fmtTime(d, false);
-  if (d.toDateString() === now.toDateString()) return `сегодня ${time}`;
+  if (d.toDateString() === now.toDateString()) return translate("сегодня {time}", { time });
   const date = `${pad(d.getDate())}.${pad(d.getMonth() + 1)}`;
   return d.getFullYear() === now.getFullYear() ? `${date} ${time}` : `${date}.${d.getFullYear()} ${time}`;
 }
@@ -67,7 +70,7 @@ export function fmtDuration(seconds: number | null | undefined): string {
 
 export function fmtBytes(bytes: number | null | undefined): string {
   if (bytes === null || bytes === undefined) return DASH;
-  const units = ["Б", "КБ", "МБ", "ГБ"];
+  const units = [msg("Б"), msg("КБ"), msg("МБ"), msg("ГБ")].map((u) => translate(u));
   let value = bytes;
   let unit = 0;
   while (value >= 1024 && unit < units.length - 1) {
@@ -92,10 +95,7 @@ export function fmtDataset(label: string | null | undefined): string {
   return source ? `${source} · ${id}` : id;
 }
 
-export function plural(n: number, one: string, few: string, many: string): string {
-  const mod10 = n % 10;
-  const mod100 = n % 100;
-  if (mod10 === 1 && mod100 !== 11) return one;
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return few;
-  return many;
+/** Форма слова по числу; forms — «запрос|запроса|запросов», перевод — в i18n/en.ts. */
+export function plural(n: number, forms: string): string {
+  return pluralize(n, forms);
 }

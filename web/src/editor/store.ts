@@ -40,6 +40,8 @@ export interface EditorState {
   touched: ReadonlySet<string>;
   tab: "form" | "yaml";
   open: Readonly<Record<string, boolean>>;
+  /** Выключенные стадии (rerank.enabled: false и т.п.) — для оглавления. */
+  off: Readonly<Record<string, boolean>>;
   /** Запрос «прокрутить к полю» из панели «Проверка»; seq — чтобы повторный клик сработал. */
   focus: { path: string | null; line: number | null; seq: number } | null;
 
@@ -53,6 +55,7 @@ export interface EditorState {
   setCheck(check: CheckResult | null, text?: string): void;
   setTab(tab: "form" | "yaml"): void;
   setOpen(section: string, open: boolean): void;
+  setOff(section: string, off: boolean): void;
   focusOn(path: string | null, line?: number | null): void;
 }
 
@@ -93,6 +96,7 @@ export function createEditorStore(kind: LibraryKind, doc: S["ConfigDocument"], o
       touched: new Set(),
       tab: "form",
       open,
+      off: {},
       focus: null,
 
       setText: (text) => {
@@ -113,6 +117,9 @@ export function createEditorStore(kind: LibraryKind, doc: S["ConfigDocument"], o
       setCheck: (check, text) => set({ check, checkedText: check ? (text ?? get().text) : null, touched: new Set() }),
       setTab: (tab) => set({ tab }),
       setOpen: (section, isOpen) => set({ open: { ...get().open, [section]: isOpen } }),
+      setOff: (section, isOff) => {
+        if (Boolean(get().off[section]) !== isOff) set({ off: { ...get().off, [section]: isOff } });
+      },
       focusOn: (path, line = null) => set({ focus: { path, line, seq: (get().focus?.seq ?? 0) + 1 } }),
     };
   });

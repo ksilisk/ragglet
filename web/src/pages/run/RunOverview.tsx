@@ -62,7 +62,7 @@ export function RunOverview({ run }: { run: S["RunStatus"] }) {
   const repeats = summary.repeats.length || Number(summary.aggregate.repeats ?? 1);
   const pm = (std: number | null, fmt: (x: number) => string) => (repeats > 1 && std !== null ? `± ${fmt(std)}` : null);
   const sub = (...parts: Array<string | null | false>) => parts.filter(Boolean).join(" · ");
-  const repeatsLabel = `${repeats} ${plural(repeats, "повтор", "повтора", "повторов")}`;
+  const repeatsLabel = `${repeats} ${plural(repeats, "повтор|повтора|повторов")}`;
   const m = (key: string) => metric(summary, key);
   const ndcg = m(`doc_ndcg@${kv}_mean`);
   const recall = m(`doc_recall@${kv}_mean`);

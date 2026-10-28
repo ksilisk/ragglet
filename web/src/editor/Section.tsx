@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Chip } from "../ui/Chip";
 import { cx } from "../ui/cx";
 import { useSectionMarks, useVisibleIssues } from "./derived";
@@ -23,6 +23,10 @@ export function Section({ id, title, summary, toggle, children }: {
   const errors = issues.filter((i) => i.severity === "error").length;
   const warnings = issues.length - errors;
   const readOnly = useEditor((st) => st.parsed.error !== null);
+  const isOff = toggle ? !toggle.on : false;
+  useEffect(() => {
+    store.getState().setOff(id, isOff);
+  }, [store, id, isOff]);
   return (
     <section className={cx(s.sec, marks.get(id) === "error" && s.err)} id={sectionDomId(id)} aria-label={title}>
       <div style={{ display: "flex", alignItems: "center" }}>
@@ -50,10 +54,45 @@ export function Section({ id, title, summary, toggle, children }: {
   );
 }
 
+/**
+ * Навигация по секциям — оглавление: подсвечена одна строка, секция, которая сейчас вверху экрана
+ * (а не все раскрытые). Точки — проблемы проверки, «выкл» — выключенная стадия.
+ */
 export function SectionNav({ sections }: { sections: ReadonlyArray<{ id: string; title: string }> }) {
   const { store } = useEditorContext();
   const marks = useSectionMarks();
-  const open = useEditor((st) => st.open);
+  const off = useEditor((st) => st.off);
+  const [active, setActive] = useState(sections[0]?.id ?? "");
+
+  useEffect(() => {
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      let current = sections[0]?.id ?? "";
+      for (const sec of sections) {
+        const el = document.getElementById(sectionDomId(sec.id));
+        if (el && el.getBoundingClientRect().top <= SPY_OFFSET) current = sec.id;
+      }
+      // докрутили до конца — последняя секция, даже если её верх ниже линии
+      if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2) {
+        const last = [...sections].reverse().find((sec) => document.getElementById(sectionDomId(sec.id)));
+        if (last) current = last.id;
+      }
+      setActive(current);
+    };
+    const onScroll = () => {
+      if (!frame) frame = requestAnimationFrame(update);
+    };
+    update();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+    };
+  }, [sections]);
+
   return (
     <nav className={s.secnav} aria-label="Секции">
       {sections.map((sec) => {
@@ -62,13 +101,18 @@ export function SectionNav({ sections }: { sections: ReadonlyArray<{ id: string;
           <button
             key={sec.id}
             type="button"
-            className={cx(open[sec.id] && s.on)}
+            className={cx(active === sec.id && s.on, off[sec.id] && s.offStage)}
+            aria-current={active === sec.id ? "location" : undefined}
             onClick={() => {
               store.getState().setOpen(sec.id, true);
+              setActive(sec.id);
               requestAnimationFrame(() => document.getElementById(sectionDomId(sec.id))?.scrollIntoView({ behavior: "smooth", block: "start" }));
             }}
           >
-            <span>{sec.title}</span>
+            <span>
+              {sec.title}
+              {off[sec.id] && <span className={s.offLabel}> · выкл</span>}
+            </span>
             {mark && <span className={cx(s.sdot, mark === "error" ? s.e : s.w)} title={mark === "error" ? "есть ошибки" : "есть предупреждения"} />}
           </button>
         );
@@ -76,3 +120,6 @@ export function SectionNav({ sections }: { sections: ReadonlyArray<{ id: string;
     </nav>
   );
 }
+
+/** Линия «вверху экрана» для оглавления: секция, чей верх выше неё, считается текущей. */
+const SPY_OFFSET = 120;

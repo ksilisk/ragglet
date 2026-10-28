@@ -15,6 +15,11 @@
   --accent-hover: #1e40af;
   --accent-soft: #e8eefc;
   --accent-row: #f3f6fd;
+  /* заливка основной кнопки и текст на ней: в тёмной теме акцент для текста светлее заливки */
+  --accent-solid: #1d4ed8;
+  --accent-solid-hover: #1e40af;
+  --accent-disabled: #93a9e8;
+  --on-accent: #ffffff;
 
   --danger: #dc2626;
   --danger-text: #b91c1c;
@@ -24,6 +29,9 @@
   --warning-text: #92400e;
   --ok: #16a34a;
   --ok-line: #86efac;
+  --warn-soft: #fffbeb;
+  --warn-border: #f3d48a;
+  --tab-off: #b3bac3;
 
   --s-run-bg: #dbeafe;
   --s-run: #1e40af;
@@ -53,4 +61,166 @@
   --log-text: #d7dce3;
   --log-meta: #8b96a5;
   --log-warn: #fcd34d;
+  --log-err: #fca5a5;
+
+  --overlay: rgba(21, 24, 29, 0.32);
+  --shadow-md: 0 8px 24px rgba(21, 24, 29, 0.12);
+  --shadow-lg: 0 12px 32px rgba(21, 24, 29, 0.12);
+  --tooltip-bg: #15181d;
+  --tooltip-text: #ffffff;
+
+  /* CodeMirror: активная строка и подсветка YAML */
+  --cm-active-line: #f7f9fd;
+  --cm-active-gutter: #eef2fb;
+  --syn-key: #1e40af;
+  --syn-string: #a31515;
+  --syn-number: #116644;
+  --syn-bool: #7c3aed;
+  --syn-comment: #6b7280;
+  --syn-punct: #5f6873;
+
+  color-scheme: light;
+}
+
+/*
+ * Тёмная тема: тот же набор токенов. Выбор пользователя — data-theme на <html>; без выбора — как в
+ * системе (prefers-color-scheme).
+ */
+:root[data-theme="dark"] {
+  --bg: #0f1115;
+  --surface: #171a20;
+  --text: #e6e8eb;
+  --muted: #9aa3ae;
+  --faint: #6b7480;
+  --border: #2a2f37;
+  --border-soft: #22262d;
+  --input-border: #3a404a;
+  --hover: #1e2229;
+  --hover-strong: #252a32;
+
+  --accent: #7aa2ff;
+  --accent-hover: #a3bfff;
+  --accent-soft: #1c2a45;
+  --accent-row: #172036;
+  --accent-solid: #2563eb;
+  --accent-solid-hover: #3b76f6;
+  --accent-disabled: #2b3b63;
+  --on-accent: #ffffff;
+
+  --danger: #ef4444;
+  --danger-text: #fca5a5;
+  --danger-border: #5b2626;
+  --danger-soft: #2a1515;
+  --warning: #f59e0b;
+  --warning-text: #fcd34d;
+  --ok: #22c55e;
+  --ok-line: #166534;
+  --warn-soft: #2a2110;
+  --warn-border: #5c4512;
+  --tab-off: #4b5260;
+
+  --s-run-bg: #1e3a5f;
+  --s-run: #93c5fd;
+  --s-queued-bg: #2a2f37;
+  --s-queued: #c9ced6;
+  --s-ok-bg: #14351f;
+  --s-ok: #86efac;
+  --s-fail-bg: #3f1d1d;
+  --s-fail: #fca5a5;
+  --s-cancel-bg: #262a31;
+  --s-cancel: #a6aeb8;
+  --s-warn-bg: #3a2c0f;
+  --s-warn: #fcd34d;
+  --s-tag-bg: #22262d;
+  --s-tag: #c9ced6;
+
+  --log-bg: #0b0d10;
+  --log-text: #d7dce3;
+
+  --overlay: rgba(0, 0, 0, 0.55);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.5);
+  --tooltip-bg: #e6e8eb;
+  --tooltip-text: #15181d;
+
+  --cm-active-line: #1b1f26;
+  --cm-active-gutter: #20252d;
+  --syn-key: #93c5fd;
+  --syn-string: #fca5a5;
+  --syn-number: #86efac;
+  --syn-bool: #c4b5fd;
+  --syn-comment: #8b96a5;
+  --syn-punct: #9aa3ae;
+
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1115;
+    --surface: #171a20;
+    --text: #e6e8eb;
+    --muted: #9aa3ae;
+    --faint: #6b7480;
+    --border: #2a2f37;
+    --border-soft: #22262d;
+    --input-border: #3a404a;
+    --hover: #1e2229;
+    --hover-strong: #252a32;
+
+    --accent: #7aa2ff;
+    --accent-hover: #a3bfff;
+    --accent-soft: #1c2a45;
+    --accent-row: #172036;
+    --accent-solid: #2563eb;
+    --accent-solid-hover: #3b76f6;
+    --accent-disabled: #2b3b63;
+    --on-accent: #ffffff;
+
+    --danger: #ef4444;
+    --danger-text: #fca5a5;
+    --danger-border: #5b2626;
+    --danger-soft: #2a1515;
+    --warning: #f59e0b;
+    --warning-text: #fcd34d;
+    --ok: #22c55e;
+    --ok-line: #166534;
+    --warn-soft: #2a2110;
+    --warn-border: #5c4512;
+    --tab-off: #4b5260;
+
+    --s-run-bg: #1e3a5f;
+    --s-run: #93c5fd;
+    --s-queued-bg: #2a2f37;
+    --s-queued: #c9ced6;
+    --s-ok-bg: #14351f;
+    --s-ok: #86efac;
+    --s-fail-bg: #3f1d1d;
+    --s-fail: #fca5a5;
+    --s-cancel-bg: #262a31;
+    --s-cancel: #a6aeb8;
+    --s-warn-bg: #3a2c0f;
+    --s-warn: #fcd34d;
+    --s-tag-bg: #22262d;
+    --s-tag: #c9ced6;
+
+    --log-bg: #0b0d10;
+    --log-text: #d7dce3;
+
+    --overlay: rgba(0, 0, 0, 0.55);
+    --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.45);
+    --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.5);
+    --tooltip-bg: #e6e8eb;
+    --tooltip-text: #15181d;
+
+    --cm-active-line: #1b1f26;
+    --cm-active-gutter: #20252d;
+    --syn-key: #93c5fd;
+    --syn-string: #fca5a5;
+    --syn-number: #86efac;
+    --syn-bool: #c4b5fd;
+    --syn-comment: #8b96a5;
+    --syn-punct: #9aa3ae;
+
+    color-scheme: dark;
+  }
 }

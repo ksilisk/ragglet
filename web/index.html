@@ -5,6 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <title>ragglet</title>
+    <script>
+      // тема и язык до загрузки приложения: без вспышки светлой темы (см. src/lib/theme.ts, src/i18n)
+      try {
+        var t = localStorage.getItem("ragglet.theme");
+        if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+        if (localStorage.getItem("ragglet.lang") === "en") document.documentElement.lang = "en";
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -51,3 +51,38 @@
   color: var(--danger-text);
   font-weight: 500;
 }
+.prefs {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.seg {
+  display: inline-flex;
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-control);
+  overflow: hidden;
+  height: 26px;
+}
+.seg button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  padding: 0 6px;
+  border: none;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.seg button + button {
+  border-left: 1px solid var(--input-border);
+}
+.seg button:hover {
+  color: var(--text);
+}
+.seg button.segOn {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
