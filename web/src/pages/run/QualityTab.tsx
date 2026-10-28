@@ -13,6 +13,11 @@ import { ErrorBox } from "../../ui/ProblemView";
 import { Segmented } from "../../ui/Segmented";
 import { InfoTip } from "../../ui/Tip";
 import { QualityCard } from "./resultCards";
+import { downloadCsv, fileName } from "../../analysis/csv";
+import { missesTable, qualityTable, type Table } from "../../analysis/tables";
+import { CsvButton } from "../../charts/ExportMenu";
+
+const save = (name: string, table: Table) => downloadCsv(`${name}.csv`, table.header, table.rows);
 import r from "./results.module.css";
 
 /** «Качество» (ragglet-32 §5): метрика × k по уровням, раскрытие по повторам, промахи со ссылками. */
@@ -41,12 +46,12 @@ export function QualityTab({ run }: { run: S["RunStatus"] }) {
         <Empty>{t("Метрик doc- и chunk-уровня в summary нет: прогон старого формата.")}</Empty>
       ) : (
         <div className={r.grid2}>
-          <QualityTable summary={summary} level={level} />
-          <QualityCard summary={summary} level={level} title={t("Метрика по k")} />
+          <QualityTable summary={summary} level={level} name={run.id} />
+          <QualityCard summary={summary} level={level} name={run.id} title={t("Метрика по k")} />
         </div>
       )}
-      {level === "doc" && available.includes("doc") && <MissesCard summary={summary} />}
-      {legacy.length > 0 && <LegacyCard summary={summary} keys={legacy} />}
+      {level === "doc" && available.includes("doc") && <MissesCard summary={summary} name={run.id} />}
+      {legacy.length > 0 && <LegacyCard summary={summary} keys={legacy} name={run.id} />}
     </>
   );
 }
@@ -61,7 +66,7 @@ function Cell({ s, many }: { s: Stat | null; many: boolean }) {
   );
 }
 
-function QualityTable({ summary, level }: { summary: Summary; level: Level }) {
+function QualityTable({ summary, level, name }: { summary: Summary; level: Level; name: string }) {
   const t = useT();
   const grid = qualityGrid(summary, level);
   const [open, setOpen] = useState<Set<string>>(new Set());
@@ -75,7 +80,15 @@ function QualityTable({ summary, level }: { summary: Summary; level: Level }) {
   const short = level === "doc" ? grid.ks.map((x) => stat(summary, `doc_short@${x}_rate`)) : [];
 
   return (
-    <Card title={t("Метрика × k")} aside={<InfoTip label={t("Как читать")} content={<>{t(LEVEL_NOTE[level])} {t(COMMON_NOTE)}</>} />}>
+    <Card
+      title={t("Метрика × k")}
+      aside={
+        <div className={r.toolbar}>
+          <InfoTip label={t("Как читать")} content={<>{t(LEVEL_NOTE[level])} {t(COMMON_NOTE)}</>} />
+          <CsvButton onClick={() => save(fileName(name, "quality", level), qualityTable(summary, level))} />
+        </div>
+      }
+    >
       <table className={`${k.tbl} ${k.compact}`} aria-label={t("Метрика × k")}>
         <thead>
           <tr>
@@ -152,13 +165,21 @@ function QualityTable({ summary, level }: { summary: Summary; level: Level }) {
 }
 
 /** Промахи при k по повторам: n − round(n · hit@k); число — ссылка в «Запросы» с фильтром miss_at. */
-function MissesCard({ summary }: { summary: Summary }) {
+function MissesCard({ summary, name }: { summary: Summary; name: string }) {
   const t = useT();
   const grid = qualityGrid(summary, "doc");
   if (!grid.metrics.includes("hit")) return null;
   const rows = grid.ks.map((x) => ({ k: x, perRepeat: misses(summary, x) }));
   return (
-    <Card title={t("Промахи при k")} aside={<InfoTip label={t("Что такое промах")} content={t("Промах при k — среди первых k нет ни одного нужного документа (hit@k = 0). Запрос без ответа — тоже промах.")} />}>
+    <Card
+      title={t("Промахи при k")}
+      aside={
+        <div className={r.toolbar}>
+          <InfoTip label={t("Что такое промах")} content={t("Промах при k — среди первых k нет ни одного нужного документа (hit@k = 0). Запрос без ответа — тоже промах.")} />
+          <CsvButton onClick={() => save(fileName(name, "misses"), missesTable(summary))} />
+        </div>
+      }
+    >
       <table className={`${k.tbl} ${k.compact}`} aria-label={t("Промахи при k")}>
         <thead>
           <tr>
@@ -189,11 +210,14 @@ function MissesCard({ summary }: { summary: Summary }) {
 }
 
 /** Метрики до ragglet-16/21: ключи как есть, без переименования и графиков. */
-function LegacyCard({ summary, keys }: { summary: Summary; keys: string[] }) {
+function LegacyCard({ summary, keys, name }: { summary: Summary; keys: string[]; name: string }) {
   const t = useT();
   const many = repeatCount(summary) > 1;
   return (
-    <Card title={t("Метрики старого формата")}>
+    <Card
+      title={t("Метрики старого формата")}
+      aside={<CsvButton onClick={() => save(fileName(name, "legacy-metrics"), { header: ["key", "mean", "std"], rows: keys.map((key) => [key, stat(summary, key).mean, stat(summary, key).std]) })} />}
+    >
       <span className={r.caption}>{t("Ключи summary как есть: до ragglet-16 recall@k означал нынешний hit@k. Ничего не пересчитывается.")}</span>
       <table className={`${k.tbl} ${k.compact}`} aria-label={t("Метрики старого формата")}>
         <thead>

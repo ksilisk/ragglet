@@ -208,7 +208,7 @@ results/runs/<scenario_name>_<utc_timestamp>/
 
 Quality-метрики двух прогонов сравнимы, если в `manifest.json` у них равны `dataset.corpus_sha256` и `dataset.eval_sha256`. Различия индекса (chunking, модель) — экспериментальный фактор и видны в секции `index`.
 
-`ragglet.bench.compare.compare_runs(a, b)` сравнивает два каталога прогонов и относит каждое различие к одному из классов:
+`ragglet.bench.compare.compare_runs(a, b)` сравнивает два каталога прогонов (`compare_trees` — любое их число, его зовёт `GET /v1/runs/compare` и страница сравнения в UI) и относит каждое различие к одному из классов:
 
 - `data` (`dataset`) — quality-метрики несравнимы;
 - `config` (snapshot сценария, `index`, `rerank`) — настройка RAG, то, что исследуем;
@@ -281,9 +281,13 @@ python3 ragglet profiles list                             # то же для п�
 - `GET /v1/runs/{id}?include=summary,manifest,scenario` — статус и тяжёлые поля;
   `scenario_file` говорит, изменился ли сценарий библиотеки после прогона.
 - `GET /v1/runs/{id}/queries` — per-query повтора (`repeat`) с фильтрами `outcome`,
-  `miss_at` (промах при k), `min_total_ms`, `q` и `first_relevant_rank`;
+  `miss_at` (промах при k), `min_total_ms`, `q` и `first_relevant_rank`; `fields` — только
+  нужные колонки (`fields=qid,lat_total_ms`), `limit` до 5000;
   `GET /v1/runs/{id}/queries/{qid}` — один запрос: выдача с рангами, релевантностью,
   rerank-score и попаданием в контекст.
+- `GET /v1/runs/compare?ids=a,b[,…]` — сравнение 2–6 прогонов: различия snapshot и manifest по
+  классам `data` / `config` / `env`, вердикт (`quality_comparable`, `latency_comparable`,
+  `confounders`) и summary каждого прогона.
 - `GET /v1/runs/{id}/artifacts`, `…/artifacts/{name}`, `…/artifacts.zip` — файлы как есть.
 
 ```bash
@@ -363,6 +367,22 @@ python3 ragglet start --open
 `RAGGLET_UI_DIR=web/dist uv run python -m ragglet.server`; каталог должен существовать, иначе
 сервер не стартует. В шапке — тема (светлая / тёмная /
 как в системе) и язык интерфейса (RU / EN); выбор запоминается в браузере.
+
+**Результаты и сравнение** (ragglet-32, [docs/designs/ragglet-32-results-ui.md](docs/designs/ragglet-32-results-ui.md)).
+На странице прогона `/runs/<id>`:
+
+- «Обзор» — плитки, условия, задержки по стадиям, качество по k, повторы;
+- «Качество» — метрика × k (doc и chunk) со std по повторам, промахи при k со ссылками в «Запросы»;
+- «Задержки и нагрузка» — перцентили по стадиям, распределение `lat_total_ms` (CDF), линия
+  времени повтора, исходы, кэш;
+- «Запросы» — таблица с фильтрами в URL (`?tab=queries&outcome=timeout&miss_at=10`) и панель
+  запроса: релевантные по qrels, финальный список, тексты чанков;
+- «Условия» — `manifest.json` по карточкам или как JSON.
+
+Сравнение: в «Прогонах» отметьте от двух до шести прогонов → «Сравнить» (`/compare?ids=…`;
+первый — базовый). Плашка говорит, сравнимы ли качество и задержки, ниже — метрики бок о бок с
+Δ, общие графики и различия конфига. Каждый график скачивается в SVG и PNG (всегда светлая тема,
+белый фон — для статьи), каждая таблица — в CSV (ключи summary, точка как разделитель).
 
 Разработка — сервер и Vite рядом, `/v1` проксируется на API (`RAGGLET_API_URL`, по умолчанию
 `http://127.0.0.1:8000`):

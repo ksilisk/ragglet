@@ -1,4 +1,7 @@
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useMemo, useRef, useState } from "react";
+import { downloadCsv, fileName } from "../../analysis/csv";
+import { compareDiffTable, compareMetricsTable } from "../../analysis/tables";
+import { CsvButton, ExportMenu } from "../../charts/ExportMenu";
 import { Link, useSearchParams } from "react-router";
 import {
   LATENCY_GROUP,
@@ -20,7 +23,7 @@ import {
 import { useQualityMode } from "../../analysis/qualityMode";
 import { METRIC_LABEL, type Metric } from "../../analysis/summary";
 import { useCompare } from "../../api/queries";
-import { Chart } from "../../charts/Chart";
+import { Chart, type ChartExport } from "../../charts/Chart";
 import { qualityByKOption } from "../../charts/options/qualityByK";
 import { stageBarHeight, stageBarOption } from "../../charts/options/stageBar";
 import { LIGHT } from "../../charts/theme";
@@ -192,20 +195,28 @@ function MetricsTable({ runs, labels }: { runs: CompareRun[]; labels: string[] }
     <Card
       title={t("Метрики бок о бок")}
       aside={
-        ks.length > 0 && (
-          <span className={r.toolbar} style={{ gap: 6 }}>
-            <label htmlFor="compare-k" className="small muted">
-              k
-            </label>
-            <select id="compare-k" className={`${k.inp} ${k.sm} num`} style={{ width: "auto" }} value={kv} onChange={(e) => setK(Number(e.target.value))}>
-              {ks.map((x) => (
-                <option key={x} value={x}>
-                  {x}
-                </option>
-              ))}
-            </select>
-          </span>
-        )
+        <span className={r.toolbar}>
+          {ks.length > 0 && (
+            <span className={r.toolbar} style={{ gap: 6 }}>
+              <label htmlFor="compare-k" className="small muted">
+                k
+              </label>
+              <select id="compare-k" className={`${k.inp} ${k.sm} num`} style={{ width: "auto" }} value={kv} onChange={(e) => setK(Number(e.target.value))}>
+                {ks.map((x) => (
+                  <option key={x} value={x}>
+                    {x}
+                  </option>
+                ))}
+              </select>
+            </span>
+          )}
+          <CsvButton
+            onClick={() => {
+              const table = compareMetricsTable(runs, rows);
+              downloadCsv(`${fileName("compare", `${runs.length}runs`, "metrics", `k${kv}`)}.csv`, table.header, table.rows);
+            }}
+          />
+        </span>
       }
     >
       <div className={r.scroll}>
@@ -277,6 +288,7 @@ function MetricsTable({ runs, labels }: { runs: CompareRun[]; labels: string[] }
 
 function QualityCompare({ runs, labels }: { runs: CompareRun[]; labels: string[] }) {
   const t = useT();
+  const exp = useRef<ChartExport>(null);
   const [mode, setMode] = useQualityMode();
   const { ks, metrics } = useMemo(() => qualityAxes(runs), [runs]);
   const [metricSel, setMetric] = useState<Metric>("ndcg");
@@ -295,10 +307,15 @@ function QualityCompare({ runs, labels }: { runs: CompareRun[]; labels: string[]
             ))}
           </select>
           <QualityModeToggle mode={mode} onChange={setMode} />
+          {ks.length > 0 && <ExportMenu target={exp} />}
         </span>
       }
     >
-      {ks.length === 0 ? <Empty>{t("Метрик doc-уровня у этих прогонов нет.")}</Empty> : <Chart build={qualityByKOption} data={data} height={300} label={t("Качество по k по прогонам")} />}
+      {ks.length === 0 ? (
+        <Empty>{t("Метрик doc-уровня у этих прогонов нет.")}</Empty>
+      ) : (
+        <Chart build={qualityByKOption} data={data} height={300} label={t("Качество по k по прогонам")} exportRef={exp} exportName={fileName("compare", `${runs.length}runs`, "quality-k", metric)} />
+      )}
       <span className={r.caption}>{t("Линия — прогон, цвет — как у прогона в шапке. Усы — std по повторам.")}</span>
     </Card>
   );
@@ -306,25 +323,36 @@ function QualityCompare({ runs, labels }: { runs: CompareRun[]; labels: string[]
 
 function StagesCompare({ runs, labels }: { runs: CompareRun[]; labels: string[] }) {
   const t = useT();
+  const exp = useRef<ChartExport>(null);
   const [p, setP] = useState<"50" | "95" | "99">("50");
   const data = useMemo(() => ({ ...stageRowsByRun(runs, Number(p), labels), percentile: Number(p) }), [runs, p, labels]);
   return (
     <Card
       title={t("Задержки по стадиям")}
       aside={
-        <Segmented
-          label={t("Перцентиль")}
-          value={p}
-          onChange={setP}
-          items={[
-            { id: "50", label: "p50" },
-            { id: "95", label: "p95" },
-            { id: "99", label: "p99" },
-          ]}
-        />
+        <span className={r.toolbar}>
+          <Segmented
+            label={t("Перцентиль")}
+            value={p}
+            onChange={setP}
+            items={[
+              { id: "50", label: "p50" },
+              { id: "95", label: "p95" },
+              { id: "99", label: "p99" },
+            ]}
+          />
+          <ExportMenu target={exp} />
+        </span>
       }
     >
-      <Chart build={stageBarOption} data={data} height={stageBarHeight(runs.length)} label={t("Задержки по стадиям по прогонам")} />
+      <Chart
+        build={stageBarOption}
+        data={data}
+        height={stageBarHeight(runs.length)}
+        label={t("Задержки по стадиям по прогонам")}
+        exportRef={exp}
+        exportName={fileName("compare", `${runs.length}runs`, "latency-stages", `p${p}`)}
+      />
       <span className={r.caption}>{t("Строка — прогон, цвета стадий те же, что в «Обзоре». Отметка — total; сумма медиан стадий не равна медиане total.")}</span>
     </Card>
   );
@@ -336,7 +364,20 @@ function Differences({ data, labels }: { data: Compare; labels: string[] }) {
   const [showNoisy, setShowNoisy] = useState(false);
   if (groups.length === 0) return <Card title={t("Различия")}>{<span className="small muted">{t("Snapshot и manifest прогонов совпадают (кроме имени, описания и тегов).")}</span>}</Card>;
   return (
-    <Card title={t("Различия")} aside={<span className="small muted">{t("Базовый — первый прогон: отличающиеся от него значения выделены.")}</span>}>
+    <Card
+      title={t("Различия")}
+      aside={
+        <span className={r.toolbar}>
+          <span className="small muted">{t("Базовый — первый прогон: отличающиеся от него значения выделены.")}</span>
+          <CsvButton
+            onClick={() => {
+              const table = compareDiffTable(data);
+              downloadCsv(`${fileName("compare", `${data.runs.length}runs`, "differences")}.csv`, table.header, table.rows);
+            }}
+          />
+        </span>
+      }
+    >
       <div className={r.scroll}>
         <table className={`${k.tbl} ${k.compact}`} aria-label={t("Различия")}>
           <thead>

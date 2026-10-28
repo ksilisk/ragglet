@@ -732,4 +732,9 @@ export const en: Record<string, string> = {
   "скрыть points, indexed_vectors и segments": "hide points, indexed_vectors and segments",
   "скрыть стадии": "hide stages",
   "убрать": "remove",
+
+  // экспорт (ragglet-32)
+  "Скачать график": "Download the chart",
+  "Скачать график: SVG или PNG, светлая тема": "Download the chart: SVG or PNG, light theme",
+  "Скачать таблицу в CSV": "Download the table as CSV",
 };

@@ -4,7 +4,10 @@ import { useRunInclude } from "../../api/queries";
 import { useT } from "../../i18n/i18n";
 import { fmtMetric, fmtMs, fmtNumber, fmtPercent, fmtQps } from "../../lib/format";
 import { snapshotFacts } from "../../analysis/snapshot";
+import { downloadCsv, fileName } from "../../analysis/csv";
 import { queriesSearch } from "../../analysis/queryParams";
+import { repeatsTable } from "../../analysis/tables";
+import { CsvButton } from "../../charts/ExportMenu";
 import { availableK, misses, num, outcomeTotals, repeatCount, stat, type Summary } from "../../analysis/summary";
 import { LinkButton } from "../../ui/Button";
 import k from "../../ui/kit.module.css";
@@ -116,11 +119,21 @@ export function RunOverview({ run }: { run: S["RunStatus"] }) {
       </div>
       <div className={r.grid2}>
         <ConditionsSummary run={run} summaryN={num(summary.repeats[0], "n")} />
-        <StageCard summary={summary} facts={facts} />
+        <StageCard summary={summary} facts={facts} name={run.id} />
       </div>
       <div className={r.grid2}>
-        <QualityCard summary={summary} level="doc" />
-        <Card title={t("Повторы")}>
+        <QualityCard summary={summary} level="doc" name={run.id} />
+        <Card
+          title={t("Повторы")}
+          aside={
+            <CsvButton
+              onClick={() => {
+                const table = repeatsTable(summary);
+                downloadCsv(`${fileName(run.id, "repeats")}.csv`, table.header, table.rows);
+              }}
+            />
+          }
+        >
         <table className={`${k.tbl} ${k.compact}`} aria-label={t("Повторы")}>
           <thead>
             <tr>

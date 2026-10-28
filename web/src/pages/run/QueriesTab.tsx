@@ -1,7 +1,9 @@
 import { columnVisibilityFeature, createColumnHelper, flexRender, rowSortingFeature, tableFeatures, useTable, type ColumnVisibilityState } from "@tanstack/react-table";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router";
-import { ApiProblem, type S } from "../../api/client";
+import { ApiProblem, api, unwrap, type S } from "../../api/client";
+import { downloadCsv, fileName, type Cell } from "../../analysis/csv";
+import { CsvButton } from "../../charts/ExportMenu";
 import { useRunInclude, useRunQueries, type QueriesQuery } from "../../api/queries";
 import { readFilters, writeFilters, type QueryFilters } from "../../analysis/queryParams";
 import { STAGES, latencyGrid, misses, num, type Summary } from "../../analysis/summary";
@@ -70,6 +72,15 @@ export function QueriesTab({ run }: { run: S["RunStatus"] }) {
   const items = data?.items ?? [];
   const index = items.findIndex((row) => String(row.qid) === f.qid);
   const partial = run.state !== "completed" && data ? data.repeats : null;
+  // CSV — весь отфильтрованный набор, а не страница: страницы по 5000 с теми же фильтрами
+  const saveCsv = async () => {
+    const get = (offset: number) => unwrap(api.GET("/v1/runs/{run_id}/queries", { params: { path: { run_id: run.id }, query: { ...query, offset, limit: 5000 } } }));
+    const first = await get(0);
+    const all = [...first.items];
+    while (all.length < first.total) all.push(...(await get(all.length)).items);
+    const cell = (v: unknown): Cell => (v === null || v === undefined ? null : typeof v === "object" ? JSON.stringify(v) : (v as Cell));
+    downloadCsv(`${fileName(run.id, "queries", `repeat${f.repeat}`)}.csv`, first.columns, all.map((row) => first.columns.map((c) => cell(row[c]))));
+  };
 
   return (
     <>
@@ -138,6 +149,7 @@ export function QueriesTab({ run }: { run: S["RunStatus"] }) {
           onSort={(sort) => set({ sort })}
           onK={(x) => set({ k: x })}
           onOpen={(qid) => set({ qid })}
+          onCsv={data && data.total > 0 ? () => void saveCsv() : null}
           footer={
             data && data.total > 0 ? (
               <div className={k.tblFoot}>
@@ -185,7 +197,7 @@ function repeatCounts(summary: Summary | null, repeat: number, kv: number) {
   };
 }
 
-function QueriesTable({ items, columns, k: kv, ks, sort, selected, stagesOn, onSort, onK, onOpen, footer }: {
+function QueriesTable({ items, columns, k: kv, ks, sort, selected, stagesOn, onSort, onK, onOpen, onCsv, footer }: {
   items: Row[];
   columns: string[];
   k: number;
@@ -196,6 +208,7 @@ function QueriesTable({ items, columns, k: kv, ks, sort, selected, stagesOn, onS
   onSort: (sort: string | null) => void;
   onK: (k: number) => void;
   onOpen: (qid: string) => void;
+  onCsv: (() => void) | null;
   footer: ReactNode;
 }) {
   const t = useT();
@@ -286,6 +299,7 @@ function QueriesTable({ items, columns, k: kv, ks, sort, selected, stagesOn, onS
             </select>
           </span>
         )}
+        {onCsv && <CsvButton onClick={onCsv} />}
         {stageColumns.length > 0 && (
           <Menu
             trigger={<Button small>{t("Колонки стадий ▾")}</Button>}

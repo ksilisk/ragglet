@@ -53,7 +53,7 @@ export function timelineOption(d: TimelineData, theme: ChartTheme): EChartsOptio
   return {
     ...base(theme),
     animation: false,
-    grid: { left: 0, right: 24, top: 16, bottom: 72, containLabel: true },
+    grid: { left: 0, right: 24, top: 28, bottom: 72, containLabel: true },
     xAxis: valueAxis(theme, { name: translate("с от начала повтора"), nameLocation: "middle", nameGap: 26, min: 0, axisLabel: { color: theme.muted, fontFamily: theme.fontMono, fontSize: 11, formatter: (v: number) => fmtNumber(v, Number.isInteger(v) ? 0 : 1) } }),
     yAxis: valueAxis(theme, { name: translate("мс"), nameLocation: "end", min: 0, axisLabel: { color: theme.muted, fontFamily: theme.fontMono, fontSize: 11, formatter: axisMs } }),
     dataZoom: [

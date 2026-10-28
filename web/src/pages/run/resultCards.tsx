@@ -1,5 +1,8 @@
-import { useMemo, type ReactNode } from "react";
-import { Chart } from "../../charts/Chart";
+import { useMemo, useRef, type ReactNode } from "react";
+import { downloadCsv, fileName } from "../../analysis/csv";
+import { percentilesTable } from "../../analysis/tables";
+import { Chart, type ChartExport } from "../../charts/Chart";
+import { CsvButton, ExportMenu } from "../../charts/ExportMenu";
 import { qualityByKOption, type QualityMode } from "../../charts/options/qualityByK";
 import { stageBarHeight, stageBarOption } from "../../charts/options/stageBar";
 import { useT } from "../../i18n/i18n";
@@ -31,8 +34,9 @@ export function QualityModeToggle({ mode, onChange }: { mode: QualityMode; onCha
 }
 
 /** «Качество по k»: серия на метрику, усы — std по повторам. */
-export function QualityCard({ summary, level, title, aside }: { summary: Summary; level: Level; title?: string; aside?: ReactNode }) {
+export function QualityCard({ summary, level, name, title, aside }: { summary: Summary; level: Level; name: string; title?: string; aside?: ReactNode }) {
   const t = useT();
+  const exp = useRef<ChartExport>(null);
   const [mode, setMode] = useQualityMode();
   const data = useMemo(() => qualityByMetric(summary, level, mode), [summary, level, mode]);
   const repeats = repeatCount(summary);
@@ -43,6 +47,7 @@ export function QualityCard({ summary, level, title, aside }: { summary: Summary
         <div className={r.toolbar}>
           {aside}
           <QualityModeToggle mode={mode} onChange={setMode} />
+          {data.series.length > 0 && <ExportMenu target={exp} />}
         </div>
       }
     >
@@ -50,7 +55,14 @@ export function QualityCard({ summary, level, title, aside }: { summary: Summary
         <Empty>{t("Метрик уровня {level} в summary нет: прогон старого формата или уровень выключен.", { level })}</Empty>
       ) : (
         <>
-          <Chart build={qualityByKOption} data={data} height={280} label={t("Качество по k, уровень {level}", { level })} />
+          <Chart
+            build={qualityByKOption}
+            data={data}
+            height={280}
+            label={t("Качество по k, уровень {level}", { level })}
+            exportRef={exp}
+            exportName={fileName(name, "quality-k", level)}
+          />
           <span className={r.caption}>
             {repeats > 1
               ? t("Шкала 0–1. Усы — std по {n} повторам.", { n: repeats })
@@ -63,11 +75,12 @@ export function QualityCard({ summary, level, title, aside }: { summary: Summary
 }
 
 /** «Задержки по стадиям»: полоса p50, таблица перцентилей, таймауты по стадиям. */
-export function StageCard({ summary, facts }: { summary: Summary; facts: SnapshotFacts }) {
+export function StageCard({ summary, facts, name }: { summary: Summary; facts: SnapshotFacts; name: string }) {
   const t = useT();
+  const exp = useRef<ChartExport>(null);
   const grid = latencyGrid(summary);
   const p = grid.percentiles.includes(50) ? 50 : (grid.percentiles[0] ?? 50);
-  const data = useMemo(() => ({ stages: grid.stages, rows: [stageRow(summary, "", p)], percentile: p }), [summary, grid.stages, p]);
+  const data = useMemo(() => ({ stages: latencyGrid(summary).stages, rows: [stageRow(summary, "", p)], percentile: p }), [summary, p]);
   const timeouts = timeoutStages(summary);
   const n = totalQueries(summary);
   const off = facts.stagesOff.filter((stage) => !grid.stages.includes(stage));
@@ -80,8 +93,19 @@ export function StageCard({ summary, facts }: { summary: Summary; facts: Snapsho
     );
   }
   return (
-    <Card title={t("Задержки по стадиям, p{p}", { p })}>
-      <Chart build={stageBarOption} data={data} height={stageBarHeight(1)} label={t("Задержки по стадиям, p{p}", { p })} />
+    <Card
+      title={t("Задержки по стадиям, p{p}", { p })}
+      aside={
+        <div className={r.toolbar}>
+          <CsvButton onClick={() => {
+            const table = percentilesTable(summary);
+            downloadCsv(`${fileName(name, "latency-percentiles")}.csv`, table.header, table.rows);
+          }} />
+          <ExportMenu target={exp} />
+        </div>
+      }
+    >
+      <Chart build={stageBarOption} data={data} height={stageBarHeight(1)} label={t("Задержки по стадиям, p{p}", { p })} exportRef={exp} exportName={fileName(name, "latency-stages", `p${p}`)} />
       {off.length > 0 && <span className={r.caption}>{t("Выключены в сценарии: {stages}.", { stages: off.join(", ") })}</span>}
       <table className={`${k.tbl} ${k.compact}`} aria-label={t("Перцентили по стадиям")}>
         <thead>

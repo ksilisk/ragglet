@@ -1,30 +1,30 @@
-import type { EChartsOption } from "echarts";
 import type { ECharts } from "echarts/core";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useT } from "../i18n/i18n";
 import s from "./charts.module.css";
-import { useChartTheme, type ChartTheme } from "./theme";
+import { exportChart, type ExportFormat } from "./exportChart";
+import { loadECharts, type Build } from "./load";
+import { useChartTheme } from "./theme";
+
+export { loadECharts, type Build };
 
 type Lib = typeof import("./echarts");
-let loading: Promise<Lib> | null = null;
 
-/** ECharts грузится один раз, при первом графике: плитки и таблицы не ждут его. */
-export function loadECharts(): Promise<Lib> {
-  loading ??= import("./echarts");
-  return loading;
+/** Ручка экспорта: карточка графика держит её и показывает меню «SVG / PNG» у себя в шапке. */
+export interface ChartExport {
+  download(format: ExportFormat): Promise<void>;
 }
-
-/** Опция графика — чистая функция данных и темы (charts/options): её же зовёт экспорт со светлой темой. */
-export type Build<D> = (data: D, theme: ChartTheme) => EChartsOption;
 
 export interface ChartProps<D> {
   build: Build<D>;
   data: D; // мемоизированные данные: новая ссылка — новая опция
   height: number;
   label: string; // подпись для экранного диктора
+  exportRef?: RefObject<ChartExport | null>;
+  exportName?: string; // имя файла без расширения
 }
 
-export function Chart<D>({ build, data, height, label }: ChartProps<D>) {
+export function Chart<D>({ build, data, height, label, exportRef, exportName }: ChartProps<D>) {
   const t = useT();
   const theme = useChartTheme();
   const option = useMemo(() => build(data, theme), [build, data, theme]);
@@ -61,6 +61,16 @@ export function Chart<D>({ build, data, height, label }: ChartProps<D>) {
   useEffect(() => {
     chart.current?.setOption(option, { notMerge: true });
   }, [option, lib]);
+
+  useEffect(() => {
+    if (!exportRef) return;
+    exportRef.current = {
+      download: (format) => exportChart(build, data, theme.lang, format, { width: box.current?.clientWidth ?? 900, height }, exportName ?? "chart"),
+    };
+    return () => {
+      exportRef.current = null;
+    };
+  }, [exportRef, build, data, theme.lang, height, exportName]);
 
   return (
     <div className={s.chart} style={{ height }} role="img" aria-label={label}>
