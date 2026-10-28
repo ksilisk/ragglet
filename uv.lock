@@ -1161,9 +1161,7 @@ dependencies = [
     { name = "pyyaml" },
     { name = "qdrant-client" },
     { name = "redis" },
-    { name = "rich" },
     { name = "sentence-transformers" },
-    { name = "typer" },
     { name = "uvicorn" },
 ]
 
@@ -1194,10 +1192,8 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "qdrant-client", specifier = ">=1.17.0" },
     { name = "redis", specifier = ">=5.0.0" },
-    { name = "rich", specifier = ">=13.7.1" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6.9" },
     { name = "sentence-transformers", specifier = ">=3.0.0" },
-    { name = "typer", specifier = ">=0.12.3" },
     { name = "types-pyyaml", marker = "extra == 'dev'", specifier = ">=6.0.12.20240808" },
     { name = "uvicorn", specifier = ">=0.32" },
 ]

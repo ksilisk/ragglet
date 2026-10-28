@@ -4,13 +4,10 @@ import json
 from pathlib import Path
 
 import pytest
-import yaml
-from typer.testing import CliRunner
 
 from ragglet.bench import run_scenario as run_module
 from ragglet.bench.compare import section_kind
 from ragglet.bench.preflight import preflight
-from ragglet.cli.app import app
 from ragglet.config.index_profile import IndexProfileConfig
 from ragglet.config.scenario import ScenarioConfig
 from ragglet.core.issues import ValidationError
@@ -308,33 +305,6 @@ async def test_unsupported_backend_is_a_validation_error(fake_runtime):
     assert _codes(exc) == [("storage.not_implemented", "target default")]
 
 
-def _scenario_file(tmp_path: Path) -> Path:
-    path = tmp_path / "scenario.yaml"
-    path.write_text(yaml.safe_dump(_scenario_data(tmp_path / "runs")), encoding="utf-8")
-    return path
-
-
-def test_cli_dry_run_prints_preflight_report(tmp_path, fake_runtime):
-    fake_runtime.metadata_for = {"chunks_v1": _meta()}
-
-    result = CliRunner().invoke(app, ["bench", "run", str(_scenario_file(tmp_path)), "--dry-run"])
-
-    assert result.exit_code == 0, result.output
-    assert "Preflight: OK" in result.output
-    assert f"corpus sha256: {DEMO_SHA}" in result.output
-    assert f"embedding: all-MiniLM-L6-v2@{MODEL_SHA}" in result.output
-    assert not (tmp_path / "runs").exists()
-
-
-def test_cli_validation_error_exits_with_code_2(tmp_path, fake_runtime):
-    fake_runtime.metadata_for = {}
-
-    result = CliRunner().invoke(app, ["bench", "run", str(_scenario_file(tmp_path)), "--dry-run"])
-
-    assert result.exit_code == 2
-    assert "index.no_metadata" in result.output
-
-
 def _paths(exc) -> list[tuple[str, str | None]]:
     return [(i.code, i.path) for i in exc.value.issues]
 
@@ -468,14 +438,3 @@ def test_run_plan_matches_progress_total():
     cfg = _scenario(run={"repeats": 3, "load": {"concurrency": 4}})
     plan = run_plan(cfg, 5)
     assert (plan.queries_per_repeat, plan.total, plan.load) == (5, 15, {"type": "closed", "concurrency": 4})
-
-
-def test_cli_unsupported_strategy_exits_with_code_2(tmp_path, fake_runtime):
-    path = tmp_path / "scenario.yaml"
-    data = _scenario_data(tmp_path / "runs", retrieval={"strategy": "cascade", "sources": [{"name": "v"}]})
-    path.write_text(yaml.safe_dump(data), encoding="utf-8")
-
-    result = CliRunner().invoke(app, ["bench", "run", str(path), "--dry-run"])
-
-    assert result.exit_code == 2
-    assert "retrieval.not_implemented" in result.output

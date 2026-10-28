@@ -13,6 +13,7 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
 from urllib.request import urlopen
 
 import numpy as np
@@ -241,8 +242,21 @@ def normalize_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
     return copied
 
 
-def matching_run_dirs(root: Path, scenario: str) -> list[Path]:
-    return sorted(path for path in root.glob(f"{scenario}_*") if path.is_dir())
+def tagged_run_dirs(api: str, tag: str, exclude: list[str]) -> dict[str, list[Path]]:
+    """
+    Завершённые прогоны серии из реестра сервера (ragglet-37): серия — это тег, который прогонам
+    дали при запуске (`ragglet run … --tag <серия>`). Сценарий -> каталоги в порядке постановки.
+    """
+    query = urlencode({"tag": tag, "state": "completed", "sort": "enqueued_at", "limit": 500})
+    with urlopen(f"{api.rstrip('/')}/v1/runs?{query}", timeout=30) as response:
+        items = json.load(response)["items"]
+    found: dict[str, list[Path]] = {}
+    for item in items:
+        if item["id"] in exclude:
+            continue
+        run_dir = Path(item["run_dir"])  # путь, как его видит сервер: от корня репозитория
+        found.setdefault(item["scenario"], []).append(run_dir if run_dir.is_absolute() else ROOT / run_dir)
+    return found
 
 
 def compare_smoke_runs(top_dir: Path, adaptive_dir: Path) -> dict[str, Any]:
@@ -304,12 +318,12 @@ def mean(series: pd.Series) -> float:
     return float(series.astype(float).mean()) if len(series) else 0.0
 
 
-def build_tidy(runs_root: Path) -> tuple[pd.DataFrame, dict[str, list[dict[str, Any]]]]:
+def build_tidy(runs: dict[str, list[Path]]) -> tuple[pd.DataFrame, dict[str, list[dict[str, Any]]]]:
     frames: list[pd.DataFrame] = []
     snapshots: dict[str, list[dict[str, Any]]] = {}
 
     for scenario, expected in EXPECTED_RUNS.items():
-        dirs = matching_run_dirs(runs_root, scenario)
+        dirs = runs.get(scenario, [])
         if len(dirs) != expected:
             raise AssertionError(f"Expected {expected} runs for {scenario}, found {len(dirs)}")
         experiment, condition, label = SCENARIOS[scenario]
@@ -694,9 +708,7 @@ Cold и warm — парные фазы пяти независимых B1 runs. 
 
 
 def analyze(args: argparse.Namespace) -> int:
-    runs_root = (
-        (ROOT / args.runs).resolve() if not Path(args.runs).is_absolute() else Path(args.runs)
-    )
+    runs = tagged_run_dirs(args.api, args.tag, args.exclude)
     output_dir = (
         (ROOT / args.output_dir).resolve()
         if not Path(args.output_dir).is_absolute()
@@ -711,22 +723,17 @@ def analyze(args: argparse.Namespace) -> int:
         raise FileNotFoundError(manifest_path)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    tidy, snapshots = build_tidy(runs_root)
+    tidy, snapshots = build_tidy(runs)
     anomalies = validate_inputs(tidy, snapshots)
-    rejected_root = runs_root.parent / "rejected"
-    rejected_b1 = sorted(rejected_root.glob("article_b1_cache_phases_*"))
-    if rejected_b1:
+    if args.exclude:
         anomalies.append(
-            f"Исключены {len(rejected_b1)} предварительных B1-прогона после "
-            "нарушения cold-phase invariant: benchmark использовал host Redis, а "
-            "первоначальный reset был направлен в Compose Redis. Исходные "
-            f"отклонённые артефакты сохранены в {rejected_root}."
+            f"Исключены вручную {len(args.exclude)} прогонов серии {args.tag}: "
+            f"{', '.join(args.exclude)}. Их артефакты остаются в results/runs."
         )
     summary = build_summary(tidy, anomalies, manifest_path)
 
-    smoke_root = runs_root.parent / "smoke"
-    top_smoke = matching_run_dirs(smoke_root, "article_smoke_top_n")
-    adaptive_smoke = matching_run_dirs(smoke_root, "article_smoke_adaptive_t000")
+    top_smoke = runs.get("article_smoke_top_n", [])
+    adaptive_smoke = runs.get("article_smoke_adaptive_t000", [])
     if len(top_smoke) != 1 or len(adaptive_smoke) != 1:
         raise AssertionError(
             "Expected exactly one top_n and one adaptive threshold=0.00 smoke run"
@@ -784,7 +791,11 @@ def build_parser() -> argparse.ArgumentParser:
     report = commands.add_parser(
         "analyze", help="Create tidy CSV, JSON summary, and Markdown report."
     )
-    report.add_argument("--runs", default="results/article/raw")
+    report.add_argument("--tag", required=True, help="series tag given to the runs: ragglet run ... --tag T")
+    report.add_argument("--api", default=os.environ.get("RAGGLET_API_URL", "http://127.0.0.1:8000"),
+                        help="ragglet server to ask for the runs of the series")
+    report.add_argument("--exclude", action="append", default=[], metavar="RUN_ID",
+                        help="leave a run of the series out (repeatable); listed in the report")
     report.add_argument("--output-dir", default="results/article")
     report.add_argument("--manifest", default="results/article/experiment-manifest.json")
     report.set_defaults(func=analyze)

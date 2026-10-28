@@ -58,5 +58,5 @@ async def generate_answer(
     try:
         with anyio.fail_after(cfg.timeouts.llm_ms / 1000.0):
             return await generator.generate(request), prompt
-    except TimeoutError:
-        raise StageTimeout("generation")
+    except TimeoutError as e:
+        raise StageTimeout("generation") from e

@@ -7,6 +7,8 @@ localhost:6379 и модель all-MiniLM-L6-v2 (скачается с Hub пр�
 """
 from __future__ import annotations
 
+import importlib.machinery
+import importlib.util
 import io
 import json
 import os
@@ -307,7 +309,7 @@ def _alive(pid: int) -> bool:
 
 
 def test_server_crash_then_restart(e2e):
-    """`ragglet serve` настоящим процессом, SIGKILL во время прогона, затем новый сервер."""
+    """`python -m ragglet.server` настоящим процессом, SIGKILL во время прогона, затем новый сервер."""
     port = _free_port()
     env = os.environ | {
         "RAGGLET_PORT": str(port),
@@ -319,7 +321,7 @@ def test_server_crash_then_restart(e2e):
     server_log = e2e.root / f"serve_{port}.log"
     scenario = e2e.scenario.replace("repeats: 2", "repeats: 30")
     with server_log.open("wb") as out:
-        server = subprocess.Popen([sys.executable, "-c", "from ragglet.cli.app import app; app()", "serve"],
+        server = subprocess.Popen([sys.executable, "-m", "ragglet.server"],
                                   cwd=ROOT, env=env, stdout=out, stderr=subprocess.STDOUT)
     try:
         with httpx.Client(base_url=f"http://127.0.0.1:{port}/v1", timeout=30) as api:
@@ -362,26 +364,38 @@ def test_server_crash_then_restart(e2e):
     assert repeat.status_code == 409
 
 
-def test_cli_run_is_imported(e2e):
-    """Прогон CLI мимо API (до ragglet-37) пишет каталог без run.json; реестр его импортирует."""
-    scenario = e2e.root / "cli_scenario.yaml"
-    scenario.write_text(e2e.scenario.replace('artifacts_dir: "results/runs"',
-                                             f'artifacts_dir: "{e2e.settings.artifacts_dir}"'), encoding="utf-8")
-    before = set(p.name for p in e2e.settings.artifacts_dir.iterdir())
-    done = subprocess.run([sys.executable, "-c", "from ragglet.cli.app import app; app()", "bench", "run",
-                           str(scenario)], cwd=ROOT, capture_output=True, text=True, timeout=300)
-    assert done.returncode == 0, done.stdout[-3000:] + done.stderr[-3000:]
-    (run_id,) = set(p.name for p in e2e.settings.artifacts_dir.iterdir()) - before
+def test_client_start_run_stop(e2e, monkeypatch, tmp_path, capsys):
+    """Клиент в корне (ragglet-37): start поднимает настоящий сервер, run идёт через API, stop его гасит."""
+    loader = importlib.machinery.SourceFileLoader("ragglet_client", str(ROOT / "ragglet"))
+    cli = importlib.util.module_from_spec(importlib.util.spec_from_loader("ragglet_client", loader))
+    loader.exec_module(cli)
+    for name, value in {
+        "RAGGLET_SCENARIOS_DIR": e2e.settings.scenarios_dir, "RAGGLET_INDEX_PROFILES_DIR": e2e.settings.index_profiles_dir,
+        "RAGGLET_ARTIFACTS_DIR": e2e.settings.artifacts_dir, "RAGGLET_BUILDS_DIR": e2e.settings.builds_dir,
+    }.items():
+        monkeypatch.setenv(name, str(value))
+    monkeypatch.delenv("RAGGLET_API_URL", raising=False)
+    monkeypatch.setattr(cli, "RESULTS", tmp_path)  # server.json и лог сервера — не в results/ репозитория
+    scenario = tmp_path / "scenario.yaml"
+    scenario.write_text(e2e.scenario, encoding="utf-8")
 
-    with TestClient(e2e.app()) as client:
-        listed = {item["id"]: item for item in _json(client.get("/v1/runs"))["items"]}
+    try:
+        assert cli.main(["start", "--port", str(_free_port()), "--no-services"]) == 0
+        server = cli.read_state()["pid"]
+        assert cli.main(["run", str(scenario), "--tag", "client"]) == 0, capsys.readouterr().err
+        out = capsys.readouterr().out
+        assert cli.main(["runs", "list", "--tag", "client", "--json"]) == 0
+        listed = json.loads(capsys.readouterr().out)["items"]
+    finally:
+        assert cli.main(["stop"]) == 0
 
-    item = listed[run_id]
-    assert (item["origin"], item["state"], item["scenario"], item["scenario_id"]) == (
-        "import", "completed", "baseline_qdrant", None)
-    assert item["collection"] == e2e.collection
+    run_dir = Path(out.split("Artifacts: ", 1)[1].split(" (on the server)", 1)[0])
+    (item,) = listed
+    assert (item["origin"], item["state"], item["tags"], item["run_dir"]) == ("api", "completed",
+                                                                             ["client"], str(run_dir))
     assert None not in (item["ndcg"], item["recall"], item["p50_ms"], item["qps"])
-    assert not (e2e.settings.artifacts_dir / run_id / "run.json").exists()  # в импорт сервер не пишет
+    assert (run_dir / "run.json").is_file() and (run_dir / "summary.aggregate.json").is_file()
+    assert not cli.alive(server) and cli.read_state() == {}
 
 
 def test_repeat_from_snapshot(e2e):

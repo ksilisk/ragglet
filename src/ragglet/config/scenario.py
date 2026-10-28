@@ -4,13 +4,12 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from ragglet.bench.load import load_params
 from ragglet.bench.metrics import METRICS, metrics_for_level
 from ragglet.config.errors import FieldError
 from ragglet.datasets.sources import check_source
-
 
 # -----------------------
 # Small helpers
@@ -115,7 +114,7 @@ class StorageConfig(BaseModel):
     routing: StorageRoutingConfig = Field(default_factory=StorageRoutingConfig)
 
     @model_validator(mode="after")
-    def _validate_storage_shape(self) -> "StorageConfig":
+    def _validate_storage_shape(self) -> StorageConfig:
         if self.mode != "single" and not self.backends:
             raise FieldError("backends", "storage.backends must be provided when storage.mode is not 'single'")
         return self
@@ -168,7 +167,7 @@ class RetrievalConfig(BaseModel):
         return v
 
     @model_validator(mode="after")
-    def _single_keyword_not_supported(self) -> "RetrievalConfig":
+    def _single_keyword_not_supported(self) -> RetrievalConfig:
         if self.strategy == "single" and any(s.kind == "keyword" for s in self.sources):
             raise FieldError(
                 "sources",
@@ -189,7 +188,7 @@ class RerankConfig(BaseModel):
     output_top_n: int = 10
 
     @model_validator(mode="after")
-    def _model_required_if_enabled(self) -> "RerankConfig":
+    def _model_required_if_enabled(self) -> RerankConfig:
         if self.enabled and self.provider == "cross_encoder" and not self.model:
             raise FieldError("model", "rerank.model is required when rerank.enabled=true and provider='cross_encoder'")
         return self
@@ -226,7 +225,7 @@ class GenerationConfig(BaseModel):
     save: GenerationSaveConfig = Field(default_factory=GenerationSaveConfig)
 
     @model_validator(mode="after")
-    def _model_required_if_enabled(self) -> "GenerationConfig":
+    def _model_required_if_enabled(self) -> GenerationConfig:
         if self.enabled and not self.model:
             raise FieldError("model", "generation.model is required when generation.enabled=true")
         return self
@@ -257,7 +256,7 @@ class CacheConfig(BaseModel):
     retrieval: CacheRetrievalConfig | None = None
 
     @model_validator(mode="after")
-    def _at_least_one_layer_if_enabled(self) -> "CacheConfig":
+    def _at_least_one_layer_if_enabled(self) -> CacheConfig:
         if self.enabled and self.embedding is None and self.retrieval is None:
             raise FieldError("enabled", "At least one cache layer must be set when cache.enabled=true")
         return self
@@ -360,13 +359,13 @@ class ScenarioConfig(BaseModel):
     metrics: MetricsConfig = Field(default_factory=MetricsConfig)
 
     @model_validator(mode="after")
-    def _generation_requires_context(self) -> "ScenarioConfig":
+    def _generation_requires_context(self) -> ScenarioConfig:
         if self.generation.enabled and not self.context.enabled:
             raise FieldError("generation.enabled", "context.enabled must be true when generation.enabled=true")
         return self
 
     @model_validator(mode="after")
-    def _shared_cache_single_repeat(self) -> "ScenarioConfig":
+    def _shared_cache_single_repeat(self) -> ScenarioConfig:
         # общий кэш не чистится между повторами: повтор 1 увидел бы записи повтора 0
         emb = self.cache.embedding
         if self.cache.enabled and emb is not None and emb.namespace is not None and self.run.repeats > 1:
@@ -378,7 +377,7 @@ class ScenarioConfig(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def _quality_k_within_final_depth(self) -> "ScenarioConfig":
+    def _quality_k_within_final_depth(self) -> ScenarioConfig:
         # иначе @k тихо считается по более короткому списку
         depth, source = self.retrieval.top_k, "retrieval.top_k"
         if self.rerank.enabled:

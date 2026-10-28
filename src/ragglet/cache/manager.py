@@ -3,9 +3,9 @@ from __future__ import annotations
 import uuid
 from typing import Any, Literal
 
-from ragglet.config.scenario import ScenarioConfig
 from ragglet.cache.embedding_redis import RedisEmbeddingCache
 from ragglet.cache.retrieval_lru import LRURetrievalCache, RetrievalCacheEntry
+from ragglet.config.scenario import ScenarioConfig
 from ragglet.retrieval.merge import RetrievedItem
 
 Lookup = Literal["hit", "miss"] | None  # None — к слою не обращались: он выключен

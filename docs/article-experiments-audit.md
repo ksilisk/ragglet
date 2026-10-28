@@ -32,8 +32,8 @@ Config: `configs/scenarios/s0_baseline_rag.yaml`.
 Запуск:
 
 ```bash
-uv run ragglet bench run configs/scenarios/s0_baseline_rag.yaml --dry-run
-uv run ragglet bench run configs/scenarios/s0_baseline_rag.yaml
+python3 ragglet run configs/scenarios/s0_baseline_rag.yaml --dry-run
+python3 ragglet run configs/scenarios/s0_baseline_rag.yaml
 ```
 
 Особенности:
@@ -50,8 +50,8 @@ Config: `configs/scenarios/s3_adaptive_context.yaml`.
 Запуск:
 
 ```bash
-uv run ragglet bench run configs/scenarios/s3_adaptive_context.yaml --dry-run
-uv run ragglet bench run configs/scenarios/s3_adaptive_context.yaml
+python3 ragglet run configs/scenarios/s3_adaptive_context.yaml --dry-run
+python3 ragglet run configs/scenarios/s3_adaptive_context.yaml
 ```
 
 Отличия от S0:
@@ -86,8 +86,8 @@ Config: `configs/scenarios/s4_cache.yaml`.
 Запуск:
 
 ```bash
-uv run ragglet bench run configs/scenarios/s4_cache.yaml --dry-run
-uv run ragglet bench run configs/scenarios/s4_cache.yaml
+python3 ragglet run configs/scenarios/s4_cache.yaml --dry-run
+python3 ragglet run configs/scenarios/s4_cache.yaml
 ```
 
 Особенности:
@@ -99,8 +99,8 @@ uv run ragglet bench run configs/scenarios/s4_cache.yaml
 - качество считается по `retrieved_ids`.
 
 Embedding cache key зависит от текста запроса, embedding model и `normalize`.
-Redis сохраняется между CLI-процессами и рестартами контейнера с volume.
-Retrieval LRU живет только внутри одного `bench run`, но сохраняется между его
+Redis сохраняется между прогонами (каждый идёт в свежем процессе воркера) и рестартами контейнера с volume.
+Retrieval LRU живет только внутри одного прогона (`run`), но сохраняется между его
 repeats. Его key зависит от имени сценария, текста запроса, `top_k`, strategy,
 sources и merge, но не содержит collection/index fingerprint.
 
@@ -243,7 +243,7 @@ context policy/threshold. Для short track достаточно пяти repea
 Используется Redis endpoint `redis://localhost:6379/15`. Перед каждым
 независимым cache trial удаляются **только ключи namespace эксперимента**
 `emb:all-MiniLM-L6-v2:1:*`; `FLUSHDB` не нужен. Retrieval LRU создается пустым
-при старте нового CLI-процесса.
+при старте нового процесса прогона.
 
 Важно для этого стенда: benchmark обращается к host Redis на `localhost:6379`,
 а Redis из `docker/docker-compose.yaml` не публикует порт на host. Поэтому
@@ -301,25 +301,27 @@ binary Hit@k численно равен Recall@k. Менять реализац
 
 ### Подготовка текущего стенда
 
+Клиент `ragglet` в корне репозитория (ragglet-37) сам поднимает Qdrant и Redis через
+Docker, готовит окружение и запускает сервер; прогоны идут через API, по одному на стенд:
+
 ```bash
-uv sync --frozen --extra dev
-docker compose -f docker/docker-compose.yaml --profile qdrant up -d qdrant redis
-docker compose -f docker/docker-compose.yaml --profile qdrant ps
+python3 ragglet start
+python3 ragglet status
 ```
 
 Индекс следует построить один раз перед всей серией. Команда пересоздает
 collection, поэтому ее не нужно повторять между cells:
 
 ```bash
-uv run ragglet index build configs/indexes/demo.yaml
+python3 ragglet build demo
 ```
 
 После построения индекса:
 
 ```bash
-uv run ragglet bench run configs/scenarios/s0_baseline_rag.yaml --dry-run
-uv run ragglet bench run configs/scenarios/s3_adaptive_context.yaml --dry-run
-uv run ragglet bench run configs/scenarios/s4_cache.yaml --dry-run
+python3 ragglet run configs/scenarios/s0_baseline_rag.yaml --dry-run
+python3 ragglet run configs/scenarios/s3_adaptive_context.yaml --dry-run
+python3 ragglet run configs/scenarios/s4_cache.yaml --dry-run
 ```
 
 ### После добавления только YAML и analyzer
@@ -339,6 +341,13 @@ configs/experiments/article/cache/b1_cache_phases.yaml
 scripts/analyze_article_runs.py
 ```
 
+Прогоны пишутся в общий реестр (`results/runs/<id>`), а серию отличает тег: все прогоны
+серии запускаются с одним `--tag`, по нему же анализатор их и находит.
+
+```bash
+SERIES=article-$(date +%Y%m%d)
+```
+
 До первого benchmark run фиксируется окружение:
 
 ```bash
@@ -346,49 +355,53 @@ uv run python scripts/analyze_article_runs.py capture-manifest \
   --output results/article/experiment-manifest.json
 ```
 
-Smoke validation:
+Smoke validation (каталоги прогонов `run` печатает в строке `Artifacts`):
 
 ```bash
-uv run ragglet bench run configs/experiments/article/adaptive/smoke_top_n.yaml
-uv run ragglet bench run configs/experiments/article/adaptive/smoke_t000.yaml
+python3 ragglet run configs/experiments/article/adaptive/smoke_top_n.yaml --tag "$SERIES"
+python3 ragglet run configs/experiments/article/adaptive/smoke_t000.yaml --tag "$SERIES"
 uv run python scripts/analyze_article_runs.py check-smoke \
-  --top-n-run <results/article/smoke/article_smoke_top_n_TIMESTAMP> \
-  --adaptive-run <results/article/smoke/article_smoke_adaptive_t000_TIMESTAMP>
+  --top-n-run results/runs/<article_smoke_top_n_TIMESTAMP> \
+  --adaptive-run results/runs/<article_smoke_adaptive_t000_TIMESTAMP>
 ```
 
-Adaptive cells остаются обычными scenarios и запускаются существующим CLI:
+Adaptive cells остаются обычными scenarios:
 
 ```bash
-uv run ragglet bench run configs/experiments/article/adaptive/a_s0.yaml
-uv run ragglet bench run configs/experiments/article/adaptive/a0_top_n.yaml
-uv run ragglet bench run configs/experiments/article/adaptive/a1_t015.yaml
-uv run ragglet bench run configs/experiments/article/adaptive/a2_t030.yaml
-uv run ragglet bench run configs/experiments/article/adaptive/a3_t050.yaml
+python3 ragglet run configs/experiments/article/adaptive/a_s0.yaml --tag "$SERIES"
+python3 ragglet run configs/experiments/article/adaptive/a0_top_n.yaml --tag "$SERIES"
+python3 ragglet run configs/experiments/article/adaptive/a1_t015.yaml --tag "$SERIES"
+python3 ragglet run configs/experiments/article/adaptive/a2_t030.yaml --tag "$SERIES"
+python3 ragglet run configs/experiments/article/adaptive/a3_t050.yaml --tag "$SERIES"
 ```
 
-Cache-disabled control выполняется пятью независимыми CLI-процессами:
+Cache-disabled control выполняется пятью задачами, каждая в свежем процессе воркера
+(ragglet-29), поэтому прогоны независимы:
 
 ```bash
 for trial in 1 2 3 4 5; do
-  uv run ragglet bench run configs/experiments/article/cache/b0_disabled.yaml
+  python3 ragglet run configs/experiments/article/cache/b0_disabled.yaml --tag "$SERIES"
 done
 ```
 
 Пять независимых cold/warm trials. Перед каждым удаляется только namespace
-embedding cache этого benchmark; остальные ключи DB не затрагиваются:
+embedding cache этого benchmark; остальные ключи DB не затрагиваются. `run` ждёт конца
+прогона, поэтому очистка идёт строго между прогонами; Ctrl-C отменяет текущий прогон и
+останавливает цикл:
 
 ```bash
 for trial in 1 2 3 4 5; do
   uv run python -c "import redis; r=redis.Redis.from_url('redis://localhost:6379/15'); ks=list(r.scan_iter(match='emb:all-MiniLM-L6-v2:1:*')); print('keys', len(ks)); r.unlink(*ks) if ks else None"
-  uv run ragglet bench run configs/experiments/article/cache/b1_cache_phases.yaml
+  python3 ragglet run configs/experiments/article/cache/b1_cache_phases.yaml --tag "$SERIES"
 done
 ```
 
-Postprocessing запускается после указания созданных run directories:
+Postprocessing берёт завершённые прогоны серии из реестра сервера (`GET /v1/runs?tag=…`);
+прогон, который нужно исключить, — `--exclude <id>` (он попадёт в аномалии отчёта):
 
 ```bash
 uv run python scripts/analyze_article_runs.py analyze \
-  --runs results/article/raw \
+  --tag "$SERIES" \
   --output-dir results/article \
   --manifest results/article/experiment-manifest.json
 ```

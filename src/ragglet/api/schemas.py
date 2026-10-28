@@ -379,6 +379,7 @@ class RunStatus(_Live):
     scenario_id: str | None  # ссылка на сценарий библиотеки, если её передали
     etag: str | None  # None — прогон импортирован из каталога: текста сценария не было
     origin: Origin  # import — каталог без записи реестра: CLI до ragglet-37 и старые прогоны
+    run_dir: str  # каталог прогона, как его видит сервер: results/runs/<id> от его рабочего каталога
     scenario_file: ScenarioFile | None = None  # файл сценария библиотеки против etag; None — ссылки нет
     plan: RunPlanOut | None  # None — импортирован: плана preflight не было
     dataset: str
@@ -395,6 +396,7 @@ class BuildStatus(_Live):
     profile: str  # id профиля
     profile_id: str | None
     etag: str
+    build_dir: str  # каталог сборки, как его видит сервер
     dataset: str
     targets: list[CollectionRef]
     warnings: list[ProblemIssue]
@@ -409,6 +411,7 @@ class RunItem(BaseModel):
     scenario: str  # name
     scenario_id: str | None
     origin: Origin
+    run_dir: str
     state: TaskState
     enqueued_at: datetime
     started_at: datetime | None
@@ -436,6 +439,7 @@ class BuildItem(BaseModel):
     id: str
     profile: str  # id профиля
     profile_id: str | None
+    build_dir: str
     state: TaskState
     enqueued_at: datetime
     started_at: datetime | None
