@@ -43,21 +43,18 @@ TERMINAL = ("completed", "failed", "cancelled")
 POLL_S = 1.0
 TIMEOUT_S = 30.0
 
-HELP = """\
-commands:
-  stand        start [--port --host --open --no-services --foreground] | stop [--services] | status
-  tasks        run <scenario.yaml | id> [--dry-run] [--tag T] [--no-wait]
-               build <profile.yaml | id> [--dry-run] [--no-wait]
-               cancel <id> | log <id> [--follow] | queue
-  library      scenarios list | show | edit | new <id> --from <id | run-id> | check | delete
-               profiles  list | show | edit | new <id> --from <id | build-id> | check | delete
-  results      runs list [--state --scenario --tag -n -k] | show | files | export | queries
-               builds list | show <id>
-               indexes
-
+# --help по группам: argparse подкоманды не группирует. Описания берутся из самих подкоманд,
+# а тест следит, чтобы каждая команда стояла ровно в одной группе.
+GROUPS = {
+    "stand": ("start", "stop", "status"),
+    "tasks": ("run", "build", "cancel", "log", "queue"),
+    "library": ("scenarios", "profiles"),
+    "results": ("runs", "builds", "indexes"),
+}
+EPILOG = f"""\
+options of a command: {CMD} <command> -h
 global options: --json (raw API response), --api URL (or RAGGLET_API_URL)
-exit codes: 0 done, 1 task failed or cancelled, 2 config/dataset/index problems, 3 server not running
-"""
+exit codes: 0 done, 1 task failed or cancelled, 2 config/dataset/index problems, 3 server not running"""
 
 sleep = time.sleep  # тесты подменяют: на каждом тике двигают заглушку менеджера задач
 
@@ -1290,15 +1287,18 @@ def build_parser() -> argparse.ArgumentParser:
                         "then the server started by `start`, then http://127.0.0.1:8000)")
     common.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="print the raw API response")
 
-    parser = argparse.ArgumentParser(prog=CMD, description="Ragglet stand client.", epilog=HELP,
+    parser = argparse.ArgumentParser(prog=CMD, usage=f"{CMD} <command> [options]", epilog=EPILOG,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--api", default=None, help=argparse.SUPPRESS)
     parser.add_argument("--json", action="store_true", default=False, help=argparse.SUPPRESS)
-    commands = parser.add_subparsers(dest="command", metavar="<command>")
+    # плоский список argparse скрыт: его заменяет список по группам в description
+    commands = parser.add_subparsers(dest="command", metavar="<command>", help=argparse.SUPPRESS, prog=CMD)
+    nested: dict[str, Any] = {}  # группа команд -> её подкоманды: list, show, …
 
     def command(name: str, func: Callable[[argparse.Namespace], int], help_text: str,
                 group: Any = commands) -> argparse.ArgumentParser:
-        sub = group.add_parser(name, parents=[common], help=help_text, description=help_text)
+        listed = {} if group is commands else {"help": help_text}  # у вложенных — список argparse
+        sub = group.add_parser(name, parents=[common], description=help_text, **listed)
         sub.set_defaults(func=func)
         return sub
 
@@ -1331,9 +1331,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     for group, noun, source in (("scenarios", "scenario", "scenario id or run id"),
                                 ("profiles", "index profile", "profile id or build id")):
-        lib = commands.add_parser(group, help=f"the {noun} library on the server")
+        lib = commands.add_parser(group, description=f"the {noun} library on the server")
         lib.set_defaults(group=group)
-        actions = lib.add_subparsers(dest="action", metavar="<action>", required=True)
+        actions = nested[group] = lib.add_subparsers(dest="action", metavar="<action>", required=True)
         command("list", cmd_lib_list, f"{noun}s of the library", actions)
         command("show", cmd_lib_show, f"print the {noun} YAML", actions).add_argument("id")
         command("edit", cmd_lib_edit, f"edit the {noun} in $EDITOR", actions).add_argument("id")
@@ -1343,8 +1343,8 @@ def build_parser() -> argparse.ArgumentParser:
         command("check", cmd_lib_check, f"dry-run of the {noun}", actions).add_argument("id")
         command("delete", cmd_lib_delete, f"delete the {noun} (asks first)", actions).add_argument("id")
 
-    runs = commands.add_parser("runs", help="runs in the registry")
-    actions = runs.add_subparsers(dest="action", metavar="<action>", required=True)
+    runs = commands.add_parser("runs", description="runs in the registry")
+    actions = nested["runs"] = runs.add_subparsers(dest="action", metavar="<action>", required=True)
     listing = command("list", cmd_runs_list, "runs with summary columns", actions)
     listing.add_argument("--state", choices=["queued", "running", "completed", "failed", "cancelled"])
     listing.add_argument("--scenario", help="scenario name")
@@ -1364,12 +1364,29 @@ def build_parser() -> argparse.ArgumentParser:
     queries.add_argument("-n", type=int, default=50, help="how many (default 50)")
     queries.add_argument("-k", type=int, default=10, help="k for --miss (default 10)")
 
-    builds = commands.add_parser("builds", help="index builds in the registry")
-    actions = builds.add_subparsers(dest="action", metavar="<action>", required=True)
+    builds = commands.add_parser("builds", description="index builds in the registry")
+    actions = nested["builds"] = builds.add_subparsers(dest="action", metavar="<action>", required=True)
     command("list", cmd_builds_list, "builds", actions).add_argument("-n", type=int, default=20)
     command("show", cmd_builds_show, "one build", actions).add_argument("id")
     command("indexes", cmd_indexes, "collections in Qdrant and their state")
+    parser.description = "Ragglet stand client: every command goes through the server's REST API.\n\n" + \
+        command_list(commands.choices, nested)
     return parser
+
+
+def command_list(choices: dict[str, argparse.ArgumentParser], nested: dict[str, Any]) -> str:
+    """Команды по группам GROUPS; описание — description подкоманды, у групп — их подкоманды."""
+    width = max(len(name) for name in choices)
+    lines = []
+    for group, names in GROUPS.items():
+        lines += [""] if lines else []
+        lines.append(f"{group}:")
+        for name in names:
+            about = choices[name].description or ""
+            if name in nested:
+                about += ": " + ", ".join(nested[name].choices)
+            lines.append(f"  {name:<{width}}  {about}")
+    return "\n".join(lines)
 
 
 def main(argv: list[str] | None = None) -> int:

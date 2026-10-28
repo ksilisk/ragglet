@@ -136,7 +136,17 @@ def test_render_issues_matches_the_core():
 def test_no_arguments_prints_help_with_groups(capsys):
     assert cli.main([]) == 0
     printed = capsys.readouterr().out
-    assert "scenarios list" in printed and "runs list" in printed and "start [" in printed
+
+    assert "stand:\n  start " in printed and "results:\n  runs " in printed
+    assert "scenarios  the scenario library on the server: list, show, edit, new, check, delete" in printed
+    assert "start the stand" in printed and printed.count("start the stand") == 1  # без плоского списка argparse
+    assert "exit codes:" in printed
+
+
+def test_every_command_is_in_exactly_one_help_group():
+    commands = next(a for a in cli.build_parser()._actions if isinstance(a, cli.argparse._SubParsersAction))
+    grouped = [name for names in cli.GROUPS.values() for name in names]
+    assert sorted(grouped) == sorted(commands.choices)
 
 
 # -----------------------
