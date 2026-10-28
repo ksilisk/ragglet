@@ -44,62 +44,74 @@ Ground truth (`qrels`) ссылается на **id документа** (`corpu
 - `configs/indexes/*.yaml` — профили построения индекса;
 - `configs/scenarios/*.yaml` — сценарии экспериментальных прогонов.
 
-Свой корпус из `.md`/`.txt` можно сконвертировать в BEIR:
-
-```bash
-uv run ragglet dataset import <corpus_dir> <out_dir> --queries <legacy.jsonl> --split test
-```
-
 ## Как запустить
-
-### 1. Подготовить окружение
 
 Нужны:
 
-- Python 3.12+;
-- `uv`;
-- Docker с Docker Compose.
-
-Установить Python-зависимости:
+- Python 3.9+ — подойдёт системный `python3`, клиенту больше ничего не нужно;
+- Docker с Docker Compose — для Qdrant и Redis;
+- [uv](https://docs.astral.sh/uv/getting-started/installation/) — им `start` один раз готовит
+  окружение сервера по `uv.lock` (без uv нужен Python 3.12+, но версии зависимостей тогда не
+  зафиксированы).
 
 ```bash
-uv sync
+git clone https://github.com/ksilisk/ragglet.git && cd ragglet
+python3 ragglet start        # первый раз сам создаст окружение и поднимет Qdrant/Redis
+# UI: http://127.0.0.1:8000
+python3 ragglet build demo
+python3 ragglet run baseline_qdrant
+python3 ragglet stop
 ```
 
-Если зависимости уже установлены в локальный `.venv`, можно запускать команды через `.venv/bin/ragglet`, но основной путь для проекта — `uv run ...`.
+`ragglet` в корне репозитория — клиент стенда: один файл на стандартной библиотеке Python, без
+установки и `uv run`. Всё, что трогает стенд, он делает через REST API сервера (раздел
+[REST API](#6-rest-api)), поэтому прогоны из терминала и из UI встают в одну очередь и видны в
+одном реестре. Без аргументов клиент печатает список команд, у каждой команды есть `--help`.
+Файл исполняемый, так что работает и `./ragglet start`. На Windows — `py ragglet …`; сервер там
+запускается в Docker или WSL. Расширения `.py` у файла нет намеренно: `ragglet.py` в корне
+затенил бы пакет `ragglet` для `python -m ragglet.*`.
 
-### 2. Поднять Qdrant и Redis
+### 1. Стенд
 
-Для базового vector-only benchmark нужен Qdrant. Redis нужен для сценариев с кэшем, но его удобно поднимать сразу:
+`python3 ragglet start`:
+
+1. если Qdrant (`http://localhost:6333`) или Redis (`redis://localhost:6379/0`) не отвечают,
+   поднимает их `docker compose -f docker/docker-compose.yaml --profile qdrant up -d qdrant redis`
+   (без Docker печатает эту команду и останавливается; `--no-services` — не трогать);
+2. готовит окружение сервера в `.venv` (`uv sync --frozen --inexact`; первый раз — несколько
+   минут, вывод — в `results/env.log`);
+3. запускает сервер в фоне (`.venv/bin/python -m ragglet.server`, лог — `results/server.log`,
+   pid и адрес — `results/server.json`) и печатает адрес. Собранный UI (`web/dist`) раздаётся
+   с того же адреса.
+
+Повторный `start` при живом сервере только печатает адрес и состояние. `--port`, `--host` —
+адрес сервера, `--open` — открыть браузер, `--foreground` — сервер в этом терминале (для
+разработки). Переменные `RAGGLET_*` сервера (таблица в разделе «REST API») передаются как есть.
 
 ```bash
-docker compose -f docker/docker-compose.yaml --profile qdrant up -d qdrant redis
+python3 ragglet status            # сервисы, сервер, текущая задача и очередь
+python3 ragglet stop              # остановить сервер
+python3 ragglet stop --services   # и Qdrant с Redis
 ```
 
-Проверить, что контейнеры запущены:
+Остальные команды ходят на сервер, который поднял `start`; другой адрес — `--api URL` или
+`RAGGLET_API_URL`. Если сервер не запущен, команда так и говорит и выходит с кодом 3.
+
+### 2. Собрать индекс
+
+Индекс строится по профилю `configs/indexes/demo.yaml` из BEIR-корпуса `datasets/demo/` в Qdrant collection `chunks_v1`. Аргумент — путь к файлу профиля или id профиля из библиотеки сервера (`configs/indexes/<id>.yaml`):
 
 ```bash
-docker compose -f docker/docker-compose.yaml ps
-```
-
-По умолчанию используются:
-
-- Qdrant: `http://localhost:6333`;
-- Redis: `redis://localhost:6379/0`.
-
-### 3. Собрать индекс
-
-Индекс строится по профилю `configs/indexes/demo.yaml` из BEIR-корпуса `datasets/demo/` в Qdrant collection `chunks_v1`:
-
-```bash
-uv run ragglet index build configs/indexes/demo.yaml
+python3 ragglet build demo
+python3 ragglet build configs/indexes/demo.yaml
 ```
 
 Датасет в профиле задаётся блоком `dataset: {source: local|hf, id: ...}`. Для готового
 датасета с HuggingFace Hub достаточно указать `source: hf` и `id` репозитория (например
-`BeIR/scifact`) — файлы BEIR скачаются в кэш автоматически.
+`BeIR/scifact`) — файлы BEIR скачаются в кэш автоматически. Локальный путь (`datasets/demo`)
+считается от корня репозитория: его разрешает сервер.
 
-Перед эмбеддингом `index build` проверяет весь датасет (corpus, queries, все split qrels):
+Перед эмбеддингом сборка проверяет весь датасет (corpus, queries, все split qrels):
 повторы `_id`, qrels на несуществующие документы и запросы, битые строки, пустые
 релевантные документы. Нарушения печатаются все сразу, с файлом и строкой; есть ошибка —
 индекс не собирается.
@@ -108,16 +120,16 @@ uv run ragglet index build configs/indexes/demo.yaml
 какие коллекции будут пересозданы):
 
 ```bash
-uv run ragglet index build configs/indexes/demo.yaml --dry-run
+python3 ragglet build demo --dry-run
 ```
 
 Метаданные индекса (хэш корпуса, ревизия модели эмбеддингов, chunking, storage layout)
 записываются в Qdrant collection **после** последнего upsert: коллекция без них считается
-недособранной.
+недособранной. Коллекции и их состояние — `python3 ragglet indexes`.
 
-### 4. Запустить benchmark
+### 3. Запустить benchmark
 
-Перед прогоном `bench run` делает preflight: проверяет, что сценарий использует только
+Перед прогоном сервер делает preflight: проверяет, что сценарий использует только
 реализованное (стратегия `cascade`, второй `keyword`-источник, неизвестный
 `params.backend_ref` отклоняются сразу), что датасет найден и валиден, что Qdrant и Redis
 (при `cache.embedding`) отвечают, и что индекс собран полностью, из того же корпуса (по хэшу
@@ -128,28 +140,50 @@ uv run ragglet index build configs/indexes/demo.yaml --dry-run
 Тот же preflight без загрузки моделей и прогона запросов:
 
 ```bash
-uv run ragglet bench run configs/scenarios/baseline_qdrant.yaml --dry-run
+python3 ragglet run configs/scenarios/baseline_qdrant.yaml --dry-run
 ```
 
 Ошибки конфига, датасета и индекса команды печатают списком и выходят с кодом 2.
 
-Базовый сценарий: один vector source, без кэша.
+Базовый сценарий: один vector source, без кэша. Аргумент — файл сценария (уходит на сервер
+содержимым) или id сценария из библиотеки (`configs/scenarios/<id>.yaml`; тогда прогон
+привязан к нему и виден в UI в строке сценария):
 
 ```bash
-uv run ragglet bench run configs/scenarios/baseline_qdrant.yaml
+python3 ragglet run baseline_qdrant
+```
+
+`run` ждёт конца прогона: печатает фазы (в очереди, подготовка, запросы с полосой прогресса,
+завершение), затем средние по повторам и каталог артефактов. Ctrl-C отменяет прогон на сервере
+(и останавливает цикл `for` в bash); `--no-wait` только ставит прогон в очередь и печатает его
+id; `--tag T` помечает прогон в реестре.
+
+```bash
+python3 ragglet queue                # что идёт сейчас и что ждёт
+python3 ragglet log <id> --follow    # лог задачи до её конца
+python3 ragglet cancel <id>
 ```
 
 Hybrid/fanout сценарий: Qdrant vector + in-memory BM25, Redis embedding cache и memory LRU retrieval cache.
 
 ```bash
-uv run ragglet bench run configs/scenarios/baseline_qdrant_fanout_two_vec.yaml
+python3 ragglet run configs/scenarios/baseline_qdrant_fanout_two_vec.yaml
 ```
 
 Для fanout-сценария Redis должен быть доступен, потому что `cache.enabled: true` включает Redis embedding cache.
 
-### 5. Посмотреть результаты
+### 4. Посмотреть результаты
 
-Каждый запуск создает отдельную папку:
+```bash
+python3 ragglet runs list --scenario baseline_qdrant -n 10   # nDCG@k, Recall@k, p50, p95, QPS, таймауты
+python3 ragglet runs show <id>                               # сводка, условия, предупреждения, ошибка
+python3 ragglet runs queries <id> --miss -n 20               # запросы без релевантного в top-k
+python3 ragglet runs files <id>
+python3 ragglet runs export <id> -o /tmp                     # скачать артефакты (--zip — архивом)
+python3 ragglet builds list
+```
+
+Каждый прогон пишется в отдельный каталог, id прогона — время постановки:
 
 ```text
 results/runs/<scenario_name>_<utc_timestamp>/
@@ -179,14 +213,28 @@ Quality-метрики двух прогонов сравнимы, если в `
 
 Разница метрик — эффект настройки RAG, если различий `data` и `env` нет. Зависимости фиксирует `uv.lock` того коммита, что записан в `env.commit`.
 
-### 6. REST API
+### 5. Сценарии и профили
 
-Единый вход в стенд для веб-интерфейса, будущего CLI-клиента и скриптов (контракт —
-[docs/designs/ragglet-28-rest-api.md](docs/designs/ragglet-28-rest-api.md)):
+Библиотека сценариев (`configs/scenarios/`) и профилей индексов (`configs/indexes/`) живёт на
+сервере; правка поверх чужой (например, файла, который тем временем поменяли в IDE) не
+теряется, а отклоняется:
 
 ```bash
-uv run ragglet serve
+python3 ragglet scenarios list
+python3 ragglet scenarios show baseline_qdrant
+python3 ragglet scenarios edit baseline_qdrant            # в $EDITOR; сохраняется с версией (etag)
+python3 ragglet scenarios new my_try --from baseline_qdrant # копия; --from <id прогона> — из его snapshot
+python3 ragglet scenarios check my_try                    # dry-run
+python3 ragglet scenarios delete my_try
+python3 ragglet profiles list                             # то же для профилей индексов
 ```
+
+### 6. REST API
+
+Единый вход в стенд для веб-интерфейса, клиента `ragglet` и скриптов (контракт —
+[docs/designs/ragglet-28-rest-api.md](docs/designs/ragglet-28-rest-api.md)). Поднимает его
+`python3 ragglet start`; на переднем плане, для отладки, — `start --foreground` или
+`uv run python -m ragglet.server [--host] [--port]`.
 
 Сервер слушает `http://127.0.0.1:8000`; OpenAPI и Swagger UI — `/v1/openapi.json` и
 `/v1/docs`. Авторизации нет, поэтому наружу сервер открывается только явно
@@ -215,7 +263,8 @@ uv run ragglet serve
 
 **Реестр прогонов** ([docs/designs/ragglet-30-run-registry.md](docs/designs/ragglet-30-run-registry.md)).
 Запись прогона — `run.json` в его каталоге `results/runs/<id>/`, рядом с артефактами; базы
-нет, сервер при старте сканирует каталог. Каталоги без `run.json` (прогоны из CLI и старые)
+нет, сервер при старте сканирует каталог. Путь каталога отдаётся в `run_dir`. Каталоги без
+`run.json` (прогоны прежнего CLI, который вызывал ядро напрямую, и старые)
 попадают в реестр как импортированные (`origin: import`): `completed`, если есть
 `summary.aggregate.csv`, иначе `failed` / `RunIncomplete`; в них сервер ничего не пишет.
 Записи `queued` / `running`, оставшиеся после падения сервера, при старте становятся
@@ -272,34 +321,51 @@ uv run python -m ragglet.jobs.worker results/runs/<id>
 
 Воркер прочитает `task.json` и выполнит задачу, вывод — в терминал. Прогон, у которого
 уже есть `scenario.snapshot.json`, ядро повторить не даст: это защита от смеси
-артефактов двух прогонов. До ragglet-37 CLI (`ragglet bench run`) вызывает ядро
-напрямую, в обход очереди.
+артефактов двух прогонов.
 
 Интеграционный тест с настоящим ядром (`pytest -m integration`) нужен Qdrant на
 `localhost:6333`; без него тест пропускается.
 
-### 7. Веб-интерфейс
+### 7. Сквозная проверка через API
+
+Что стенд работает целиком — сервер, очередь, воркер, реестр, Qdrant и Redis, — проверяет
+`tests/test_e2e_api.py` (и `tests/test_jobs_integration.py` для менеджера задач), маркер
+`integration`. Тест собирает демо-индекс через API во временную коллекцию и гоняет
+`baseline_qdrant`: dry-run и 422, очередь и отмену ожидающего, summary, per-query, деталь
+запроса, файлы, zip и лог; затем отменяет идущий прогон, останавливает и роняет сервер посреди
+прогона и смотрит записи после рестарта, «Повторить» и клиент `ragglet` (`start` → `run` →
+`stop` против настоящего сервера). Прогоны и сборки
+пишутся во временные каталоги, `results/` не трогается. Нужны Qdrant и Redis из
+`docker compose`: без них эти тесты пропускаются, с ними обычный `uv run pytest` идёт на
+четыре-пять минут дольше.
+
+```bash
+uv run pytest -m integration        # только сквозные, на живых сервисах
+uv run pytest -m "not integration"  # быстрые, без сервисов
+```
+
+### 8. Веб-интерфейс
 
 SPA в каталоге `web/` (React + TypeScript + Vite) — клиент того же REST API: стенд, библиотека
 сценариев и профилей, редактор сценария с проверкой, запуск и страница прогона (дизайн —
-[docs/designs/ragglet-31-web-ui-app.md](docs/designs/ragglet-31-web-ui-app.md)). Нужен
+[docs/designs/ragglet-31-web-ui-app.md](docs/designs/ragglet-31-web-ui-app.md)). Для сборки нужен
 Node.js 22 или новее.
 
 ```bash
 cd web && npm ci && npm run build      # → web/dist
-cd .. && RAGGLET_UI_DIR=web/dist uv run ragglet serve
+cd .. && python3 ragglet start --open
 ```
 
-UI откроется на `http://127.0.0.1:8000/` (тот же адрес, что и API). `RAGGLET_UI_DIR` можно
-записать в `.env`. Каталог должен существовать: без сборки сервер не стартует.
-В шапке — тема (светлая / тёмная / как в системе) и язык интерфейса (RU / EN); выбор
-запоминается в браузере.
+`start` раздаёт собранный `web/dist` с адреса сервера (`http://127.0.0.1:8000/`), `--open`
+открывает его в браузере. Без лаунчера — `RAGGLET_UI_DIR=web/dist uv run python -m ragglet.server`;
+каталог должен существовать, иначе сервер не стартует. В шапке — тема (светлая / тёмная /
+как в системе) и язык интерфейса (RU / EN); выбор запоминается в браузере.
 
-Разработка — API и Vite-сервер рядом, `/v1` проксируется на API (`RAGGLET_API_URL`, по
-умолчанию `http://127.0.0.1:8000`):
+Разработка — сервер и Vite рядом, `/v1` проксируется на API (`RAGGLET_API_URL`, по умолчанию
+`http://127.0.0.1:8000`):
 
 ```bash
-uv run ragglet serve
+python3 ragglet start
 cd web && npm run dev                  # → http://localhost:5173
 ```
 
@@ -339,19 +405,26 @@ docs/config-reference.yaml
 
 ## Полезные команды
 
-Показать CLI help:
+Список команд клиента и помощь по каждой:
 
 ```bash
-uv run ragglet --help
-uv run ragglet index --help
-uv run ragglet bench --help
-uv run ragglet bench run configs/scenarios/baseline_qdrant.yaml --dry-run
+python3 ragglet
+python3 ragglet runs --help
+python3 ragglet run --help
 ```
+
+У любой команды `--json` печатает сырой ответ API (`python3 ragglet runs list --json | jq …`).
+Коды выхода: 0 — готово, 1 — задача упала или отменена, 2 — проблемы конфига, датасета или
+индекса, 3 — сервер не запущен.
+
+Разработка: `uv sync --extra dev`, тесты — `uv run pytest`, линтер —
+`uv run ruff check src tests ragglet`.
 
 Остановить сервисы:
 
 ```bash
-docker compose -f docker/docker-compose.yaml --profile qdrant down
+python3 ragglet stop --services
+docker compose -f docker/docker-compose.yaml --profile qdrant down   # и удалить контейнеры
 ```
 
 Остановить сервисы и удалить volume с данными:
@@ -362,17 +435,21 @@ docker compose -f docker/docker-compose.yaml --profile qdrant down -v
 
 ## Частые проблемы
 
-Если `bench run` пишет `Index is not compatible with scenario` — индекс собран из другого корпуса (например, после правки `corpus.jsonl`), другой моделью, в другом storage layout или сборка не завершилась. Пересоберите индекс: `ragglet index build <index_profile.yaml>`.
+Если команда пишет `cannot reach the ragglet server` (код 3) — сервер не запущен: `python3 ragglet start`. Если сервер не стартует, причина — в `results/server.log` (например, занят порт: `start --port 8100`), а если не готовится окружение — в `results/env.log`. Без Docker `start` печатает команду для Qdrant и Redis: запустите их сами или поставьте Docker. Без uv и Python 3.12+ окружение сервера не собрать.
+
+Если `run` пишет `Index is not compatible with scenario` — индекс собран из другого корпуса (например, после правки `corpus.jsonl`), другой моделью, в другом storage layout или сборка не завершилась. Пересоберите индекс: `python3 ragglet build <профиль>`.
+
+Пути в конфиге (`dataset.id: datasets/demo`) сервер считает от корня репозитория, а `run.artifacts_dir` игнорирует: прогоны пишутся в `RAGGLET_ARTIFACTS_DIR` (`results/runs/<id>`).
 
 Чтобы зафиксировать версию HF-датасета или модели, скопируйте ревизию из `manifest.json` в конфиг: `dataset.revision` (сценарий и index profile), `embedding.revision` (index profile) и `rerank.revision` (сценарий). У local-датасета ревизии нет: его версия — хэш содержимого.
 
-Предупреждение `index.not_green` означает, что Qdrant ещё оптимизирует коллекцию (обычно сразу после `index build`): latency и recall такого прогона нерепрезентативны. Дождитесь статуса `green` и запустите заново.
+Предупреждение `index.not_green` означает, что Qdrant ещё оптимизирует коллекцию (обычно сразу после `build`): latency и recall такого прогона нерепрезентативны. Дождитесь статуса `green` и запустите заново.
 
 Если индекс строится слишком долго или создается неожиданно много чанков, проверьте `chunk_size` и `chunk_overlap` в index profile. Схема уже запрещает `chunk_overlap >= chunk_size`, но слишком маленький `chunk_size` все равно может сделать эксперимент нерепрезентативным.
 
 Если fanout-сценарий падает на кэше, проверьте, что Redis запущен и доступен по endpoint из scenario.
 
-Если `docker compose --profile app` не собирается, это ожидаемо для текущего состояния: app container profile зарезервирован, а рабочий путь запуска сейчас — локальный CLI через `uv run` плюс Qdrant/Redis из compose.
+Если `docker compose --profile app` не собирается, это ожидаемо для текущего состояния: app container profile зарезервирован, а рабочий путь запуска сейчас — `python3 ragglet start` (сервер локально, Qdrant/Redis из compose).
 
 ## Научная ценность
 
@@ -386,16 +463,19 @@ Ragglet можно использовать как компактную эксп
 
 - основной поддерживаемый backend для экспериментов — `Qdrant`;
 - генерация ответа LLM пока не является завершенным модулем;
-- реестр прогонов пока живёт в памяти сервера: после рестарта API не видит прогоны, поставленные раньше, хотя их каталоги на месте (ragglet-30);
 - проект ориентирован на исследование retrieval-контура, а не на промышленный production-ready пайплайн.
 
 ## Архитектура
 
 ```mermaid
 flowchart LR
-    U["Пользователь / CLI"] --> CLI["Typer CLI: ragglet"]
-    CLI --> IDX["index build"]
-    CLI --> BENCH["bench run"]
+    U["Пользователь"] --> CLI["Клиент ragglet (stdlib)"]
+    U --> UI["Веб-интерфейс"]
+    CLI --> API["REST API: python -m ragglet.server"]
+    UI --> API
+    API --> JOBS["Очередь задач: воркер в свежем процессе"]
+    JOBS --> IDX["build_index"]
+    JOBS --> BENCH["run_scenario"]
 
     IDX --> IPROF["Index profile YAML"]
     IPROF --> PARSE["BEIR corpus (local / HF)"]

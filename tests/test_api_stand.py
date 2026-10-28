@@ -5,7 +5,6 @@ from pathlib import Path
 
 import anyio
 from api_support import QDRANT, collection, index_meta, make_stand, scenario_yaml
-from typer.testing import CliRunner
 
 from ragglet.api.settings import ServerSettings
 from ragglet.config.scenario import ScenarioConfig
@@ -154,20 +153,19 @@ def test_settings_from_environment(monkeypatch, tmp_path):
     assert ServerSettings(port=8100).port == 8100  # флаг ragglet serve важнее переменной
 
 
-def test_serve_command_passes_flags_to_uvicorn(monkeypatch, tmp_path):
+def test_server_passes_flags_to_uvicorn(monkeypatch, tmp_path, capsys):
     import uvicorn
 
-    from ragglet.cli.app import app
+    from ragglet import server
 
     monkeypatch.chdir(tmp_path)
     calls = []
     monkeypatch.setattr(uvicorn, "run", lambda application, **kw: calls.append(kw))
 
-    result = CliRunner().invoke(app, ["serve", "--port", "8123"])
+    server.main(["--port", "8123"])
 
-    assert result.exit_code == 0, result.output
     assert calls == [{"host": "127.0.0.1", "port": 8123, "workers": 1}]
-    assert "listening: http://127.0.0.1:8123" in result.output
+    assert "listening: http://127.0.0.1:8123" in capsys.readouterr().out
 
 
 def test_ui_is_served_with_spa_fallback(tmp_path, monkeypatch):

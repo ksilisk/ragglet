@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import math
 from typing import Any
+
 import pandas as pd
+
 from ragglet.bench.evaluation import quality_columns
 from ragglet.config.scenario import ScenarioConfig
-
 
 _LATENCY_COLUMNS = {
     "embed": "lat_embed_ms",

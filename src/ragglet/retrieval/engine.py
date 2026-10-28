@@ -5,9 +5,14 @@ import anyio
 from ragglet.config.scenario import ScenarioConfig
 from ragglet.core.errors import StageTimeout
 from ragglet.retrieval.backends import BackendRegistry
-from ragglet.retrieval.merge import SourceSpec, RetrievedItem, rrf_merge, run_sources, interleave_merge, \
-    weighted_sum_merge
-
+from ragglet.retrieval.merge import (
+    RetrievedItem,
+    SourceSpec,
+    interleave_merge,
+    rrf_merge,
+    run_sources,
+    weighted_sum_merge,
+)
 
 # стратегии, которые умеет retrieve_items; схема знает и cascade
 IMPLEMENTED_STRATEGIES = ("single", "fanout_merge")
@@ -120,8 +125,8 @@ async def retrieve_items(
                 return merged
 
             raise NotImplementedError(f"retrieval.strategy='{strategy}' is not implemented")
-    except TimeoutError:
-        raise StageTimeout("retrieval")
+    except TimeoutError as e:
+        raise StageTimeout("retrieval") from e
 
 
 async def retrieve_ids(cfg: ScenarioConfig, backends: BackendRegistry, query_text: str, vec: list[float]) -> list[str]:

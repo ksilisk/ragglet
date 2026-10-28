@@ -50,9 +50,9 @@ def _target_from_backend(backend: Any, fallback_id: str, path: str) -> StorageTa
     target_id = getattr(backend, "id", None) or fallback_id
     return StorageTarget(
         id=str(target_id),
-        type=str(getattr(backend, "type")),
-        endpoint=str(getattr(backend, "endpoint")),
-        collection=str(getattr(backend, "collection")),
+        type=str(backend.type),
+        endpoint=str(backend.endpoint),
+        collection=str(backend.collection),
         path=path,
     )
 

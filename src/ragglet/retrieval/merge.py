@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Any
+
 import anyio
 
 
@@ -170,7 +172,7 @@ def weighted_sum_merge(
         if normalize == "minmax":
             mn, mx = min(scores), max(scores)
             denom = (mx - mn) + eps
-            def norm(x: float) -> float:
+            def norm(x: float, mn: float = mn, denom: float = denom) -> float:  # значения этой итерации
                 return (x - mn) / denom
         elif normalize == "none":
             def norm(x: float) -> float:

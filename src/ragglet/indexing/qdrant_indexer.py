@@ -6,7 +6,6 @@ from typing import Any
 from qdrant_client import QdrantClient
 from qdrant_client.http import models as qm
 
-
 DISTANCE_MAP = {
     "cosine": qm.Distance.COSINE,
     "dot": qm.Distance.DOT,

@@ -8,7 +8,6 @@ run:
   repeats: 1
   shuffle: false
   save_per_query: true
-  artifacts_dir: "results/article/smoke"
 
 output:
   format: "both"

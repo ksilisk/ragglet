@@ -112,6 +112,7 @@ def test_api_run_gets_record_in_its_dir(stand):
     assert (item["id"], item["origin"], item["state"], item["tags"]) == (run_id, "api", "queued", ["night"])
     status = stand.client.get(f"/v1/runs/{run_id}").json()
     assert (status["origin"], status["plan"]["total"]) == ("api", 200)  # 100 запросов demo × 2 повтора
+    assert item["run_dir"] == status["run_dir"] == str(run_dir)  # путь, как его видит сервер
 
 
 def test_scenario_file_follows_library(stand):
@@ -128,6 +129,25 @@ def test_scenario_file_follows_library(stand):
     assert stand.client.delete("/v1/scenarios/demo_lib").status_code == 204
     assert get() == "deleted"
     assert stand.client.get(f"/v1/runs/{_enqueue(stand)}").json()["scenario_file"] is None  # без ссылки
+
+
+def test_repeat_from_snapshot_keeps_library_version(stand):
+    text = scenario_yaml("demo_lib")
+    assert stand.client.post("/v1/scenarios", json={"yaml": text}).status_code == 201
+    first = _enqueue(stand, text, scenario_id="demo_lib")
+    snapshot = stand.client.get(f"/v1/runs/{first}", params={"include": "scenario"}).json()["scenario_yaml"]
+    assert snapshot != text
+
+    # «Повторить» (ragglet-28): snapshot содержимым и та же ссылка на библиотеку
+    repeat = _enqueue(stand, snapshot, scenario_id="demo_lib")
+    unsaved = _enqueue(stand, text.replace("repeats: 2", "repeats: 3"), scenario_id="demo_lib")
+    get = lambda run_id: stand.client.get(f"/v1/runs/{run_id}").json()["scenario_file"]  # noqa: E731
+
+    assert (get(first), get(repeat), get(unsaved)) == ("unchanged", "unchanged", "changed")
+    etag = stand.client.get("/v1/scenarios/demo_lib").json()["etag"]
+    edited = text.replace("repeats: 2", "repeats: 4")
+    assert stand.client.put("/v1/scenarios/demo_lib", json={"yaml": edited, "etag": etag}).status_code == 200
+    assert (get(first), get(repeat)) == ("changed", "changed")
 
 
 def test_include_fills_summary_and_manifest(stand, runs):
@@ -176,6 +196,8 @@ def test_builds_list_and_dir(stand):
     assert (body["total"], item["id"], item["profile"], item["state"], item["documents"]) == (
         1, build_id, "demo_build", "completed", 50)
     assert item["targets"] == [{"endpoint": "http://q:6333", "collection": "chunks_v1"}]
+    build_dir = str(stand.settings.builds_dir / build_id)
+    assert item["build_dir"] == stand.client.get(f"/v1/builds/{build_id}").json()["build_dir"] == build_dir
     assert stand.client.get("/v1/builds", params={"collection": "other"}).json()["total"] == 0
     assert stand.client.get("/v1/builds", params={"sort": "ndcg"}).status_code == 422
 

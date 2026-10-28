@@ -37,5 +37,5 @@ async def rerank_items(
                 input_top_k=cfg.rerank.input_top_k,
                 output_top_n=cfg.rerank.output_top_n,
             )
-    except TimeoutError:
-        raise StageTimeout("rerank")
+    except TimeoutError as e:
+        raise StageTimeout("rerank") from e

@@ -11,7 +11,6 @@ run:
   repeats: 1
   shuffle: false
   save_per_query: true
-  artifacts_dir: "results/article/raw"
 
 output:
   format: "both"

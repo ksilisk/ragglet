@@ -29,7 +29,7 @@ class ChunkingConfig(BaseModel):
     chunk_overlap: int | None = Field(None, ge=0)
 
     @model_validator(mode="after")
-    def _validate_sizes(self) -> "ChunkingConfig":
+    def _validate_sizes(self) -> ChunkingConfig:
         if self.method == "none":
             if self.chunk_size is not None or self.chunk_overlap is not None:
                 raise FieldError(
@@ -96,7 +96,7 @@ class StorageConfig(BaseModel):
     routing: StorageRoutingConfig = Field(default_factory=StorageRoutingConfig)
 
     @model_validator(mode="after")
-    def _validate_storage_shape(self) -> "StorageConfig":
+    def _validate_storage_shape(self) -> StorageConfig:
         if self.backend is None and (self.endpoint is None or self.collection is None):
             raise FieldError(
                 "endpoint" if self.endpoint is None else "collection",
