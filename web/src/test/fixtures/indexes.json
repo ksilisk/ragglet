@@ -1,0 +1,96 @@
+{
+ "endpoints": [
+  {
+   "url": "http://localhost:6333",
+   "available": true,
+   "version": "1.17.0",
+   "error": null,
+   "collections": 2
+  }
+ ],
+ "collections": [
+  {
+   "endpoint": "http://localhost:6333",
+   "name": "chunks_v1",
+   "state": "ready",
+   "status": "green",
+   "points": 53,
+   "indexed_vectors": 0,
+   "segments": 2,
+   "params": {
+    "vector_size": 384,
+    "distance": "Cosine",
+    "hnsw": {
+     "m": 16,
+     "ef_construct": 128
+    }
+   },
+   "ragglet": {
+    "index_profile_id": "demo",
+    "built_at": "2026-10-27T17:24:07Z",
+    "dataset_source": "local",
+    "dataset_id": "datasets/demo",
+    "corpus_sha256": "893aa67b4bb4c811afb0afc144ac6fc0b081ae724a39c3f6899b789225c71477",
+    "embedding_model": "all-MiniLM-L6-v2",
+    "embedding_revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+    "embedding_normalize": true,
+    "chunking_method": "recursive",
+    "chunk_size": 800,
+    "chunk_overlap": 120,
+    "storage_mode": "single",
+    "storage_backend_count": 1
+   },
+   "used_by": [
+    "baseline_qdrant",
+    "baseline_qdrant_fanout_two_vec",
+    "s0_baseline_rag",
+    "s1_async_retrieval",
+    "s2_rerank",
+    "s3_adaptive_context",
+    "s4_cache"
+   ],
+   "profiles": [
+    "demo"
+   ]
+  },
+  {
+   "endpoint": "http://localhost:6333",
+   "name": "nfcorpus_v1",
+   "state": "ready",
+   "status": "green",
+   "points": 9696,
+   "indexed_vectors": 0,
+   "segments": 2,
+   "params": {
+    "vector_size": 384,
+    "distance": "Cosine",
+    "hnsw": {
+     "m": 16,
+     "ef_construct": 128
+    }
+   },
+   "ragglet": {
+    "index_profile_id": "nfcorpus_hf",
+    "built_at": "2026-10-24T16:58:09Z",
+    "dataset_source": "hf",
+    "dataset_id": "BeIR/nfcorpus",
+    "corpus_sha256": "54ef7cf7a72d63f795addff027863d213d04607223285ea5279df9c1f21d66d4",
+    "embedding_model": "all-MiniLM-L6-v2",
+    "embedding_revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+    "embedding_normalize": true,
+    "chunking_method": "recursive",
+    "chunk_size": 800,
+    "chunk_overlap": 120,
+    "storage_mode": "single",
+    "storage_backend_count": 1
+   },
+   "used_by": [
+    "nfcorpus_hf",
+    "nfcorpus_rerank_ui"
+   ],
+   "profiles": [
+    "nfcorpus_hf"
+   ]
+  }
+ ]
+}

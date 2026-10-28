@@ -1,0 +1,1 @@
+{"local":[{"id":"datasets/demo","splits":["test"]}],"hf":[{"id":"BeIR/nfcorpus","seen_in":["collection:http://localhost:6333/nfcorpus_v1","profile:nfcorpus_hf","scenario:nfcorpus_hf","scenario:nfcorpus_rerank_ui"]}]}

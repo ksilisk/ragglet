@@ -1,0 +1,88 @@
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  min-height: 52px;
+  padding: 0 24px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.brand {
+  font-weight: 600;
+  font-size: 16px;
+  color: var(--text);
+  text-decoration: none;
+}
+.brand:hover {
+  color: var(--text);
+}
+.item {
+  color: var(--text);
+  text-decoration: none;
+  font-weight: 500;
+  padding: 6px 2px;
+  border-bottom: 2px solid transparent;
+}
+.item:hover {
+  color: var(--accent);
+}
+.item.on {
+  border-bottom-color: var(--accent);
+  color: var(--accent);
+}
+.strip {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: 13px;
+  color: var(--muted);
+  flex-wrap: wrap;
+}
+.strip a {
+  color: var(--text);
+  text-decoration: none;
+}
+.strip a:hover {
+  color: var(--accent);
+}
+.down {
+  color: var(--danger-text);
+  font-weight: 500;
+}
+.prefs {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.seg {
+  display: inline-flex;
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-control);
+  overflow: hidden;
+  height: 26px;
+}
+.seg button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  padding: 0 6px;
+  border: none;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.seg button + button {
+  border-left: 1px solid var(--input-border);
+}
+.seg button:hover {
+  color: var(--text);
+}
+.seg button.segOn {
+  background: var(--accent-soft);
+  color: var(--accent);
+}

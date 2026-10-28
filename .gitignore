@@ -9,3 +9,6 @@ results/
 .DS_Store
 # настройки ragglet serve (RAGGLET_*)
 .env
+
+# веб-интерфейс (web/): зависимости; dist/ покрыт правилом выше
+node_modules/

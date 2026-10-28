@@ -759,9 +759,77 @@ def server_command(python: str, host: str, port: int) -> list[str]:
 
 def server_env() -> dict[str, str]:
     env = dict(os.environ)
-    if "RAGGLET_UI_DIR" not in env and (ROOT / "web" / "dist" / "index.html").is_file():
-        env["RAGGLET_UI_DIR"] = "web/dist"  # собранный UI (ragglet-31) — по тому же адресу
+    if "RAGGLET_UI_DIR" not in env and (WEB / "dist" / "index.html").is_file():
+        env["RAGGLET_UI_DIR"] = str(WEB / "dist")  # собранный UI (ragglet-31) — по тому же адресу
     return env
+
+
+WEB = ROOT / "web"  # веб-интерфейс (ragglet-31): исходники и сборка web/dist
+# что входит в сборку UI: изменилось что-то из этого позже web/dist — пересобрать
+UI_SOURCES = ("src", "public", "index.html", "package.json", "package-lock.json", "vite.config.ts",
+              "tsconfig.json")
+NODE_MIN = 22  # web/package.json: engines node >=22 (LTS)
+
+
+def ui_stale() -> bool:
+    """web/dist нет или исходники UI новее его index.html (после git pull, правок в web/)."""
+    built = WEB / "dist" / "index.html"
+    if not built.is_file():
+        return True
+    stamp = built.stat().st_mtime
+    for name in UI_SOURCES:
+        path = WEB / name
+        files = path.rglob("*") if path.is_dir() else [path]
+        if any(f.is_file() and f.stat().st_mtime > stamp for f in files):
+            return True
+    return False
+
+
+def node_major(node: str) -> int | None:
+    done = subprocess.run([node, "--version"], capture_output=True, text=True)
+    match = re.match(r"v(\d+)\.", done.stdout.strip())
+    return int(match.group(1)) if done.returncode == 0 and match else None
+
+
+def prepare_ui() -> None:
+    """
+    Собранный UI в web/dist: на старте, если его нет или исходники новее. `npm ci` — только когда
+    node_modules нет или package-lock.json новее их. Вывод — в results/web.log. Без Node.js или при
+    ошибке сборки сервер стартует как обычно: API работает, UI — прежний или никакой.
+    """
+    if "RAGGLET_UI_DIR" in os.environ or not (WEB / "package.json").is_file() or not ui_stale():
+        return
+    npm, node = shutil.which("npm"), shutil.which("node")
+    if npm is None or node is None:
+        err("Note: the web UI is not built and Node.js is not installed; the server starts without the UI. "
+            f"Install Node.js {NODE_MIN}+ and run start again")
+        return
+    major = node_major(node)
+    if major is None or major < NODE_MIN:
+        found = f"v{major}" if major else "unknown version"
+        err(f"Note: the web UI needs Node.js {NODE_MIN}+ ({found}); the server starts without the UI")
+        return
+    lock, installed = WEB / "package-lock.json", WEB / "node_modules" / ".package-lock.json"  # второй пишет npm
+    steps = [[npm, "run", "build"]]
+    if not lock.is_file():
+        steps.insert(0, [npm, "install", "--no-audit", "--no-fund"])
+    elif not installed.is_file() or installed.stat().st_mtime < lock.stat().st_mtime:
+        steps.insert(0, [npm, "ci", "--no-audit", "--no-fund"])
+    RESULTS.mkdir(parents=True, exist_ok=True)
+    log = RESULTS / "web.log"
+    first = not (WEB / "dist" / "index.html").is_file()
+    slow = " (installing packages takes a minute)" if len(steps) > 1 else ""
+    err(f"{'Building' if first else 'Rebuilding'} the web UI{slow}, log: {display(log)}")
+    failed = None
+    with log.open("ab") as sink:
+        for step in steps:
+            if subprocess.run(step, cwd=WEB, stdin=subprocess.DEVNULL, stdout=sink, stderr=subprocess.STDOUT).returncode:
+                failed = step
+                break
+    if failed:  # лог читается после закрытия: всё, что написал npm, уже в файле
+        err(f"Warning: npm {' '.join(failed[1:])} failed, the server starts without the new UI; "
+            f"last lines of {display(log)}:")
+        err(tail(log))
 
 
 def cmd_start(args: argparse.Namespace) -> int:
@@ -780,6 +848,8 @@ def cmd_start(args: argparse.Namespace) -> int:
     if not args.no_services:
         ensure_services()
     python = prepare_env()
+    if not args.no_ui:
+        prepare_ui()
     command = server_command(python, args.host, args.port)
     if args.foreground:
         os.chdir(ROOT)
@@ -1323,6 +1393,7 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("--host", default="127.0.0.1", help="bind address; 0.0.0.0 opens the server to the network")
     start.add_argument("--open", action="store_true", help="open the UI in the browser")
     start.add_argument("--no-services", action="store_true", help="do not start Qdrant and Redis with Docker")
+    start.add_argument("--no-ui", action="store_true", help="do not build the web UI (web/dist)")
     start.add_argument("--foreground", action="store_true", help="run the server in this terminal (Ctrl-C stops)")
     stop = command("stop", cmd_stop, "stop the server started by start")
     stop.add_argument("--services", action="store_true", help="also stop Qdrant and Redis (docker compose)")

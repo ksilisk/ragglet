@@ -1,0 +1,70 @@
+@import "./tokens.css";
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+a {
+  color: var(--accent);
+}
+a:hover {
+  color: var(--accent-hover);
+}
+
+h1 {
+  font-size: 22px;
+  line-height: 28px;
+  font-weight: 600;
+  margin: 0;
+}
+h2 {
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 600;
+  margin: 0;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.muted {
+  color: var(--muted);
+}
+.small {
+  font-size: 12px;
+  line-height: 16px;
+}
+.r {
+  text-align: right;
+}
+.nowrap {
+  white-space: nowrap;
+}

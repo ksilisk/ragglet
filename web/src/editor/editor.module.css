@@ -1,0 +1,427 @@
+/* Редактор конфига по артборду ScenarioEditor: .secnav, .sec, .field, .hint, .kchip, .problems. */
+
+.head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.headFields {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 320px;
+  flex: 1 1 420px;
+}
+.headRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.headLabel {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--muted);
+  min-width: 72px;
+}
+.nameInput {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 18px;
+  height: 36px;
+  max-width: 420px;
+}
+.descInput {
+  max-width: 560px;
+}
+.saveNote {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+.secnav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+  position: sticky;
+  top: 12px;
+}
+.secnav button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-radius: var(--radius-control);
+  color: var(--text);
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+}
+.secnav button:hover {
+  background: var(--hover-strong);
+}
+.secnav button.on {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 500;
+}
+.secnav button.offStage:not(.on) {
+  color: var(--muted);
+}
+.offLabel {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 400;
+}
+.sdot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+.sdot.e {
+  background: var(--danger);
+}
+.sdot.w {
+  background: var(--warning);
+}
+
+.sections {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.sec {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  scroll-margin-top: 12px;
+}
+.sec.err {
+  border-color: var(--danger-border);
+}
+.secH {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  cursor: pointer;
+  user-select: none;
+  width: 100%;
+  background: none;
+  border: none;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+.sum {
+  color: var(--muted);
+  font-size: 13px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.secB {
+  padding: 14px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  border-top: 1px solid var(--border-soft);
+}
+.caret {
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 6px solid var(--muted);
+  flex: none;
+  transition: transform 0.15s;
+}
+.caret.c {
+  transform: rotate(-90deg);
+}
+.secToggle {
+  margin-left: auto;
+}
+
+.grid {
+  display: grid;
+  gap: 16px;
+  align-items: start;
+}
+.g2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.g3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.g4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.g5 {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+.span2 {
+  grid-column: span 2;
+}
+.span3 {
+  grid-column: span 3;
+}
+.full {
+  grid-column: 1 / -1;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  scroll-margin-top: 80px;
+}
+.label {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--muted);
+}
+.reset {
+  visibility: hidden;
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--muted);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline dotted;
+}
+.reset:hover {
+  color: var(--accent);
+}
+.field:hover .reset,
+.field:focus-within .reset {
+  visibility: visible;
+}
+.hint {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--muted);
+}
+.hint.err {
+  color: var(--danger-text);
+}
+.hint.warn {
+  color: var(--warning-text);
+}
+.chk {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.chk input {
+  margin: 0;
+}
+.chkRow {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  min-height: 32px;
+  align-items: center;
+}
+.kchips {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.kchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 8px 0 10px;
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+.kchip button {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1;
+}
+.kchip.bad {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+  color: var(--s-fail);
+}
+.kchip.warnChip {
+  border-color: var(--warning);
+  background: var(--warn-soft);
+  color: var(--warning-text);
+}
+.kadd {
+  width: 80px !important;
+}
+
+/* карточки списков: источники retrieval, цели storage */
+.cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.itemCard {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  scroll-margin-top: 80px;
+}
+.itemCard.off {
+  opacity: 0.55;
+}
+.itemHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.itemHead .grow {
+  flex: 1;
+}
+.subhead {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0;
+}
+.note {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--muted);
+}
+
+.banner {
+  border: 1px solid var(--warn-border);
+  background: var(--warn-soft);
+  border-radius: var(--radius-card);
+  padding: 10px 16px;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.banner.danger {
+  border-color: var(--danger-border);
+  background: var(--danger-soft);
+}
+
+/* .problems — панель «Проверка» */
+.problems {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+}
+.problemsH {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border-soft);
+  font-weight: 500;
+  flex-wrap: wrap;
+}
+.problemsMeta {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 400;
+}
+.prow {
+  display: grid;
+  grid-template-columns: 20px minmax(160px, 260px) 1fr;
+  gap: 12px;
+  padding: 8px 16px;
+  font-size: 13px;
+  align-items: baseline;
+  border-bottom: 1px solid var(--border-soft);
+}
+.prow:last-child {
+  border-bottom: none;
+}
+.plink {
+  font-family: var(--font-mono);
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  cursor: pointer;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.plink:hover {
+  text-decoration: underline;
+}
+.stale {
+  opacity: 0.6;
+}
+.report {
+  padding: 10px 16px;
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.yaml {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  background: var(--surface);
+}
+.yamlErr {
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--danger-text);
+  border-top: 1px solid var(--danger-border);
+  background: var(--danger-soft);
+}
+
+@media (max-width: 1100px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .secnav {
+    position: static;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  .g4,
+  .g5 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
