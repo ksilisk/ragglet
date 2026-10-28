@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from ragglet.bench.compare import Difference, compare_runs
+from ragglet.bench.compare import Difference, Spread, Verdict, compare_runs, compare_trees, verdict
 
 SNAPSHOT = {
     "name": "s0",
@@ -79,3 +79,36 @@ def test_unclassified_manifest_section_is_rejected(tmp_path):
 
     with pytest.raises(ValueError, match="'timings' is not in any comparison section"):
         compare_runs(_run(tmp_path, "a"), _run(tmp_path, "b", add_section))
+
+
+def test_trees_of_three_runs_keep_values_in_order():
+    a = {"scenario": copy.deepcopy(SNAPSHOT), **copy.deepcopy(MANIFEST)}
+    b, c = copy.deepcopy(a), copy.deepcopy(a)
+    b["scenario"]["rerank"]["enabled"] = True
+    c["env"]["compute"]["device"] = "cpu"
+    c["env"]["commit"] = "d" * 40
+
+    spreads = compare_trees([a, b, c])
+
+    assert spreads == [
+        Spread("env", "env.commit", ("c" * 40, "c" * 40, "d" * 40)),
+        Spread("env", "env.compute.device", ("mps", "mps", "cpu")),
+        Spread("config", "scenario.rerank.enabled", (False, True, False)),
+    ]
+    # пара — то же, что compare_runs: одно правило для двух и для N
+    assert compare_trees([a, b]) == [Spread("config", "scenario.rerank.enabled", (False, True))]
+
+
+def test_verdict_by_class():
+    data = Spread("data", "dataset.eval_sha256", ("a", "b"))
+    machine = Spread("env", "env.compute.device", ("mps", "cpu"))
+    code = Spread("env", "index.build_env.commit", ("c", "d"))
+    knob = Spread("config", "scenario.rerank.enabled", (False, True))
+
+    assert verdict([knob]) == Verdict(quality_comparable=True, latency_comparable=True, confounders=[])
+    assert verdict([data, knob]).quality_comparable is False
+    assert verdict([machine, code]) == Verdict(quality_comparable=True, latency_comparable=False,
+                                               confounders=["index.build_env.commit"])
+    # у одного прогона нет секции env (manifest до ragglet-23): задержки не сравнить
+    whole = Spread("env", "env", ({"commit": "c"}, None))
+    assert verdict([whole]) == Verdict(quality_comparable=True, latency_comparable=False, confounders=[])

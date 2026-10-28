@@ -208,6 +208,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/runs/compare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Compare
+         * @description Сравнение прогонов: различия snapshot и manifest по классам data / config / env (compare_trees)
+         *     и вердикт сопоставимости. Объявлен до /runs/{run_id}, иначе «compare» ушёл бы туда как id.
+         */
+        get: operations["compare_v1_runs_compare_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/runs/{run_id}": {
         parameters: {
             query?: never;
@@ -674,6 +695,43 @@ export interface components {
             /** Collection */
             collection: string;
         };
+        /** CompareDifference */
+        CompareDifference: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "data" | "config" | "env";
+            /** Path */
+            path: string;
+            /** Values */
+            values: unknown[];
+        };
+        /**
+         * CompareRun
+         * @description Прогон на странице сравнения: шапка и summary как есть.
+         */
+        CompareRun: {
+            /** Id */
+            id: string;
+            /** Scenario */
+            scenario: string;
+            state: components["schemas"]["TaskState"];
+            /**
+             * Enqueued At
+             * Format: date-time
+             */
+            enqueued_at: string;
+            /** Dataset */
+            dataset: string;
+            /** Collection */
+            collection: string;
+            /** Tags */
+            tags: string[];
+            /** Has Manifest */
+            has_manifest: boolean;
+            summary: components["schemas"]["RunSummaryOut"] | null;
+        };
         /** ConfigDocument */
         ConfigDocument: {
             /** Id */
@@ -976,6 +1034,24 @@ export interface components {
             plan: components["schemas"]["RunPlanOut"];
             /** Warnings */
             warnings: components["schemas"]["ProblemIssue"][];
+        };
+        /**
+         * RunCompare
+         * @description Сравнение прогонов (ragglet-32 §9): различия из compare_trees и вердикт сопоставимости.
+         */
+        RunCompare: {
+            /** Runs */
+            runs: components["schemas"]["CompareRun"][];
+            /** Differences */
+            differences: components["schemas"]["CompareDifference"][];
+            /** Quality Comparable */
+            quality_comparable: boolean | null;
+            /** Latency Comparable */
+            latency_comparable: boolean | null;
+            /** Confounders */
+            confounders: string[];
+            /** Missing Manifest */
+            missing_manifest: string[];
         };
         /**
          * RunItem
@@ -1947,6 +2023,47 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RunAccepted"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    compare_v1_runs_compare_get: {
+        parameters: {
+            query: {
+                /** @description 2–6 id прогонов через запятую; первый — базовый */
+                ids: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunCompare"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
                 };
             };
             /** @description Unprocessable Content */

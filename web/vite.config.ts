@@ -16,6 +16,7 @@ export default defineConfig({
       "@radix-ui/react-dialog",
       "@radix-ui/react-dropdown-menu",
       "@radix-ui/react-tooltip",
+      "@tanstack/react-table",
       "@codemirror/commands",
       "@codemirror/lang-yaml",
       "@codemirror/language",

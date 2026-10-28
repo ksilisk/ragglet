@@ -237,3 +237,14 @@ export function useQueryDetail(id: string, qid: string | null, repeat: number) {
     refetchOnWindowFocus: false,
   });
 }
+
+/** Сравнение прогонов (ragglet-32 §9): различия, вердикт и summary всех прогонов одним ответом. */
+export function useCompare(ids: string[]) {
+  return useQuery({
+    queryKey: ["runs", "compare", ids.join(",")],
+    queryFn: () => unwrap(api.GET("/v1/runs/compare", { params: { query: { ids: ids.join(",") } } })),
+    enabled: ids.length >= 2,
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+  });
+}
