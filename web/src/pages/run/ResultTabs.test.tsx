@@ -1,5 +1,6 @@
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import nfManifest from "../../test/fixtures/manifest-nfcorpus.json";
 import completed from "../../test/fixtures/run-completed.json";
 import { json, mockApi, renderRoutes } from "../../test/render";
 import RunPage from "./RunPage";
@@ -75,5 +76,29 @@ describe("вкладки результата", () => {
     renderRoutes(routes, `/runs/${ID}?tab=latency`);
     expect(await screen.findAllByText(/per-query не сохранялись/)).toHaveLength(2);
     expect(screen.getByRole("table", { name: "Перцентили по стадиям" })).toBeInTheDocument();
+  });
+});
+
+describe("вкладка «Условия»", () => {
+  it("manifest по карточкам: сборка индекса на другом коммите, HNSW не построен, JSON", async () => {
+    mockApi((_req, url) => {
+      if (url.pathname === `/v1/runs/${ID}`) {
+        const include = url.searchParams.get("include");
+        if (include === "manifest") return json({ ...light, manifest: nfManifest });
+        if (include === "scenario") return json({ ...light, scenario_yaml });
+        return json(light);
+      }
+      if (url.pathname === "/v1/runs") return json({ k: 10, total: 0, items: [] });
+      if (url.pathname === `/v1/runs/${ID}/artifacts`) return json([]);
+      return undefined;
+    });
+    renderRoutes(routes, `/runs/${ID}?tab=conditions`);
+    expect(await screen.findByText("Окружение сборки индекса")).toBeInTheDocument();
+    expect(screen.getAllByText("≠ прогону")).toHaveLength(1); // commit сборки индекса
+    expect(screen.getByText("indexed_vectors = 0")).toBeInTheDocument();
+    expect(screen.getByText(/HNSW не построен/)).toBeInTheDocument();
+    expect(screen.getByText("b5026a0e+a451b3b2")).toBeInTheDocument(); // составная ревизия BeIR коротко
+    await userEvent.click(screen.getByRole("button", { name: "JSON" }));
+    expect(screen.getByText(/"corpus_sha256": "54ef7cf7/)).toBeInTheDocument();
   });
 });

@@ -11,6 +11,7 @@ import k from "../../ui/kit.module.css";
 import { Card, Empty } from "../../ui/Layout";
 import { ErrorBox } from "../../ui/ProblemView";
 import s from "../task/task.module.css";
+import { ConditionsSummary } from "./ConditionsTab";
 import { QualityCard, StageCard } from "./resultCards";
 import r from "./results.module.css";
 
@@ -114,10 +115,12 @@ export function RunOverview({ run }: { run: S["RunStatus"] }) {
         )}
       </div>
       <div className={r.grid2}>
+        <ConditionsSummary run={run} summaryN={num(summary.repeats[0], "n")} />
         <StageCard summary={summary} facts={facts} />
-        <QualityCard summary={summary} level="doc" />
       </div>
-      <Card title={t("Повторы")}>
+      <div className={r.grid2}>
+        <QualityCard summary={summary} level="doc" />
+        <Card title={t("Повторы")}>
         <table className={`${k.tbl} ${k.compact}`} aria-label={t("Повторы")}>
           <thead>
             <tr>
@@ -154,7 +157,8 @@ export function RunOverview({ run }: { run: S["RunStatus"] }) {
           <span className="small muted">{t("Один повтор: std по повторам не считается. Для оценки стабильности задержек нужны repeats ≥ 3.")}</span>
         )}
         <QueryLinks summary={summary} k={kv} />
-      </Card>
+        </Card>
+      </div>
     </>
   );
 }

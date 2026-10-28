@@ -25,6 +25,7 @@ import { WarningsBody, checkStep, dryRunScenario, enqueueScenario } from "../run
 import { LogView } from "../task/LogView";
 import { PhaseSteps } from "../task/PhaseSteps";
 import s from "../task/task.module.css";
+import { ConditionsTab } from "./ConditionsTab";
 import { LatencyTab } from "./LatencyTab";
 import { QualityTab } from "./QualityTab";
 import { QueriesTab } from "./QueriesTab";
@@ -33,16 +34,16 @@ import { RunOverview } from "./RunOverview";
 type TabId = "overview" | "quality" | "latency" | "queries" | "conditions" | "config" | "log" | "files";
 
 /**
- * Реестр вкладок прогона (ragglet-31 §8): 32 добавляет свои записи вместо заглушек «soon», не трогая
- * страницу. available решает, есть ли вкладка у прогона в этом состоянии. title — msg(), перевод при выводе.
+ * Реестр вкладок прогона (ragglet-31 §8, вкладки результата — ragglet-32). available решает, есть ли
+ * вкладка у прогона в этом состоянии. title — msg(), перевод при выводе.
  */
-export const RUN_TABS: Array<{ id: TabId; title: string; available: (run: S["RunStatus"]) => boolean | "soon"; Component?: ComponentType<{ run: S["RunStatus"] }> }> = [
+export const RUN_TABS: Array<{ id: TabId; title: string; available: (run: S["RunStatus"]) => boolean; Component: ComponentType<{ run: S["RunStatus"] }> }> = [
   { id: "overview", title: msg("Обзор"), available: (r) => r.state === "completed", Component: RunOverview },
   { id: "quality", title: msg("Качество"), available: (r) => r.state === "completed", Component: QualityTab },
   { id: "latency", title: msg("Задержки и нагрузка"), available: (r) => r.state === "completed", Component: LatencyTab },
   // у упавшего и отменённого — если успел записаться хоть один повтор (решает ответ /queries)
   { id: "queries", title: msg("Запросы"), available: (r) => r.state === "completed" || ((r.state === "failed" || r.state === "cancelled") && r.started_at !== null), Component: QueriesTab },
-  { id: "conditions", title: msg("Условия"), available: () => "soon" },
+  { id: "conditions", title: msg("Условия"), available: (r) => r.state !== "queued", Component: ConditionsTab },
   { id: "config", title: msg("Конфиг"), available: () => true, Component: RunConfig },
   { id: "log", title: msg("Лог"), available: (r) => r.state !== "queued", Component: RunLog },
   { id: "files", title: msg("Файлы"), available: (r) => r.state !== "queued", Component: RunFiles },
@@ -76,10 +77,10 @@ function RunView({ run }: { run: S["RunStatus"] }) {
   const t = useT();
   const [params, setParams] = useSearchParams();
   const active = ACTIVE.has(run.state);
-  const tabs = RUN_TABS.filter((x) => x.available(run) !== false);
+  const tabs = RUN_TABS.filter((x) => x.available(run));
   const fallback: TabId = run.state === "completed" ? "overview" : run.state === "queued" ? "config" : "log";
   const requested = params.get("tab") as TabId | null;
-  const tab = requested && tabs.some((x) => x.id === requested && x.available(run) === true) ? requested : fallback;
+  const tab = requested && tabs.some((x) => x.id === requested) ? requested : fallback;
   const current = RUN_TABS.find((x) => x.id === tab)!;
 
   return (
@@ -93,9 +94,9 @@ function RunView({ run }: { run: S["RunStatus"] }) {
         label={t("Вкладки прогона")}
         value={tab}
         onChange={(next) => setParams(next === fallback ? {} : { tab: next }, { replace: true })}
-        items={tabs.map((x) => ({ id: x.id, label: t(x.title), disabled: x.available(run) === "soon", title: x.available(run) === "soon" ? "ragglet-32" : undefined }))}
+        items={tabs.map((x) => ({ id: x.id, label: t(x.title) }))}
       />
-      {current.Component && <current.Component run={run} />}
+      <current.Component run={run} />
     </Page>
   );
 }
@@ -416,7 +417,7 @@ function RunLog({ run }: { run: S["RunStatus"] }) {
             active && next && [t("Следом"), <span className="mono">{next.name}</span>],
           ]}
         />
-        <span className="small muted">{t("Полный manifest — во вкладке «Условия» (ragglet-32) и в файле manifest.json.")}</span>
+        <span className="small muted">{t("Полный manifest — во вкладке «Условия» и в файле manifest.json.")}</span>
       </Card>
     </div>
   );

@@ -1,0 +1,68 @@
+{
+  "dataset": {
+    "revision": "b5026a0e96e8a7ac4f95f482a596389289d46269+a451b3b26d3ae1358f259c1a3a4dd61fcea35a65",
+    "corpus_sha256": "54ef7cf7a72d63f795addff027863d213d04607223285ea5279df9c1f21d66d4",
+    "eval_sha256": "053791c2ca3755e5c094d3896e524e2dc216e0f72fd0c8f3a7ec3320e87bafbe"
+  },
+  "index": {
+    "profile_id": "nfcorpus_hf",
+    "built_at": "2026-10-24T16:58:09Z",
+    "embedding_revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+    "chunking": {
+      "method": "recursive",
+      "chunk_size": 800,
+      "chunk_overlap": 120
+    },
+    "params": {
+      "vector_size": 384,
+      "distance": "Cosine",
+      "hnsw": {
+        "m": 16,
+        "ef_construct": 128
+      }
+    },
+    "build_env": {
+      "commit": "9ad4b1a119f13e946f4e3ee68f233851ed415fdf",
+      "python": "3.12.6",
+      "system": {
+        "platform": "macOS-26.4-arm64-arm-64bit",
+        "cpu": "Apple M2 Pro",
+        "cpus": 12,
+        "ram_bytes": 17179869184
+      },
+      "compute": {
+        "device": "mps:0",
+        "accelerator": null,
+        "torch_threads": 8
+      }
+    }
+  },
+  "rerank": null,
+  "env": {
+    "commit": "690c9d1eacb32f002ba5aeabe37f0ffbd66292c0",
+    "python": "3.12.6",
+    "system": {
+      "platform": "macOS-26.4-arm64-arm-64bit",
+      "cpu": "Apple M2 Pro",
+      "cpus": 12,
+      "ram_bytes": 17179869184
+    },
+    "compute": {
+      "device": "mps:0",
+      "accelerator": null,
+      "torch_threads": 8
+    },
+    "services": {
+      "storage": {
+        "default": {
+          "type": "qdrant",
+          "version": "1.17.0",
+          "status": "green",
+          "points": 9696,
+          "indexed_vectors": 0,
+          "segments": 2
+        }
+      }
+    }
+  }
+}
