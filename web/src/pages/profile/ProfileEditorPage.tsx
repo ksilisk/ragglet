@@ -16,6 +16,7 @@ import { launch } from "../../editor/launch";
 import { Section } from "../../editor/Section";
 import { EditorContext, checkFromProblem, createEditorStore, useEditor, type CheckResult } from "../../editor/store";
 import { useEditorPage, useLibraryDocument } from "../../editor/useEditorPage";
+import { rich, translate, useT } from "../../i18n/i18n";
 import { fmtDataset, fmtNumber, fmtWhen } from "../../lib/format";
 import { Button } from "../../ui/Button";
 import { Chip } from "../../ui/Chip";
@@ -28,16 +29,17 @@ import { ErrorBox, IssueList } from "../../ui/ProblemView";
 import { hostOf } from "../indexes/IndexesPage";
 
 export default function ProfileEditorPage() {
+  const t = useT();
   const { id = "" } = useParams();
   const doc = useLibraryDocument("profile", id);
   const meta = useProfileMeta();
-  const crumbs = <Crumbs items={[{ label: "Индексы", to: "/indexes" }, { label: "Профили", to: "/indexes?tab=profiles" }, { label: id }]} />;
+  const crumbs = <Crumbs items={[{ label: t("Индексы"), to: "/indexes" }, { label: t("Профили"), to: "/indexes?tab=profiles" }, { label: id }]} />;
   if (doc.error || meta.error) {
     const notFound = doc.error instanceof ApiProblem && doc.error.status === 404;
     return (
       <Page>
         {crumbs}
-        {notFound ? <Empty>Профиля {id} нет в библиотеке.</Empty> : <ErrorBox error={doc.error ?? meta.error} />}
+        {notFound ? <Empty>{t("Профиля {id} нет в библиотеке.", { id })}</Empty> : <ErrorBox error={doc.error ?? meta.error} />}
       </Page>
     );
   }
@@ -45,7 +47,7 @@ export default function ProfileEditorPage() {
     return (
       <Page>
         {crumbs}
-        <span className="muted">Загрузка…</span>
+        <span className="muted">{t("Загрузка…")}</span>
       </Page>
     );
   }
@@ -53,6 +55,7 @@ export default function ProfileEditorPage() {
 }
 
 function ProfileEditor({ doc, meta }: { doc: S["ConfigDocument"]; meta: S["IndexProfileMeta"] }) {
+  const t = useT();
   const open = { dataset: true, chunking: true, embedding: true, storage: true, index: false };
   for (const issue of bindIssues(doc.problem?.issues ?? [], PROFILE_REGISTRY)) (open as Record<string, boolean>)[issue.section] = true;
   const [store] = useState(() => createEditorStore("profile", doc, open));
@@ -89,9 +92,9 @@ function ProfileEditor({ doc, meta }: { doc: S["ConfigDocument"]; meta: S["Index
         },
         confirm: (_warnings, check) =>
           confirm({
-            title: `Собрать индекс по профилю ${check.profile}?`,
+            title: t("Собрать индекс по профилю {profile}?", { profile: check.profile }),
             body: <BuildConfirmBody check={check} />,
-            confirm: busy ? "Собрать · в очередь после текущей задачи" : "Собрать",
+            confirm: busy ? t("Собрать · в очередь после текущей задачи") : t("Собрать"),
             wide: true,
           }),
         submit: async () => {
@@ -130,21 +133,21 @@ function ProfileEditor({ doc, meta }: { doc: S["ConfigDocument"]; meta: S["Index
   const actions = (
     <>
       <Button onClick={() => void page.onSave()} disabled={!page.dirty || page.broken || page.busy !== null}>
-        {page.busy === "save" ? "Сохранение…" : "Сохранить"}
+        {page.busy === "save" ? t("Сохранение…") : t("Сохранить")}
       </Button>
       <Button onClick={() => void onCheck()} disabled={page.broken || page.busy !== null}>
-        {page.busy === "check" ? "Проверка…" : "Проверить"}
+        {page.busy === "check" ? t("Проверка…") : t("Проверить")}
       </Button>
-      <Button variant="primary" onClick={() => void onBuild()} disabled={page.broken || page.busy !== null} title="Сохранить, проверить и поставить сборку в очередь">
-        {page.busy === "launch" ? "Сборка…" : "Собрать"}
+      <Button variant="primary" onClick={() => void onBuild()} disabled={page.broken || page.busy !== null} title={t("Сохранить, проверить и поставить сборку в очередь")}>
+        {page.busy === "launch" ? t("Сборка…") : t("Собрать")}
       </Button>
       <Menu
-        trigger={<Button aria-label="Ещё действия">⋯</Button>}
+        trigger={<Button aria-label={t("Ещё действия")}>⋯</Button>}
         items={[
-          { label: "Сохранить как…", onSelect: page.onSaveAs },
-          { label: "Сбросить к сохранённому", onSelect: () => void page.onReset(), disabled: !page.dirty },
-          { label: "Экспорт YAML", onSelect: page.onExport },
-          { label: "Удалить…", onSelect: () => void page.onDelete(), danger: true },
+          { label: t("Сохранить как…"), onSelect: page.onSaveAs },
+          { label: t("Сбросить к сохранённому"), onSelect: () => void page.onReset(), disabled: !page.dirty },
+          { label: t("Экспорт YAML"), onSelect: page.onExport },
+          { label: t("Удалить…"), onSelect: () => void page.onDelete(), danger: true },
         ]}
       />
     </>
@@ -167,22 +170,23 @@ function ProfileEditor({ doc, meta }: { doc: S["ConfigDocument"]; meta: S["Index
 }
 
 function ProfileHead({ actions, note, banners }: { actions: ReactNode; note: string | null; banners: ReactNode }) {
+  const t = useT();
   const id = useEditor((st) => st.id);
   const dirty = useEditor((st) => st.text !== st.saved.text);
   const valid = useEditor((st) => st.saved.valid);
   const value = useValue<string>("id");
   return (
     <>
-      <Crumbs items={[{ label: "Индексы", to: "/indexes" }, { label: "Профили", to: "/indexes?tab=profiles" }, { label: id }]} />
+      <Crumbs items={[{ label: t("Индексы"), to: "/indexes" }, { label: t("Профили"), to: "/indexes?tab=profiles" }, { label: id }]} />
       <div className={s.head}>
         <div className={s.headFields}>
           <div className={s.headRow}>
             <label htmlFor="f-id-input" className={s.headLabel}>
               id
             </label>
-            <input id="f-id-input" className={cx(k.inp, k.ro, s.nameInput)} value={value ?? ""} readOnly title="id — это имя файла: переименование — «Сохранить как…»" />
-            {dirty && <Chip tone="warn">не сохранено</Chip>}
-            {!valid && <Chip tone="fail">черновик</Chip>}
+            <input id="f-id-input" className={cx(k.inp, k.ro, s.nameInput)} value={value ?? ""} readOnly title={t("id — это имя файла: переименование — «Сохранить как…»")} />
+            {dirty && <Chip tone="warn">{t("не сохранено")}</Chip>}
+            {!valid && <Chip tone="fail">{t("черновик")}</Chip>}
           </div>
           <div id={fieldDomId("id")}>
             <FieldMessages path="id" />
@@ -199,17 +203,18 @@ function ProfileHead({ actions, note, banners }: { actions: ReactNode; note: str
 }
 
 function DatasetSection({ meta }: { meta: S["IndexProfileMeta"] }) {
+  const t = useT();
   const datasets = useDatasets();
   const source = useValue<string>("dataset.source") ?? "local";
   const id = useValue<string>("dataset.id");
   const supportsRevision = meta.dataset_sources.find((d) => d.id === source)?.supports_revision ?? false;
   const ids = source === "hf" ? (datasets.data?.hf ?? []).map((d) => d.id) : (datasets.data?.local ?? []).map((d) => d.id);
   return (
-    <Section id="dataset" title="Датасет" summary={`${source}:${id ?? "—"}`}>
+    <Section id="dataset" title={t("Датасет")} summary={`${source}:${id ?? "—"}`}>
       <Grid cols={4}>
         <SelectField path="dataset.source" label="dataset.source" options={meta.dataset_sources.map((d) => d.id)} />
         <TextField path="dataset.id" label="dataset.id" mono optional={false} span={2} list="dl-profile-datasets" placeholder={source === "hf" ? "BeIR/nfcorpus" : "datasets/demo"} />
-        {supportsRevision && <TextField path="dataset.revision" label="revision" mono placeholder="последняя" />}
+        {supportsRevision && <TextField path="dataset.revision" label="revision" mono placeholder={t("последняя")} />}
       </Grid>
       <datalist id="dl-profile-datasets">
         {ids.map((x) => (
@@ -221,11 +226,12 @@ function DatasetSection({ meta }: { meta: S["IndexProfileMeta"] }) {
 }
 
 function ChunkingSection({ meta }: { meta: S["IndexProfileMeta"] }) {
+  const t = useT();
   const method = useValue<string>("chunking.method") ?? "recursive";
   const size = useValue<number>("chunking.chunk_size");
   const overlap = useValue<number>("chunking.chunk_overlap");
   return (
-    <Section id="chunking" title="Чанкинг" summary={method === "recursive" ? `recursive ${size ?? 800}/${overlap ?? 120}` : method}>
+    <Section id="chunking" title={t("Чанкинг")} summary={method === "recursive" ? `recursive ${size ?? 800}/${overlap ?? 120}` : method}>
       <Grid cols={4}>
         <SelectField path="chunking.method" label="method" options={enumAt(meta.json_schema, ["chunking", "method"])} />
         {method === "recursive" && (
@@ -235,15 +241,16 @@ function ChunkingSection({ meta }: { meta: S["IndexProfileMeta"] }) {
           </>
         )}
       </Grid>
-      {method === "none" && <Note>none — документ целиком одним чанком; размеры при этом запрещены схемой.</Note>}
+      {method === "none" && <Note>{t("none — документ целиком одним чанком; размеры при этом запрещены схемой.")}</Note>}
     </Section>
   );
 }
 
 function EmbeddingSection() {
+  const t = useT();
   const model = useValue<string>("embedding.model");
   return (
-    <Section id="embedding" title="Эмбеддинг" summary={model ?? "—"}>
+    <Section id="embedding" title={t("Эмбеддинг")} summary={model ?? "—"}>
       <Grid cols={4}>
         <TextField path="embedding.model" label="model" mono span={2} optional={false} placeholder="all-MiniLM-L6-v2" />
         <TextField path="embedding.revision" label="revision" mono placeholder="main" />
@@ -255,6 +262,7 @@ function EmbeddingSection() {
 }
 
 function StorageSection({ meta }: { meta: S["IndexProfileMeta"] }) {
+  const t = useT();
   const { append, removeAt } = useEditorActions();
   const indexes = useIndexes();
   const mode = useValue<string>("storage.mode") ?? "single";
@@ -265,8 +273,8 @@ function StorageSection({ meta }: { meta: S["IndexProfileMeta"] }) {
   return (
     <Section
       id="storage"
-      title="Хранилище"
-      summary={mode === "single" ? `${hostOf(endpoint ?? "")} / ${collection ?? "—"}` : `${mode} · ${backends.length} ${backends.length === 1 ? "цель" : "цели"}`}
+      title={t("Хранилище")}
+      summary={mode === "single" ? `${hostOf(endpoint ?? "")} / ${collection ?? "—"}` : `${mode} · ${backends.length} ` + (backends.length === 1 ? t("цель") : t("цели"))}
     >
       <Grid cols={4}>
         <SelectField path="storage.mode" label="storage.mode" options={enumAt(meta.json_schema, ["storage", "mode"])} />
@@ -284,14 +292,14 @@ function StorageSection({ meta }: { meta: S["IndexProfileMeta"] }) {
       </datalist>
       {mode !== "single" && (
         <div className={s.cards} id={fieldDomId("storage.backends")}>
-          <h3 className={s.subhead}>Цели (storage.backends)</h3>
+          <h3 className={s.subhead}>{t("Цели (storage.backends)")}</h3>
           <FieldMessages path="storage.backends" />
           {backends.map((b, i) => (
             <div key={i} className={s.itemCard} id={fieldDomId(`storage.backends[${i}]`)}>
               <div className={s.itemHead}>
-                <span className="mono grow">{String(b.id ?? `цель ${i + 1}`)}</span>
+                <span className="mono grow">{String(b.id ?? t("цель {n}", { n: i + 1 }))}</span>
                 <Button small onClick={() => removeAt(["storage", "backends"], i)}>
-                  Убрать
+                  {t("Убрать")}
                 </Button>
               </div>
               <Grid cols={4}>
@@ -306,7 +314,7 @@ function StorageSection({ meta }: { meta: S["IndexProfileMeta"] }) {
               small
               onClick={() => append(["storage", "backends"], { id: `shard_${backends.length}`, type: "qdrant", endpoint: endpoint ?? "http://localhost:6333", collection: `${collection ?? "chunks"}_shard${backends.length}` })}
             >
-              + цель
+              {t("+ цель")}
             </Button>
           </div>
         </div>
@@ -316,11 +324,12 @@ function StorageSection({ meta }: { meta: S["IndexProfileMeta"] }) {
 }
 
 function IndexSection({ meta }: { meta: S["IndexProfileMeta"] }) {
+  const t = useT();
   const distance = useValue<string>("index_params.distance") ?? "cosine";
   const m = useValue<number>("index_params.hnsw.m") ?? 16;
   const ef = useValue<number>("index_params.hnsw.ef_construct") ?? 128;
   return (
-    <Section id="index" title="Параметры индекса" summary={`${distance} · HNSW ${m}/${ef}`}>
+    <Section id="index" title={t("Параметры индекса")} summary={`${distance} · HNSW ${m}/${ef}`}>
       <Grid cols={4}>
         <SelectField path="index_params.distance" label="distance" options={enumAt(meta.json_schema, ["index_params", "distance"])} />
         <NumberField path="index_params.hnsw.m" label="hnsw.m" min={1} />
@@ -332,40 +341,48 @@ function IndexSection({ meta }: { meta: S["IndexProfileMeta"] }) {
 
 /** Тело подтверждения сборки (диалог на артборде Indexes): что будет пересоздано и кто этим пользуется. */
 function BuildConfirmBody({ check }: { check: S["BuildCheck"] }) {
+  const t = useT();
   return (
     <>
       <span>
-        Dry-run прошёл: датасет {fmtDataset(check.dataset)}, {fmtNumber(check.documents)} документов, corpus sha256{" "}
-        <span className="mono">{check.corpus_sha256.slice(0, 8)}…</span>
-        {check.warnings.length ? `, предупреждений: ${check.warnings.length}` : ", предупреждений нет"}.
+        {rich(
+          t("Dry-run прошёл: датасет {dataset}, {documents} документов, corpus sha256 {sha}{warnings}.", {
+            dataset: fmtDataset(check.dataset),
+            documents: fmtNumber(check.documents),
+            warnings: check.warnings.length ? t(", предупреждений: {n}", { n: check.warnings.length }) : t(", предупреждений нет"),
+          }),
+          { sha: <span className="mono">{check.corpus_sha256.slice(0, 8)}…</span> },
+        )}
       </span>
       {check.warnings.length > 0 && <IssueList issues={check.warnings} />}
       <span>
-        <b>{check.targets.some((t) => t.exists) ? "Будут пересозданы:" : "Будут созданы:"}</b>
+        <b>{check.targets.some((x) => x.exists) ? t("Будут пересозданы:") : t("Будут созданы:")}</b>
       </span>
       <div style={{ display: "grid", gridTemplateColumns: "180px 1fr", gap: "4px 12px" }}>
-        {check.targets.map((t) => (
-          <div key={t.id} style={{ display: "contents" }}>
-            <span className="mono">{t.collection}</span>
+        {check.targets.map((x) => (
+          <div key={x.id} style={{ display: "contents" }}>
+            <span className="mono">{x.collection}</span>
             <span className="muted">
-              {hostOf(t.endpoint)} ·{" "}
-              {!t.reachable
-                ? `недоступен: ${t.error ?? "нет ответа"}`
-                : t.exists
-                  ? `существует, ${fmtNumber(t.points)} points${t.built_at ? `, собрана ${fmtWhen(t.built_at)}` : ", без метаданных"}`
-                  : "новая коллекция"}
-              {t.used_by.length > 0 && (
+              {hostOf(x.endpoint)} ·{" "}
+              {!x.reachable
+                ? t("недоступен: {error}", { error: x.error ?? t("нет ответа") })
+                : x.exists
+                  ? x.built_at
+                    ? t("существует, {points} points, собрана {when}", { points: fmtNumber(x.points), when: fmtWhen(x.built_at) })
+                    : t("существует, {points} points, без метаданных", { points: fmtNumber(x.points) })
+                  : t("новая коллекция")}
+              {x.used_by.length > 0 && (
                 <>
                   {" "}
-                  · используют сценарии <span className="mono">{t.used_by.join(", ")}</span>
+                  · {rich(t("используют сценарии {list}"), { list: <span className="mono">{x.used_by.join(", ")}</span> })}
                 </>
               )}
             </span>
           </div>
         ))}
       </div>
-      {check.targets.some((t) => t.exists) && (
-        <span className="muted">Старые прогоны на этих коллекциях станут несравнимыми с новым индексом по chunking и модели — их manifest это покажет.</span>
+      {check.targets.some((x) => x.exists) && (
+        <span className="muted">{t("Старые прогоны на этих коллекциях станут несравнимыми с новым индексом по chunking и модели — их manifest это покажет.")}</span>
       )}
     </>
   );
@@ -377,15 +394,15 @@ function buildReport(check: CheckResult): ReactNode {
   return (
     <>
       <span>
-        <Chip tone="ok">dry-run пройден</Chip> {fmtDataset(r.dataset)} · {fmtNumber(r.documents)} документов · corpus sha256{" "}
+        <Chip tone="ok">{translate("dry-run пройден")}</Chip> {translate("{dataset} · {documents} документов · corpus sha256", { dataset: fmtDataset(r.dataset), documents: fmtNumber(r.documents) })}{" "}
         <span className="mono">{r.corpus_sha256.slice(0, 12)}</span>
       </span>
       <span className="muted">
-        Цели:{" "}
-        {r.targets.map((t, i) => (
-          <span key={t.id}>
+        {translate("Цели:")}{" "}
+        {r.targets.map((x, i) => (
+          <span key={x.id}>
             {i > 0 && "; "}
-            <span className="mono">{t.collection}</span> ({!t.reachable ? "недоступен" : t.exists ? `существует, ${fmtNumber(t.points)} points` : "новая"})
+            <span className="mono">{x.collection}</span> ({!x.reachable ? translate("недоступен") : x.exists ? translate("существует, {points} points", { points: fmtNumber(x.points) }) : translate("новая")})
           </span>
         ))}
       </span>

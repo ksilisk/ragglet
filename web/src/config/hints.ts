@@ -1,10 +1,15 @@
+import { msg, type Vars } from "../i18n/i18n";
 import { getAt } from "./paths";
 
-/** Подсказка формы: только показывается, ничего не блокирует; валидность решает сервер. */
+/**
+ * Подсказка формы: только показывается, ничего не блокирует; валидность решает сервер. message —
+ * шаблон msg("… {depth} …"), числа — в vars; при выводе t(hint.message, hint.vars).
+ */
 export interface Hint {
   path: string;
   severity: "warning" | "info";
   message: string;
+  vars?: Vars;
 }
 
 type Data = Record<string, unknown> | null | undefined;
@@ -57,14 +62,16 @@ export function scenarioHints(data: Data, defaults: Data, collection?: Collectio
   const { depth, source, parts } = finalDepth(data, defaults);
   const ks = getAt(data, ["metrics", "quality", "k"]) ?? getAt(defaults, ["metrics", "quality", "k"]);
   const formula = parts.length > 1 ? ` = min(${parts.map(([n, v]) => `${n} ${v}`).join(", ")})` : "";
-  hints.push({ path: "metrics.quality.k", severity: "info", message: `Глубина финального списка: ${depth}${formula}.` });
+  const depthHint = { severity: "info", message: msg("Глубина финального списка: {depth}{formula}."), vars: { depth, formula } } as const;
+  hints.push({ path: "metrics.quality.k", ...depthHint });
   if (Array.isArray(ks)) {
     const over = ks.filter((k): k is number => typeof k === "number" && k > depth);
     if (over.length) {
       hints.push({
         path: "metrics.quality.k",
         severity: "warning",
-        message: `k = ${over.join(", ")} больше глубины финального списка ${depth} (${source}): проверка не пройдёт.`,
+        message: msg("k = {ks} больше глубины финального списка {depth} ({source}): проверка не пройдёт."),
+        vars: { ks: over.join(", "), depth, source },
       });
     }
   }
@@ -73,12 +80,13 @@ export function scenarioHints(data: Data, defaults: Data, collection?: Collectio
   const topK = num(data, "retrieval.top_k", num(defaults, "retrieval.top_k", 30));
   if (rerank) {
     const inputTopK = num(data, "rerank.input_top_k", num(defaults, "rerank.input_top_k", 30));
-    hints.push({ path: "rerank.output_top_n", severity: "info", message: `Глубина финального списка: ${depth}${formula}.` });
+    hints.push({ path: "rerank.output_top_n", ...depthHint });
     if (inputTopK > topK) {
       hints.push({
         path: "rerank.input_top_k",
         severity: "warning",
-        message: `input_top_k больше retrieval.top_k (${topK}): реранк получит не больше ${topK} кандидатов.`,
+        message: msg("input_top_k больше retrieval.top_k ({topK}): реранк получит не больше {topK} кандидатов."),
+        vars: { topK },
       });
     }
   }
@@ -93,8 +101,9 @@ export function scenarioHints(data: Data, defaults: Data, collection?: Collectio
     severity: sum > total ? "warning" : "info",
     message:
       sum > total
-        ? `Сумма бюджетов стадий ${sum} мс (${budgets.map(([n, v]) => `${n} ${v}`).join(" + ")}) больше total_ms ${total}: запрос упрётся в total раньше, чем в стадию.`
-        : `Сумма бюджетов включённых стадий: ${sum} мс из ${total}.`,
+        ? msg("Сумма бюджетов стадий {sum} мс ({budgets}) больше total_ms {total}: запрос упрётся в total раньше, чем в стадию.")
+        : msg("Сумма бюджетов включённых стадий: {sum} мс из {total}."),
+    vars: { sum, total, budgets: budgets.map(([n, v]) => `${n} ${v}`).join(" + ") },
   });
 
   const strategy = getAt(data, ["retrieval", "strategy"]) ?? "single";
@@ -102,17 +111,22 @@ export function scenarioHints(data: Data, defaults: Data, collection?: Collectio
   const list = Array.isArray(sources) ? (sources as Array<Record<string, unknown>>) : [];
   const keyword = list.filter((s) => s?.kind === "keyword").length;
   if (strategy === "single" && list.length > 1) {
-    hints.push({ path: "retrieval.sources", severity: "warning", message: `single берёт только первый источник: остальные ${list.length - 1} не используются.` });
+    hints.push({
+      path: "retrieval.sources",
+      severity: "warning",
+      message: msg("single берёт только первый источник: остальные {rest} не используются."),
+      vars: { rest: list.length - 1 },
+    });
   }
   if (strategy === "single" && keyword > 0) {
-    hints.push({ path: "retrieval.sources", severity: "warning", message: "keyword-источник при single не реализован: нужен fanout_merge." });
+    hints.push({ path: "retrieval.sources", severity: "warning", message: msg("keyword-источник при single не реализован: нужен fanout_merge.") });
   }
   if (keyword > 1) {
-    hints.push({ path: "retrieval.sources", severity: "warning", message: "Больше одного keyword-источника не реализовано." });
+    hints.push({ path: "retrieval.sources", severity: "warning", message: msg("Больше одного keyword-источника не реализовано.") });
   }
 
   if (bool(data, "generation.enabled") && !bool(data, "context.enabled")) {
-    hints.push({ path: "generation.enabled", severity: "warning", message: "Generation требует context.enabled: включите Context." });
+    hints.push({ path: "generation.enabled", severity: "warning", message: msg("Generation требует context.enabled: включите Context.") });
   }
 
   if (collection) {
@@ -122,7 +136,8 @@ export function scenarioHints(data: Data, defaults: Data, collection?: Collectio
       hints.push({
         path: "dataset.id",
         severity: "warning",
-        message: `Коллекция собрана по ${String(collection.dataset_source)}:${String(collection.dataset_id)}, а сценарий — ${String(src)}:${String(id)}.`,
+        message: msg("Коллекция собрана по {collection}, а сценарий — {scenario}."),
+        vars: { collection: `${String(collection.dataset_source)}:${String(collection.dataset_id)}`, scenario: `${String(src)}:${String(id)}` },
       });
     }
     const model = getAt(data, ["embedding", "model"]) ?? getAt(defaults, ["embedding", "model"]);
@@ -130,7 +145,8 @@ export function scenarioHints(data: Data, defaults: Data, collection?: Collectio
       hints.push({
         path: "embedding.model",
         severity: "warning",
-        message: `Модель коллекции — ${String(collection.embedding_model)}: preflight не пропустит другую.`,
+        message: msg("Модель коллекции — {model}: preflight не пропустит другую."),
+        vars: { model: String(collection.embedding_model) },
       });
     }
   }
@@ -143,7 +159,14 @@ export function profileHints(data: Data): Hint[] {
   const size = getAt(data, ["chunking", "chunk_size"]);
   const overlap = getAt(data, ["chunking", "chunk_overlap"]);
   if (method === "recursive" && typeof size === "number" && typeof overlap === "number" && overlap >= size) {
-    return [{ path: "chunking.chunk_overlap", severity: "warning", message: `chunk_overlap (${overlap}) должен быть меньше chunk_size (${size}).` }];
+    return [
+      {
+        path: "chunking.chunk_overlap",
+        severity: "warning",
+        message: msg("chunk_overlap ({overlap}) должен быть меньше chunk_size ({size})."),
+        vars: { overlap, size },
+      },
+    ];
   }
   return [];
 }

@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { ApiProblem, type S } from "../../api/client";
 import { useIndexes, useProfiles, useStand } from "../../api/queries";
+import { msg, rich, useT } from "../../i18n/i18n";
 import { fmtDataset, fmtNumber, fmtWhen } from "../../lib/format";
 import { compactNames } from "../../lib/names";
 import { Button, LinkButton } from "../../ui/Button";
@@ -20,11 +21,16 @@ import s from "../scenarios/scenarios.module.css";
 
 type Tab = "collections" | "profiles";
 
+/** Подписи и подсказки — msg(): переводятся при выводе, t(COLLECTION_STATE[s].label). */
 export const COLLECTION_STATE: Record<S["CollectionItem"]["state"], { label: string; tone: ChipTone; hint: string }> = {
-  ready: { label: "готова", tone: "ok", hint: "метаданные полны, status green" },
-  optimizing: { label: "оптимизируется", tone: "warn", hint: "не green, прогон даст предупреждение index.not_green" },
-  incomplete: { label: "недособрана", tone: "fail", hint: "коллекция есть, метаданных ragglet нет: сборка не завершилась или коллекция старого контракта" },
-  foreign: { label: "чужая", tone: "cancel", hint: "без ключа ragglet" },
+  ready: { label: msg("готова"), tone: "ok", hint: msg("метаданные полны, status green") },
+  optimizing: { label: msg("оптимизируется"), tone: "warn", hint: msg("не green, прогон даст предупреждение index.not_green") },
+  incomplete: {
+    label: msg("недособрана"),
+    tone: "fail",
+    hint: msg("коллекция есть, метаданных ragglet нет: сборка не завершилась или коллекция старого контракта"),
+  },
+  foreign: { label: msg("чужая"), tone: "cancel", hint: msg("без ключа ragglet") },
 };
 
 const short = (value: unknown, n = 8) => (typeof value === "string" && value ? value.slice(0, n) : null);
@@ -33,6 +39,7 @@ export const hostOf = (endpoint: string) => endpoint.replace(/^https?:\/\//, "")
 type Dialogs = { kind: "new" } | { kind: "import" } | { kind: "duplicate"; id: string } | { kind: "meta"; item: S["CollectionItem"] } | null;
 
 export default function IndexesPage() {
+  const t = useT();
   const [params, setParams] = useSearchParams();
   const tab: Tab = params.get("tab") === "profiles" ? "profiles" : "collections";
   const indexes = useIndexes();
@@ -45,18 +52,18 @@ export default function IndexesPage() {
   return (
     <Page>
       <PageHead
-        title="Индексы"
+        title={t("Индексы")}
         actions={
           <>
             <Menu
-              trigger={<Button>Новый профиль ▾</Button>}
+              trigger={<Button>{t("Новый профиль ▾")}</Button>}
               items={[
-                { label: "Пустой…", onSelect: () => setDialog({ kind: "new" }) },
-                { label: "Из YAML…", onSelect: () => setDialog({ kind: "import" }) },
+                { label: t("Пустой…"), onSelect: () => setDialog({ kind: "new" }) },
+                { label: t("Из YAML…"), onSelect: () => setDialog({ kind: "import" }) },
               ]}
             />
             <Menu
-              trigger={<Button variant="primary">Собрать индекс ▾</Button>}
+              trigger={<Button variant="primary">{t("Собрать индекс ▾")}</Button>}
               items={(profiles.data ?? []).map((p) => ({
                 label: <span className="mono">{p.id}</span>,
                 onSelect: () => navigate(`${LIBRARY.profile.route(p.id)}?build=1`),
@@ -66,12 +73,12 @@ export default function IndexesPage() {
         }
       />
       <Tabs<Tab>
-        label="Индексы"
+        label={t("Индексы")}
         value={tab}
         onChange={(next) => setParams(next === "collections" ? {} : { tab: next }, { replace: true })}
         items={[
-          { id: "collections", label: `Коллекции${indexes.data ? ` · ${indexes.data.collections.length}` : ""}` },
-          { id: "profiles", label: `Профили${profiles.data ? ` · ${profiles.data.length}` : ""}` },
+          { id: "collections", label: t("Коллекции") + (indexes.data ? ` · ${indexes.data.collections.length}` : "") },
+          { id: "profiles", label: t("Профили") + (profiles.data ? ` · ${profiles.data.length}` : "") },
         ]}
       />
       {tab === "collections" ? (
@@ -85,9 +92,9 @@ export default function IndexesPage() {
           kind="profile"
           open
           onClose={() => setDialog(null)}
-          title="Новый профиль индекса"
+          title={t("Новый профиль индекса")}
           initial="new_profile"
-          confirm="Создать"
+          confirm={t("Создать")}
           taken={profileIds}
           onSubmit={(name) => createDocument("profile", skeleton("profile", name, stand.data?.qdrant[0]?.url))}
         />
@@ -97,9 +104,9 @@ export default function IndexesPage() {
           kind="profile"
           open
           onClose={() => setDialog(null)}
-          title={`Дублировать ${dialog.id}`}
+          title={t("Дублировать {id}", { id: dialog.id })}
           initial={`${dialog.id}_copy`}
-          confirm="Дублировать"
+          confirm={t("Дублировать")}
           taken={profileIds}
           onSubmit={(name) => duplicate("profile", dialog.id, name)}
         />
@@ -109,8 +116,8 @@ export default function IndexesPage() {
         open={dialog?.kind === "meta"}
         onOpenChange={(open) => !open && setDialog(null)}
         wide
-        title={dialog?.kind === "meta" ? `Метаданные ${dialog.item.name}` : ""}
-        footer={<Button onClick={() => setDialog(null)}>Закрыть</Button>}
+        title={dialog?.kind === "meta" ? t("Метаданные {name}", { name: dialog.item.name }) : ""}
+        footer={<Button onClick={() => setDialog(null)}>{t("Закрыть")}</Button>}
       >
         {dialog?.kind === "meta" && (
           <pre className="mono small" style={{ margin: 0, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
@@ -128,6 +135,7 @@ function Collections({ data, error, profileIds, onMeta }: {
   profileIds: ReadonlySet<string>;
   onMeta: (item: S["CollectionItem"]) => void;
 }) {
+  const t = useT();
   const down = data?.endpoints.filter((e) => !e.available) ?? [];
   return (
     <>
@@ -136,25 +144,25 @@ function Collections({ data, error, profileIds, onMeta }: {
         <ProblemBox
           warning
           problem={{
-            title: "Часть Qdrant недоступна — их коллекций нет в списке",
+            title: t("Часть Qdrant недоступна — их коллекций нет в списке"),
             hint: null,
-            issues: down.map((e) => ({ code: "storage.unreachable", severity: "warning", path: null, where: e.url, message: e.error ?? "недоступен" })),
+            issues: down.map((e) => ({ code: "storage.unreachable", severity: "warning", path: null, where: e.url, message: e.error ?? t("недоступен") })),
           }}
         />
       )}
       <section className={`${k.card} ${k.flush}`}>
-        <table className={`${k.tbl} ${s.tight}`} aria-label="Коллекции Qdrant">
+        <table className={`${k.tbl} ${s.tight}`} aria-label={t("Коллекции Qdrant")}>
           <thead>
             <tr>
-              <th>Коллекция</th>
+              <th>{t("Коллекция")}</th>
               <th>Endpoint</th>
-              <th>Состояние</th>
-              <th>Датасет</th>
-              <th>Модель</th>
+              <th>{t("Состояние")}</th>
+              <th>{t("Датасет")}</th>
+              <th>{t("Модель")}</th>
               <th>Chunking</th>
               <th className="r">Points</th>
-              <th>Собрана</th>
-              <th>Профиль</th>
+              <th>{t("Собрана")}</th>
+              <th>{t("Профиль")}</th>
               <th />
             </tr>
           </thead>
@@ -171,8 +179,8 @@ function Collections({ data, error, profileIds, onMeta }: {
                   <td className="mono nowrap">{c.name}</td>
                   <td className="mono muted nowrap">{hostOf(c.endpoint)}</td>
                   <td>
-                    <Chip tone={state.tone} title={`${state.hint} · status ${c.status}`}>
-                      {state.label}
+                    <Chip tone={state.tone} title={`${t(state.hint)} · status ${c.status}`}>
+                      {t(state.label)}
                     </Chip>
                   </td>
                   <td className="nowrap">
@@ -181,7 +189,7 @@ function Collections({ data, error, profileIds, onMeta }: {
                         {String(meta.dataset_source)} · {String(meta.dataset_id)} <span className="mono muted">{short(meta.corpus_sha256)}</span>
                       </>
                     ) : (
-                      <span className="muted">нет метаданных ragglet</span>
+                      <span className="muted">{t("нет метаданных ragglet")}</span>
                     )}
                   </td>
                   <td className="nowrap">
@@ -212,16 +220,16 @@ function Collections({ data, error, profileIds, onMeta }: {
                     <div className={s.acts}>
                       {profile && profileIds.has(profile) ? (
                         <LinkButton small to={`${LIBRARY.profile.route(profile)}?build=1`}>
-                          Пересобрать
+                          {t("Пересобрать")}
                         </LinkButton>
                       ) : (
-                        <Button small disabled title="Профиля этой коллекции нет в библиотеке">
-                          Пересобрать
+                        <Button small disabled title={t("Профиля этой коллекции нет в библиотеке")}>
+                          {t("Пересобрать")}
                         </Button>
                       )}
                       {(c.ragglet || c.params) && (
                         <Button small onClick={() => onMeta(c)}>
-                          Метаданные
+                          {t("Метаданные")}
                         </Button>
                       )}
                     </div>
@@ -231,14 +239,14 @@ function Collections({ data, error, profileIds, onMeta }: {
             })}
           </tbody>
         </table>
-        {data && data.collections.length === 0 && <Empty>Коллекций нет: соберите индекс по профилю.</Empty>}
+        {data && data.collections.length === 0 && <Empty>{t("Коллекций нет: соберите индекс по профилю.")}</Empty>}
       </section>
       <span className="small muted">
-        Состояния:{" "}
+        {t("Состояния:")}{" "}
         {Object.values(COLLECTION_STATE).map((st, i) => (
           <span key={st.label}>
             {i > 0 && " · "}
-            <b>{st.label}</b> — {st.hint}
+            <b>{t(st.label)}</b> — {t(st.hint)}
           </span>
         ))}
         .
@@ -248,19 +256,16 @@ function Collections({ data, error, profileIds, onMeta }: {
 }
 
 function Profiles({ data, error, onDuplicate }: { data: S["IndexProfileItem"][] | undefined; error: unknown; onDuplicate: (id: string) => void }) {
+  const t = useT();
   const qc = useQueryClient();
   const confirm = useConfirm();
   const navigate = useNavigate();
 
   const onDelete = async (item: S["IndexProfileItem"]) => {
     const ok = await confirm({
-      title: `Удалить профиль ${item.id}?`,
-      body: (
-        <>
-          Файл <span className="mono">configs/indexes/{item.id}.yaml</span> будет удалён. Коллекции в Qdrant останутся.
-        </>
-      ),
-      confirm: "Удалить",
+      title: t("Удалить профиль {id}?", { id: item.id }),
+      body: <>{rich(t("Файл {file} будет удалён. Коллекции в Qdrant останутся."), { file: <span className="mono">configs/indexes/{item.id}.yaml</span> })}</>,
+      confirm: t("Удалить"),
       danger: true,
     });
     if (!ok) return;
@@ -277,16 +282,16 @@ function Profiles({ data, error, onDuplicate }: { data: S["IndexProfileItem"][] 
     <>
       {error !== null && error !== undefined && <ErrorBox error={error} />}
       <section className={`${k.card} ${k.flush}`}>
-        <table className={`${k.tbl} ${s.tight}`} aria-label="Профили индексов">
+        <table className={`${k.tbl} ${s.tight}`} aria-label={t("Профили индексов")}>
           <thead>
             <tr>
-              <th>Профиль</th>
-              <th>Датасет</th>
+              <th>{t("Профиль")}</th>
+              <th>{t("Датасет")}</th>
               <th>Chunking</th>
-              <th>Модель</th>
-              <th>Цели</th>
-              <th>Последняя сборка</th>
-              <th>Изменён</th>
+              <th>{t("Модель")}</th>
+              <th>{t("Цели")}</th>
+              <th>{t("Последняя сборка")}</th>
+              <th>{t("Изменён")}</th>
               <th />
             </tr>
           </thead>
@@ -299,12 +304,12 @@ function Profiles({ data, error, onDuplicate }: { data: S["IndexProfileItem"][] 
                     <Link className={`${k.rowLink} mono`} to={href}>
                       {p.id}
                     </Link>{" "}
-                    {!p.valid && <Chip tone="warn">черновик</Chip>}
+                    {!p.valid && <Chip tone="warn">{t("черновик")}</Chip>}
                   </td>
                   <td className="nowrap">{p.dataset ? fmtDataset(p.dataset) : <span className="muted">—</span>}</td>
                   <td className="nowrap">{p.chunking ?? <span className="muted">—</span>}</td>
                   <td className="nowrap">{p.embedding_model ?? <span className="muted">—</span>}</td>
-                  <td className="mono">{compactNames(p.targets.map((t) => t.collection)) || <span className="muted">—</span>}</td>
+                  <td className="mono">{compactNames(p.targets.map((x) => x.collection)) || <span className="muted">—</span>}</td>
                   <td className="nowrap">
                     {p.last_build ? (
                       <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
@@ -321,21 +326,21 @@ function Profiles({ data, error, onDuplicate }: { data: S["IndexProfileItem"][] 
                   <td>
                     <div className={s.acts}>
                       <LinkButton small to={href}>
-                        Открыть
+                        {t("Открыть")}
                       </LinkButton>
                       <Button small onClick={() => onDuplicate(p.id)}>
-                        Дублировать
+                        {t("Дублировать")}
                       </Button>
                       <Menu
                         trigger={
-                          <Button small aria-label={`Ещё: ${p.id}`}>
+                          <Button small aria-label={t("Ещё: {id}", { id: p.id })}>
                             ⋯
                           </Button>
                         }
                         items={[
-                          { label: "Собрать…", onSelect: () => navigate(`${href}?build=1`) },
-                          { label: "Экспорт YAML", onSelect: () => void exportYaml("profile", p.id) },
-                          { label: "Удалить…", onSelect: () => void onDelete(p), danger: true },
+                          { label: t("Собрать…"), onSelect: () => navigate(`${href}?build=1`) },
+                          { label: t("Экспорт YAML"), onSelect: () => void exportYaml("profile", p.id) },
+                          { label: t("Удалить…"), onSelect: () => void onDelete(p), danger: true },
                         ]}
                       />
                     </div>
@@ -345,10 +350,10 @@ function Profiles({ data, error, onDuplicate }: { data: S["IndexProfileItem"][] 
             })}
           </tbody>
         </table>
-        {data && data.length === 0 && <Empty>Профилей нет.</Empty>}
+        {data && data.length === 0 && <Empty>{t("Профилей нет.")}</Empty>}
       </section>
       <span className="small muted">
-        Библиотека профилей — каталог <span className="mono">configs/indexes/</span> на сервере.
+        {rich(t("Библиотека профилей — каталог {dir} на сервере."), { dir: <span className="mono">configs/indexes/</span> })}
       </span>
     </>
   );

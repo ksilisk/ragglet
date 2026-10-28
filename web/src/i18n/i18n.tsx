@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
+import { Fragment, createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 import { readPref, writePref } from "../lib/storage";
 import { en } from "./en";
 
@@ -20,6 +20,11 @@ let current: Lang = typeof window === "undefined" ? "ru" : readLang();
 
 export function currentLang(): Lang {
   return current;
+}
+
+/** Только для тестов чистых функций (format.ts): язык без провайдера. */
+export function setLangForTest(lang: Lang) {
+  current = lang;
 }
 
 /** Локаль чисел и дат: «0,331» и «9 696» — ru, «0.331» и «9,696» — en. */
@@ -52,6 +57,16 @@ export function pluralize(n: number, forms: string, lang: Lang = current): strin
   return (parts[2] ?? parts[1] ?? parts[0])!;
 }
 
+/**
+ * Переведённая строка с элементами внутри: rich(t("Имя берётся из поля {field}."), { field: <code>name</code> }).
+ * Подстановки без значения в parts остаются как есть.
+ */
+export function rich(text: string, parts: Record<string, ReactNode>): ReactNode {
+  return text
+    .split(/\{(\w+)\}/g)
+    .map((piece, i) => (i % 2 === 0 ? piece : <Fragment key={i}>{piece in parts ? parts[piece] : `{${piece}}`}</Fragment>));
+}
+
 export interface T {
   (text: string, vars?: Vars): string;
   plural(n: number, forms: string): string;
@@ -67,8 +82,10 @@ function makeT(lang: Lang): T {
 
 const LangContext = createContext<{ lang: Lang; setLang: (lang: Lang) => void }>({ lang: "ru", setLang: () => {} });
 
-export function I18nProvider({ children }: { children: ReactNode }) {
-  const [lang, setState] = useState<Lang>(current);
+/** initialLang — для тестов: язык с первого рендера, без записи в настройки. */
+export function I18nProvider({ children, initialLang }: { children: ReactNode; initialLang?: Lang }) {
+  if (initialLang) current = initialLang;
+  const [lang, setState] = useState<Lang>(initialLang ?? current);
   const setLang = useCallback((next: Lang) => {
     current = next;
     writePref(LANG_KEY, next);

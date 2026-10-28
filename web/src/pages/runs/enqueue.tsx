@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { ApiProblem, api, settle, type Problem, type ProblemIssue, type S } from "../../api/client";
 import type { CheckStep } from "../../editor/launch";
+import { translate, useT } from "../../i18n/i18n";
 import { fmtDataset, fmtNumber } from "../../lib/format";
 import { IssueList } from "../../ui/ProblemView";
 
@@ -38,16 +39,18 @@ export function planLine(check: S["RunCheck"]): string {
   const load = Object.entries(check.plan.load)
     .map(([key, value]) => (key === "type" ? String(value) : `${key} ${String(value)}`))
     .join(" ");
-  return `${fmtDataset(check.dataset.label)} · ${fmtNumber(check.dataset.queries)} запросов × ${check.plan.repeats} = ${fmtNumber(check.plan.total)} · ${load}`;
+  const plan = translate("{queries} запросов × {repeats} = {total}", { queries: fmtNumber(check.dataset.queries), repeats: check.plan.repeats, total: fmtNumber(check.plan.total) });
+  return `${fmtDataset(check.dataset.label)} · ${plan} · ${load}`;
 }
 
 /** Тело диалога «Запустить всё равно?» (ragglet-15, пример, шаг 4). */
 export function WarningsBody({ warnings, check }: { warnings: ProblemIssue[]; check: S["RunCheck"] }): ReactNode {
+  const t = useT();
   return (
     <>
-      <span>Dry-run прошёл: {planLine(check)}.</span>
+      <span>{t("Dry-run прошёл: {plan}.", { plan: planLine(check) })}</span>
       <span>
-        <b>Предупреждения preflight:</b>
+        <b>{t("Предупреждения preflight:")}</b>
       </span>
       <IssueList issues={warnings} />
     </>

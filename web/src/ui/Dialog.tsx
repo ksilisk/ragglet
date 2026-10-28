@@ -1,5 +1,6 @@
 import * as RadixDialog from "@radix-ui/react-dialog";
 import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from "react";
+import { useT } from "../i18n/i18n";
 import { Button } from "./Button";
 import { cx } from "./cx";
 import s from "./kit.module.css";
@@ -43,6 +44,7 @@ const ConfirmContext = createContext<Confirm | null>(null);
 
 /** Диалог подтверждения как Promise: `if (await confirm({...})) …`. */
 export function ConfirmProvider({ children }: { children: ReactNode }) {
+  const t = useT();
   const [options, setOptions] = useState<ConfirmOptions | null>(null);
   const resolver = useRef<((ok: boolean) => void) | null>(null);
 
@@ -70,7 +72,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
         wide={options?.wide}
         footer={
           <>
-            <Button onClick={() => close(false)}>{options?.cancel ?? "Отмена"}</Button>
+            <Button onClick={() => close(false)}>{options?.cancel ?? t("Отмена")}</Button>
             <Button variant={options?.danger ? "danger" : "primary"} onClick={() => close(true)} autoFocus>
               {options?.confirm}
             </Button>

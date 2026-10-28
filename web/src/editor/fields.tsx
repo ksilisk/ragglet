@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { parsePath } from "../config/paths";
 import { fieldDomId } from "../config/registry";
+import { useT } from "../i18n/i18n";
 import { cx } from "../ui/cx";
 import k from "../ui/kit.module.css";
 import { useDefault, useEditorActions, useHintsAt, useIssuesAt, useValue } from "./derived";
@@ -21,6 +22,7 @@ export function FieldShell({ path, label, children, span, extra, resettable = tr
   extra?: ReactNode;
   resettable?: boolean;
 }) {
+  const t = useT();
   const issues = useIssuesAt(path);
   const hints = useHintsAt(path);
   const value = useValue(path);
@@ -33,8 +35,8 @@ export function FieldShell({ path, label, children, span, extra, resettable = tr
       <div className={s.label}>
         <label htmlFor={`${fieldDomId(path)}-input`}>{label}</label>
         {canReset && (
-          <button type="button" className={s.reset} onClick={() => remove(parsePath(path))} title={`Удалить ключ: будет умолчание схемы (${show(def)})`}>
-            по умолчанию
+          <button type="button" className={s.reset} onClick={() => remove(parsePath(path))} title={t("Удалить ключ: будет умолчание схемы ({value})", { value: show(def) })}>
+            {t("по умолчанию")}
           </button>
         )}
       </div>
@@ -46,7 +48,7 @@ export function FieldShell({ path, label, children, span, extra, resettable = tr
       ))}
       {hints.map((hint, i) => (
         <span key={`h${i}`} className={cx(s.hint, hint.severity === "warning" && s.warn)}>
-          {hint.message}
+          {t(hint.message, hint.vars)}
         </span>
       ))}
       {extra}
@@ -114,6 +116,7 @@ export function NumberField({ path, label, min, integer = true, span, placeholde
   placeholder?: string;
   unit?: string;
 }) {
+  const t = useT();
   const c = useControl(path);
   const external = typeof c.value === "number" ? String(c.value) : c.value === undefined || c.value === null ? "" : String(c.value);
   const [draft, setDraft] = useState(external);
@@ -124,7 +127,7 @@ export function NumberField({ path, label, min, integer = true, span, placeholde
 
   const parsed = draft.trim() === "" ? null : Number(draft.replace(",", "."));
   const invalid =
-    parsed !== null && (Number.isNaN(parsed) || (integer && !Number.isInteger(parsed)) ? "не число" + (integer ? " (целое)" : "") : min !== undefined && parsed < min ? `не меньше ${min}` : null);
+    parsed !== null && (Number.isNaN(parsed) || (integer && !Number.isInteger(parsed)) ? integer ? t("не число (целое)") : t("не число") : min !== undefined && parsed < min ? t("не меньше {min}", { min }) : null);
 
   return (
     <FieldShell
@@ -169,6 +172,7 @@ export function SelectField({ path, label, options, span, mono, onPick }: {
   /** Своя запись вместо set(value): например, переключение режима со связанными полями. */
   onPick?: (value: string) => void;
 }) {
+  const t = useT();
   const c = useControl(path);
   const current = c.value ?? c.def;
   const opts = options.map((o) => (typeof o === "string" ? { value: o } : o));
@@ -183,11 +187,11 @@ export function SelectField({ path, label, options, span, mono, onPick }: {
         onChange={(e) => (onPick ? onPick(e.target.value) : c.set(e.target.value))}
       >
         {(current === undefined || current === null) && <option value="">—</option>}
-        {unknown && <option value={String(current)}>{String(current)} — не поддерживается</option>}
+        {unknown && <option value={String(current)}>{t("{value} — не поддерживается", { value: String(current) })}</option>}
         {opts.map((o) => (
           <option key={o.value} value={o.value}>
             {o.label ?? o.value}
-            {c.value === undefined && o.value === String(c.def) ? " (по умолчанию)" : ""}
+            {c.value === undefined && o.value === String(c.def) ? " (" + t("по умолчанию") + ")" : ""}
           </option>
         ))}
       </select>
@@ -210,6 +214,7 @@ export function CheckField({ path, label, onToggle, disabled }: { path: string; 
 }
 
 export function FieldMessages({ path }: { path: string }) {
+  const t = useT();
   const issues = useIssuesAt(path);
   const hints = useHintsAt(path);
   return (
@@ -221,7 +226,7 @@ export function FieldMessages({ path }: { path: string }) {
       ))}
       {hints.map((hint, i) => (
         <span key={`h${i}`} className={cx(s.hint, hint.severity === "warning" && s.warn)}>
-          {hint.message}
+          {t(hint.message, hint.vars)}
         </span>
       ))}
     </>
@@ -236,6 +241,7 @@ export function CheckSetField({ path, label, options, disabled, span }: {
   disabled?: ReadonlySet<string>;
   span?: Span;
 }) {
+  const t = useT();
   const c = useControl(path);
   const current = (Array.isArray(c.value) ? c.value : Array.isArray(c.def) ? c.def : []) as string[];
   const toggle = (name: string, on: boolean) => {
@@ -261,7 +267,7 @@ export function CheckSetField({ path, label, options, disabled, span }: {
           .filter((x) => !options.includes(x))
           .map((x) => (
             <span key={x} className={cx(s.hint, s.warn)}>
-              {x} — неизвестно
+              {t("{value} — неизвестно", { value: x })}
             </span>
           ))}
       </div>
@@ -277,6 +283,7 @@ export function NumberListField({ path, label, bad, min = 1, span }: {
   min?: number;
   span?: Span;
 }) {
+  const t = useT();
   const c = useControl(path);
   const current = (Array.isArray(c.value) ? c.value : Array.isArray(c.def) ? c.def : []) as number[];
   const [draft, setDraft] = useState("");
@@ -295,7 +302,7 @@ export function NumberListField({ path, label, bad, min = 1, span }: {
             <span key={n} className={cx(s.kchip, mark === "error" && s.bad, mark === "warning" && s.warnChip)}>
               {n}
               {!c.readOnly && (
-                <button type="button" aria-label={`Убрать ${n}`} onClick={() => c.set(current.filter((x) => x !== n))}>
+                <button type="button" aria-label={t("Убрать {value}", { value: n })} onClick={() => c.set(current.filter((x) => x !== n))}>
                   ×
                 </button>
               )}
@@ -326,6 +333,7 @@ export function NumberListField({ path, label, bad, min = 1, span }: {
 
 /** Список чисел строкой «50, 95, 99»: percentiles. */
 export function NumberCsvField({ path, label, span }: { path: string; label: ReactNode; span?: Span }) {
+  const t = useT();
   const c = useControl(path);
   const external = show(c.value);
   const [draft, setDraft] = useState(external);
@@ -337,7 +345,7 @@ export function NumberCsvField({ path, label, span }: { path: string; label: Rea
   const values = parse(draft);
   const invalid = values.some((n) => !Number.isFinite(n));
   return (
-    <FieldShell path={path} label={label} span={span} extra={invalid ? <span className={cx(s.hint, s.err)}>числа через запятую</span> : null}>
+    <FieldShell path={path} label={label} span={span} extra={invalid ? <span className={cx(s.hint, s.err)}>{t("числа через запятую")}</span> : null}>
       <input
         id={c.id}
         className={cx(k.inp, "num", invalid ? k.err : c.tone)}
@@ -361,21 +369,22 @@ export function NumberCsvField({ path, label, span }: { path: string; label: Rea
 
 /** Теги чипами: tags в шапке. */
 export function TagsField({ path }: { path: string }) {
+  const t = useT();
   const c = useControl(path);
   const tags = (Array.isArray(c.value) ? c.value : []).map(String);
   const [draft, setDraft] = useState("");
   const add = () => {
-    const t = draft.trim();
-    if (t && !tags.includes(t)) c.set([...tags, t]);
+    const tag = draft.trim();
+    if (tag && !tags.includes(tag)) c.set([...tags, tag]);
     setDraft("");
   };
   return (
     <div className={s.kchips} id={fieldDomId(path)}>
-      {tags.map((t) => (
-        <span key={t} className={k.chip + " " + k["c-tag"]}>
-          {t}
+      {tags.map((tag) => (
+        <span key={tag} className={k.chip + " " + k["c-tag"]}>
+          {tag}
           {!c.readOnly && (
-            <button type="button" aria-label={`Убрать тег ${t}`} onClick={() => c.set(tags.filter((x) => x !== t))} style={{ all: "unset", cursor: "pointer" }}>
+            <button type="button" aria-label={t("Убрать тег {tag}", { tag })} onClick={() => c.set(tags.filter((x) => x !== tag))} style={{ all: "unset", cursor: "pointer" }}>
               ×
             </button>
           )}
@@ -386,7 +395,7 @@ export function TagsField({ path }: { path: string }) {
           id={c.id}
           className={cx(k.inp, k.sm)}
           style={{ width: 120 }}
-          placeholder="+ тег"
+          placeholder={t("+ тег")}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {

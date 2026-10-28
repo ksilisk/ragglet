@@ -5,6 +5,7 @@ import type { StoreApi } from "zustand";
 import { ApiProblem, type Problem, type S } from "../api/client";
 import { keys } from "../api/queries";
 import { setIn } from "../config/yamlDoc";
+import { useT } from "../i18n/i18n";
 import { fmtTime, fmtWhen } from "../lib/format";
 import { NameDialog } from "../pages/library/LibraryDialogs";
 import { LIBRARY, createDocument, deleteDocument, downloadText, getDocument, invalidateLibrary, type LibraryKind } from "../pages/library/library";
@@ -33,6 +34,7 @@ export function useLibraryDocument(kind: LibraryKind, id: string) {
  * несохранённых правок при уходе со страницы.
  */
 export function useEditorPage(store: StoreApi<EditorState>, kind: LibraryKind, server: S["ConfigDocument"] | undefined) {
+  const t = useT();
   const qc = useQueryClient();
   const confirm = useConfirm();
   const navigate = useNavigate();
@@ -61,13 +63,13 @@ export function useEditorPage(store: StoreApi<EditorState>, kind: LibraryKind, s
   useEffect(() => {
     if (blocker.state !== "blocked") return;
     void confirm({
-      title: "Уйти без сохранения?",
-      body: "В редакторе есть несохранённые правки. Они пропадут.",
-      confirm: "Уйти",
-      cancel: "Остаться",
+      title: t("Уйти без сохранения?"),
+      body: t("В редакторе есть несохранённые правки. Они пропадут."),
+      confirm: t("Уйти"),
+      cancel: t("Остаться"),
       danger: true,
     }).then((ok) => (ok ? blocker.proceed() : blocker.reset()));
-  }, [blocker, confirm]);
+  }, [blocker, confirm, t]);
   useEffect(() => {
     if (!dirty) return;
     const onUnload = (e: BeforeUnloadEvent) => e.preventDefault();
@@ -97,7 +99,8 @@ export function useEditorPage(store: StoreApi<EditorState>, kind: LibraryKind, s
       qc.setQueryData(docKey, out.doc);
       invalidateLibrary(qc, kind);
       setExternal(null);
-      setNote(`Сохранено ${fmtTime(new Date())}${out.doc.valid ? "" : " · черновик: не проходит схему"}`);
+      const time = fmtTime(new Date());
+      setNote(out.doc.valid ? t("Сохранено {time}", { time }) : t("Сохранено {time} · черновик: не проходит схему", { time }));
       return { kind: "saved", valid: out.doc.valid };
     }
     if (out.kind === "conflict") {
@@ -109,7 +112,7 @@ export function useEditorPage(store: StoreApi<EditorState>, kind: LibraryKind, s
       return { kind: "rejected" };
     }
     return { kind: "blocked" };
-  }, [store, qc, docKey, kind]);
+  }, [store, qc, docKey, kind, t]);
 
   const onSave = () => run("save", doSave);
   const onCheck = () => run("check", () => dryRun(store));
@@ -125,19 +128,19 @@ export function useEditorPage(store: StoreApi<EditorState>, kind: LibraryKind, s
 
   const copyMine = async () => {
     await navigator.clipboard.writeText(store.getState().text);
-    setNote("Текст редактора скопирован в буфер обмена");
+    setNote(t("Текст редактора скопирован в буфер обмена"));
   };
 
   const onReset = async () => {
-    const ok = await confirm({ title: "Сбросить к сохранённому?", body: "Правки в редакторе пропадут.", confirm: "Сбросить", danger: true });
+    const ok = await confirm({ title: t("Сбросить к сохранённому?"), body: t("Правки в редакторе пропадут."), confirm: t("Сбросить"), danger: true });
     if (ok) store.getState().setText(store.getState().saved.text);
   };
 
   const onDelete = async () => {
     const ok = await confirm({
-      title: `Удалить ${LIBRARY[kind].noun} ${id}?`,
-      body: kind === "scenario" ? "Файл будет удалён. Прогоны останутся: у каждого есть свой snapshot." : "Файл будет удалён. Коллекции в Qdrant останутся.",
-      confirm: "Удалить",
+      title: t(LIBRARY[kind].deleteTitle, { id }),
+      body: kind === "scenario" ? t("Файл будет удалён. Прогоны останутся: у каждого есть свой snapshot.") : t("Файл будет удалён. Коллекции в Qdrant останутся."),
+      confirm: t("Удалить"),
       danger: true,
     });
     if (!ok) return;
@@ -156,20 +159,20 @@ export function useEditorPage(store: StoreApi<EditorState>, kind: LibraryKind, s
       <Dialog
         open={conflict !== null}
         onOpenChange={(o) => !o && setConflict(null)}
-        title="Файл изменён вне редактора"
+        title={t("Файл изменён вне редактора")}
         footer={
           <>
-            <Button onClick={() => setConflict(null)}>Отмена</Button>
-            <Button onClick={() => void copyMine()}>Скопировать мой YAML</Button>
+            <Button onClick={() => setConflict(null)}>{t("Отмена")}</Button>
+            <Button onClick={() => void copyMine()}>{t("Скопировать мой YAML")}</Button>
             <Button variant="danger" onClick={() => void reload()}>
-              Перезагрузить
+              {t("Перезагрузить")}
             </Button>
           </>
         }
       >
         <span>{conflict?.issues[0]?.message}</span>
         <span className="muted">
-          Перезагрузка покажет версию с диска, правки из редактора пропадут. Чтобы их не потерять, сначала скопируйте текст. Слияния нет.
+          {t("Перезагрузка покажет версию с диска, правки из редактора пропадут. Чтобы их не потерять, сначала скопируйте текст. Слияния нет.")}
         </span>
       </Dialog>
       {saveAs && (
@@ -177,9 +180,9 @@ export function useEditorPage(store: StoreApi<EditorState>, kind: LibraryKind, s
           kind={kind}
           open
           onClose={() => setSaveAs(false)}
-          title="Сохранить как…"
+          title={t("Сохранить как…")}
           initial={`${id}_copy`}
-          confirm="Создать копию"
+          confirm={t("Создать копию")}
           onSubmit={async (name) => {
             const doc = await createDocument(kind, setIn(store.getState().text, [LIBRARY[kind].idField], name));
             invalidateLibrary(qc, kind);
@@ -187,7 +190,7 @@ export function useEditorPage(store: StoreApi<EditorState>, kind: LibraryKind, s
             return doc;
           }}
         >
-          <span className="muted small">Новый файл получит текущий текст редактора; исходный {LIBRARY[kind].noun} не изменится.</span>
+          <span className="muted small">{t(LIBRARY[kind].saveAsNote)}</span>
         </NameDialog>
       )}
     </>
@@ -197,12 +200,12 @@ export function useEditorPage(store: StoreApi<EditorState>, kind: LibraryKind, s
     <>
       {external && (
         <div className={s.banner}>
-          Файл изменили вне редактора ({fmtWhen(external.updated_at)}), а здесь есть несохранённые правки.
+          {t("Файл изменили вне редактора ({when}), а здесь есть несохранённые правки.", { when: fmtWhen(external.updated_at) })}
           <Button small onClick={() => void copyMine()}>
-            Скопировать мой YAML
+            {t("Скопировать мой YAML")}
           </Button>
           <Button small variant="danger" onClick={() => void reload()}>
-            Перезагрузить
+            {t("Перезагрузить")}
           </Button>
         </div>
       )}

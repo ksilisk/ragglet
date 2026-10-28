@@ -1,4 +1,5 @@
 import createClient from "openapi-fetch";
+import { translate } from "../i18n/i18n";
 import type { components, paths } from "./schema";
 
 export type S = components["schemas"];
@@ -55,7 +56,8 @@ export async function settle<T>(request: Promise<FetchResult>): Promise<{ data: 
   try {
     result = await request;
   } catch (e) {
-    throw new ApiProblem(0, problemOf("API недоступен", `Запущен ли ragglet serve? ${e instanceof Error ? e.message : String(e)}`, "network.error"));
+    const reason = e instanceof Error ? e.message : String(e);
+    throw new ApiProblem(0, problemOf(translate("API недоступен"), translate("Запущен ли ragglet serve? {reason}", { reason }), "network.error"));
   }
   const { response } = result;
   if (!response.ok) {

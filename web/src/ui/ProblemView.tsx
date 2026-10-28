@@ -1,14 +1,16 @@
 import type { ReactNode } from "react";
 import { ApiProblem, type Problem, type ProblemIssue } from "../api/client";
+import { useT } from "../i18n/i18n";
 import { cx } from "./cx";
 import s from "./kit.module.css";
 
 export function IssueList({ issues, onPick }: { issues: ProblemIssue[]; onPick?: (issue: ProblemIssue) => void }) {
+  const t = useT();
   return (
     <ul className={s.issues}>
       {issues.map((issue, i) => (
         <li key={i} className={s.issue}>
-          <span className={issue.severity === "error" ? s.x : s.w} aria-label={issue.severity === "error" ? "ошибка" : "предупреждение"}>
+          <span className={issue.severity === "error" ? s.x : s.w} aria-label={issue.severity === "error" ? t("ошибка") : t("предупреждение")}>
             {issue.severity === "error" ? "✕" : "!"}
           </span>
           <span>
@@ -45,6 +47,7 @@ export function ProblemBox({ problem, warning, children }: { problem: Problem; w
 
 /** Ошибка запроса: ApiProblem — как Problem, остальное — текстом. */
 export function ErrorBox({ error }: { error: unknown }) {
+  const t = useT();
   if (error instanceof ApiProblem) return <ProblemBox problem={error.problem} />;
-  return <ProblemBox problem={{ title: "Ошибка", hint: null, issues: [{ code: "client.error", severity: "error", path: null, where: null, message: String(error) }] }} />;
+  return <ProblemBox problem={{ title: t("Ошибка"), hint: null, issues: [{ code: "client.error", severity: "error", path: null, where: null, message: String(error) }] }} />;
 }

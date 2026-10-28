@@ -16,6 +16,7 @@ import {
 } from "../../editor/fields";
 import { Section } from "../../editor/Section";
 import { useEditor, useEditorContext } from "../../editor/store";
+import { rich, useT } from "../../i18n/i18n";
 import { Chip } from "../../ui/Chip";
 
 function useToggle(path: string) {
@@ -25,6 +26,7 @@ function useToggle(path: string) {
 }
 
 export function RerankSection() {
+  const t = useT();
   const meta = useScenarioMeta().data!;
   const toggle = useToggle("rerank.enabled");
   const provider = useValue<string>("rerank.provider") ?? "cross_encoder";
@@ -36,7 +38,7 @@ export function RerankSection() {
       id="rerank"
       title="Rerank"
       toggle={toggle}
-      summary={toggle.on ? `${provider}${model ? ` · ${model}` : ""} · ${inputTopK} → ${outputTopN}` : "выключен"}
+      summary={toggle.on ? `${provider}${model ? ` · ${model}` : ""} · ${inputTopK} → ${outputTopN}` : t("выключен")}
     >
       <Grid cols={4}>
         <SelectField path="rerank.provider" label="provider" options={enumAt(meta.json_schema, ["rerank", "provider"])} />
@@ -47,12 +49,13 @@ export function RerankSection() {
         <NumberField path="rerank.input_top_k" label="input_top_k" min={1} />
         <NumberField path="rerank.output_top_n" label="output_top_n" min={1} />
       </Grid>
-      {!toggle.on && <Note>Стадия выключена: значения сохранятся в YAML и вернутся при включении.</Note>}
+      {!toggle.on && <Note>{t("Стадия выключена: значения сохранятся в YAML и вернутся при включении.")}</Note>}
     </Section>
   );
 }
 
 export function ContextSection() {
+  const t = useT();
   const meta = useScenarioMeta().data!;
   const toggle = useToggle("context.enabled");
   const generation = useValue<boolean>("generation.enabled") ?? false;
@@ -63,22 +66,23 @@ export function ContextSection() {
       id="context"
       title="Context"
       toggle={{ ...toggle, disabled: toggle.on && generation }}
-      summary={toggle.on ? `${policy} · max_tokens ${maxTokens}` : "выключен"}
+      summary={toggle.on ? `${policy} · max_tokens ${maxTokens}` : t("выключен")}
     >
       <Grid cols={4}>
         <SelectField path="context.policy" label="policy" options={enumAt(meta.json_schema, ["context", "policy"])} />
-        <NumberField path="context.max_tokens" label="max_tokens — оценка по словам" min={1} />
+        <NumberField path="context.max_tokens" label={t("max_tokens — оценка по словам")} min={1} />
         {(policy === "threshold" || policy === "adaptive") && <NumberField path="context.threshold" label="threshold" integer={false} />}
         <div style={{ alignSelf: "end" }}>
           <CheckField path="context.include_metadata" label="include_metadata" />
         </div>
       </Grid>
-      {toggle.on && generation && <Note>Context нужен generation: выключить его можно после generation.</Note>}
+      {toggle.on && generation && <Note>{t("Context нужен generation: выключить его можно после generation.")}</Note>}
     </Section>
   );
 }
 
 export function GenerationSection() {
+  const t = useT();
   const meta = useScenarioMeta().data!;
   const { edit } = useEditorActions();
   const on = useValue<boolean>("generation.enabled") ?? false;
@@ -93,8 +97,8 @@ export function GenerationSection() {
     if (v && !context) edit(["context", "enabled"], true); // generation требует context (валидатор схемы)
   };
   return (
-    <Section id="generation" title="Generation" toggle={{ on, set: setOn }} summary={on ? `${provider}${model ? ` · ${model}` : ""}` : "выключена"}>
-      {!on && !context && <Note>Включение generation включит и Context: без него схема не пропустит сценарий.</Note>}
+    <Section id="generation" title="Generation" toggle={{ on, set: setOn }} summary={on ? `${provider}${model ? ` · ${model}` : ""}` : t("выключена")}>
+      {!on && !context && <Note>{t("Включение generation включит и Context: без него схема не пропустит сценарий.")}</Note>}
       <Grid cols={4}>
         <SelectField path="generation.provider" label="provider" options={enumAt(meta.json_schema, ["generation", "provider"])} />
         <TextField path="generation.model" label="model" mono span={2} />
@@ -105,7 +109,7 @@ export function GenerationSection() {
           path="generation.api_key_env"
           label="api_key_env"
           mono
-          extra={keySet !== undefined && <span><Chip tone={keySet ? "ok" : "warn"}>{keySet ? "задана на сервере" : "не задана на сервере"}</Chip></span>}
+          extra={keySet !== undefined && <span><Chip tone={keySet ? "ok" : "warn"}>{keySet ? t("задана на сервере") : t("не задана на сервере")}</Chip></span>}
         />
         <NumberField path="generation.temperature" label="temperature" integer={false} min={0} />
         <NumberField path="generation.max_output_tokens" label="max_output_tokens" min={1} />
@@ -115,12 +119,13 @@ export function GenerationSection() {
         <CheckField path="generation.save.answer" label="save.answer" />
         <CheckField path="generation.save.raw_response" label="save.raw_response" />
       </div>
-      <Note>Ключа в сценарии нет: api_key_env — имя переменной окружения сервера.</Note>
+      <Note>{t("Ключа в сценарии нет: api_key_env — имя переменной окружения сервера.")}</Note>
     </Section>
   );
 }
 
 export function CacheSection() {
+  const t = useT();
   const { edit, remove } = useEditorActions();
   const stand = useStand();
   const toggle = useToggle("cache.enabled");
@@ -128,7 +133,7 @@ export function CacheSection() {
   const retrieval = useValue<Record<string, unknown> | null>("cache.retrieval");
   const layers = [embedding ? "embedding (redis)" : null, retrieval ? "retrieval (memory_lru)" : null].filter(Boolean);
   return (
-    <Section id="cache" title="Кэш" toggle={toggle} summary={toggle.on ? layers.join(" · ") || "нет слоёв" : "выключен"}>
+    <Section id="cache" title={t("Кэш")} toggle={toggle} summary={toggle.on ? layers.join(" · ") || t("нет слоёв") : t("выключен")}>
       <div className={s.itemCard}>
         <label className={s.chk}>
           <input
@@ -140,16 +145,16 @@ export function CacheSection() {
                 : remove(["cache", "embedding"])
             }
           />
-          <b>embedding</b> — Redis, общий между прогонами
+          {rich(t("{name} — Redis, общий между прогонами"), { name: <b>embedding</b> })}
         </label>
         {embedding && (
           <>
             <Grid cols={4}>
               <TextField path="cache.embedding.endpoint" label="endpoint" mono span={2} optional={false} />
               <NumberField path="cache.embedding.ttl_seconds" label="ttl_seconds" min={1} />
-              <TextField path="cache.embedding.namespace" label="namespace" mono placeholder="свой у каждого прогона" />
+              <TextField path="cache.embedding.namespace" label="namespace" mono placeholder={t("свой у каждого прогона")} />
             </Grid>
-            <Note>Пароль в URL Redis попадёт в snapshot прогона. Общий namespace не чистится между повторами — только при run.repeats = 1.</Note>
+            <Note>{t("Пароль в URL Redis попадёт в snapshot прогона. Общий namespace не чистится между повторами — только при run.repeats = 1.")}</Note>
           </>
         )}
       </div>
@@ -160,20 +165,21 @@ export function CacheSection() {
             checked={Boolean(retrieval)}
             onChange={(e) => (e.target.checked ? edit(["cache", "retrieval"], { type: "memory_lru", size: 10000 }) : remove(["cache", "retrieval"]))}
           />
-          <b>retrieval</b> — LRU в памяти процесса
+          {rich(t("{name} — LRU в памяти процесса"), { name: <b>retrieval</b> })}
         </label>
         {retrieval && (
           <Grid cols={4}>
             <NumberField path="cache.retrieval.size" label="size" min={1} />
           </Grid>
         )}
-        <Note>Кэш живёт в процессе прогона: попадания возможны только при run.repeats &gt; 1.</Note>
+        <Note>{t("Кэш живёт в процессе прогона: попадания возможны только при run.repeats > 1.")}</Note>
       </div>
     </Section>
   );
 }
 
 export function LoadSection() {
+  const t = useT();
   const meta = useScenarioMeta().data!;
   const repeats = useValue<number>("run.repeats") ?? 1;
   const loadType = useValue<string>("run.load.type") ?? "closed";
@@ -182,11 +188,14 @@ export function LoadSection() {
   const seed = useValue<number>("seed") ?? 42;
   const perQuery = useValue<boolean>("run.save_per_query") ?? true;
   const params = (meta.load_models[loadType]?.properties ?? {}) as Record<string, { minimum?: number }>;
+  const repeatsWord = repeats === 1 ? t("повтор") : t("повт.");
+  const shuffleWord = shuffle ? t("вкл") : t("выкл");
+  const perQueryWord = perQuery ? t("сохраняется") : t("не сохраняется");
   return (
     <Section
       id="load"
-      title="Нагрузка и повторы"
-      summary={`${repeats} ${repeats === 1 ? "повтор" : "повт."} · ${loadType} × ${concurrency} · shuffle ${shuffle ? "вкл" : "выкл"} · seed ${seed} · per-query ${perQuery ? "сохраняется" : "не сохраняется"}`}
+      title={t("Нагрузка и повторы")}
+      summary={`${repeats} ${repeatsWord} · ${loadType} × ${concurrency} · shuffle ${shuffleWord} · seed ${seed} · per-query ${perQueryWord}`}
     >
       <Grid cols={4}>
         <NumberField path="run.repeats" label="run.repeats" min={1} />
@@ -195,24 +204,26 @@ export function LoadSection() {
         {"concurrency" in params && <NumberField path="run.load.concurrency" label="run.load.concurrency" min={params.concurrency?.minimum ?? 1} />}
       </Grid>
       <div className={s.chkRow}>
-        <CheckField path="run.shuffle" label="run.shuffle — перемешать запросы" />
-        <CheckField path="run.save_per_query" label="run.save_per_query — сохранять per-query" />
+        <CheckField path="run.shuffle" label={t("run.shuffle — перемешать запросы")} />
+        <CheckField path="run.save_per_query" label={t("run.save_per_query — сохранять per-query")} />
       </div>
-      <Note>run.artifacts_dir в форме нет: каталог прогона назначает сервер.</Note>
+      <Note>{t("run.artifacts_dir в форме нет: каталог прогона назначает сервер.")}</Note>
     </Section>
   );
 }
 
 export function TimeoutsSection() {
+  const t = useT();
   const rerank = useValue<boolean>("rerank.enabled") ?? false;
   const generation = useValue<boolean>("generation.enabled") ?? false;
   const total = useValue<number>("timeouts.total_ms") ?? 6000;
   const retrieval = useValue<number>("timeouts.retrieval_ms") ?? 1500;
   const rerankMs = useValue<number>("timeouts.rerank_ms") ?? 800;
   const llm = useValue<number>("timeouts.llm_ms") ?? 3500;
+  const ms = t("мс");
   const parts = [`total ${total}`, `retrieval ${retrieval}`, rerank ? `rerank ${rerankMs}` : null, generation ? `llm ${llm}` : null].filter(Boolean);
   return (
-    <Section id="timeouts" title="Таймауты" summary={`${parts.join(" · ")} мс`}>
+    <Section id="timeouts" title={t("Таймауты")} summary={`${parts.join(" · ")} ${ms}`}>
       <Grid cols={4}>
         <NumberField path="timeouts.total_ms" label="total_ms" min={0} />
         <NumberField path="timeouts.retrieval_ms" label="retrieval_ms" min={0} />
@@ -224,6 +235,7 @@ export function TimeoutsSection() {
 }
 
 export function MetricsSection() {
+  const t = useT();
   const meta = useScenarioMeta().data!;
   const { defaults } = useEditorContext();
   const data = useEditor((st) => st.parsed.data);
@@ -240,7 +252,7 @@ export function MetricsSection() {
   return (
     <Section
       id="metrics"
-      title="Метрики и вывод"
+      title={t("Метрики и вывод")}
       summary={`k ${(ks.length ? ks : [1, 3, 5, 10]).join(", ")} · doc ${(doc ?? ["ndcg", "recall", "hit", "mrr"]).join(", ")} · ${format}`}
     >
       <NumberListField path="metrics.quality.k" label="metrics.quality.k" bad={(n) => (n > depth ? "error" : null)} />
@@ -254,7 +266,7 @@ export function MetricsSection() {
       </div>
       <div className={s.grid} style={{ gridTemplateColumns: "minmax(0, 1fr) minmax(0, 2fr)", alignItems: "end" }}>
         <SelectField path="output.format" label="output.format" options={enumAt(meta.json_schema, ["output", "format"])} />
-        <CheckField path="output.include_debug_fields" label="Сохранять текст контекста в per-query (output.include_debug_fields)" />
+        <CheckField path="output.include_debug_fields" label={t("Сохранять текст контекста в per-query (output.include_debug_fields)")} />
       </div>
     </Section>
   );

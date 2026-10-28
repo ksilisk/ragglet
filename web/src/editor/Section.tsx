@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { useT } from "../i18n/i18n";
 import { Chip } from "../ui/Chip";
 import { cx } from "../ui/cx";
 import { useSectionMarks, useVisibleIssues } from "./derived";
@@ -16,6 +17,7 @@ export function Section({ id, title, summary, toggle, children }: {
   toggle?: { on: boolean; set: (on: boolean) => void; disabled?: boolean };
   children: ReactNode;
 }) {
+  const t = useT();
   const { store } = useEditorContext();
   const open = useEditor((st) => st.open[id] ?? false);
   const marks = useSectionMarks();
@@ -33,19 +35,19 @@ export function Section({ id, title, summary, toggle, children }: {
         <button type="button" className={s.secH} aria-expanded={open} onClick={() => store.getState().setOpen(id, !open)}>
           <span className={cx(s.caret, !open && s.c)} aria-hidden />
           <h2>{title}</h2>
-          {toggle?.on && <Chip tone="ok">включён</Chip>}
-          {errors > 0 && <Chip tone="fail">{errors === 1 ? "1 ошибка" : `${errors} ошибки`}</Chip>}
-          {warnings > 0 && <Chip tone="warn">{warnings === 1 ? "1 предупреждение" : `${warnings} предупр.`}</Chip>}
+          {toggle?.on && <Chip tone="ok">{t("включён")}</Chip>}
+          {errors > 0 && <Chip tone="fail">{errors === 1 ? t("{n} ошибка", { n: errors }) : t("{n} ошибки", { n: errors })}</Chip>}
+          {warnings > 0 && <Chip tone="warn">{warnings === 1 ? t("1 предупреждение") : warnings + " " + t.plural(warnings, "предупр.|предупр.|предупр.")}</Chip>}
           {!open && summary && <span className={s.sum}>{summary}</span>}
         </button>
         {toggle && (
           <label className={s.chk} style={{ padding: "0 16px", whiteSpace: "nowrap" }}>
-            <input type="checkbox" aria-label={`Включить ${title}`} checked={toggle.on} disabled={readOnly || toggle.disabled} onChange={(e) => {
+            <input type="checkbox" aria-label={t("Включить {title}", { title })} checked={toggle.on} disabled={readOnly || toggle.disabled} onChange={(e) => {
                 toggle.set(e.target.checked);
                 if (e.target.checked) store.getState().setOpen(id, true);
               }}
             />
-            включить
+            {t("включить")}
           </label>
         )}
       </div>
@@ -59,6 +61,7 @@ export function Section({ id, title, summary, toggle, children }: {
  * (а не все раскрытые). Точки — проблемы проверки, «выкл» — выключенная стадия.
  */
 export function SectionNav({ sections }: { sections: ReadonlyArray<{ id: string; title: string }> }) {
+  const t = useT();
   const { store } = useEditorContext();
   const marks = useSectionMarks();
   const off = useEditor((st) => st.off);
@@ -94,7 +97,7 @@ export function SectionNav({ sections }: { sections: ReadonlyArray<{ id: string;
   }, [sections]);
 
   return (
-    <nav className={s.secnav} aria-label="Секции">
+    <nav className={s.secnav} aria-label={t("Секции")}>
       {sections.map((sec) => {
         const mark = marks.get(sec.id);
         return (
@@ -110,10 +113,10 @@ export function SectionNav({ sections }: { sections: ReadonlyArray<{ id: string;
             }}
           >
             <span>
-              {sec.title}
-              {off[sec.id] && <span className={s.offLabel}> · выкл</span>}
+              {t(sec.title)}
+              {off[sec.id] && <span className={s.offLabel}> · {t("выкл")}</span>}
             </span>
-            {mark && <span className={cx(s.sdot, mark === "error" ? s.e : s.w)} title={mark === "error" ? "есть ошибки" : "есть предупреждения"} />}
+            {mark && <span className={cx(s.sdot, mark === "error" ? s.e : s.w)} title={mark === "error" ? t("есть ошибки") : t("есть предупреждения")} />}
           </button>
         );
       })}

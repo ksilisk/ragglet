@@ -1,4 +1,5 @@
 import { Document, Scalar, YAMLMap, isCollection, isMap, isScalar, isSeq, parseDocument, type Node } from "yaml";
+import { msg, translate } from "../i18n/i18n";
 import { getAt, type Path, type PathSeg } from "./paths";
 
 /**
@@ -43,7 +44,7 @@ export function parseYaml(text: string): Parsed {
   }
   const data: unknown = doc.toJS({ maxAliasCount: 100 });
   if (data === null || typeof data !== "object" || Array.isArray(data)) {
-    return { doc: null, data: null, error: { message: "корень YAML должен быть словарём (mapping)", line: 1, col: 1, offset: 0 } };
+    return { doc: null, data: null, error: { message: msg("корень YAML должен быть словарём (mapping)"), line: 1, col: 1, offset: 0 } };
   }
   return { doc, data: data as Record<string, unknown>, error: null };
 }
@@ -72,7 +73,7 @@ function separateNewSections(doc: Document, original: string) {
 
 function mustParse(text: string): Document.Parsed {
   const parsed = parseYaml(text);
-  if (!parsed.doc) throw new Error(`YAML не разбирается: ${parsed.error?.message}`);
+  if (!parsed.doc) throw new Error(translate("YAML не разбирается: {message}", { message: parsed.error?.message ?? "" }));
   return parsed.doc;
 }
 
@@ -122,7 +123,7 @@ function createValueNode(doc: Document, value: unknown): unknown {
 export function setIn(text: string, path: Path, value: unknown): string {
   if (value === undefined) return deleteIn(text, path);
   const parsed = parseYaml(text);
-  if (!parsed.doc) throw new Error(`YAML не разбирается: ${parsed.error?.message}`);
+  if (!parsed.doc) throw new Error(translate("YAML не разбирается: {message}", { message: parsed.error?.message ?? "" }));
   if (sameValue(getAt(parsed.data, path), value)) return text;
   const doc = parsed.doc;
   const current = doc.getIn(path, true) as Node | undefined;

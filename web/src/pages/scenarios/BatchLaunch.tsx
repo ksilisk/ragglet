@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import type { Problem, S } from "../../api/client";
 import { keys } from "../../api/queries";
+import { useT } from "../../i18n/i18n";
 import { Button } from "../../ui/Button";
 import { Chip } from "../../ui/Chip";
 import { Dialog } from "../../ui/Dialog";
@@ -23,6 +24,7 @@ type Item =
  * по порядку; прошедшие ставятся в очередь в том же порядке, не прошедшие остаются со своими проблемами.
  */
 export function BatchLaunch({ ids, onClose }: { ids: string[]; onClose: () => void }) {
+  const t = useT();
   const qc = useQueryClient();
   const [items, setItems] = useState<Item[]>(() => ids.map((id) => ({ id, status: "checking" })));
   const [launching, setLaunching] = useState(false);
@@ -75,24 +77,24 @@ export function BatchLaunch({ ids, onClose }: { ids: string[]; onClose: () => vo
       open
       wide
       onOpenChange={(o) => !o && onClose()}
-      title={ids.length === 1 ? `Запустить ${ids[0]}` : `Запустить выбранные · ${ids.length}`}
+      title={ids.length === 1 ? t("Запустить {id}", { id: ids[0] ?? "" }) : t("Запустить выбранные · {n}", { n: ids.length })}
       footer={
         done ? (
           <Button variant="primary" onClick={onClose}>
-            Готово
+            {t("Готово")}
           </Button>
         ) : (
           <>
-            <Button onClick={onClose}>Отмена</Button>
+            <Button onClick={onClose}>{t("Отмена")}</Button>
             <Button variant="primary" onClick={() => void start()} disabled={checking || launching || picked.length === 0}>
-              {launching ? "Постановка…" : `Запустить ${picked.length}`}
+              {launching ? t("Постановка…") : t("Запустить {n}", { n: picked.length })}
             </Button>
           </>
         )
       }
     >
-      <span className="muted">Каждый сценарий проходит dry-run; в очередь встают по порядку. С предупреждениями — только если оставить отметку.</span>
-      <table className={`${k.tbl} ${k.compact}`} aria-label="Сценарии к запуску">
+      <span className="muted">{t("Каждый сценарий проходит dry-run; в очередь встают по порядку. С предупреждениями — только если оставить отметку.")}</span>
+      <table className={`${k.tbl} ${k.compact}`} aria-label={t("Сценарии к запуску")}>
         <tbody>
           {items.map((item, i) => (
             <tr key={item.id}>
@@ -101,7 +103,7 @@ export function BatchLaunch({ ids, onClose }: { ids: string[]; onClose: () => vo
                 {item.status === "ready" && (
                   <input
                     type="checkbox"
-                    aria-label={`Запустить ${item.id}`}
+                    aria-label={t("Запустить {id}", { id: item.id })}
                     checked={item.pick}
                     disabled={launching || done}
                     onChange={(e) => update(item.id, { ...item, pick: e.target.checked })}
@@ -126,21 +128,26 @@ export function BatchLaunch({ ids, onClose }: { ids: string[]; onClose: () => vo
 }
 
 function Status({ item }: { item: Item }) {
+  const t = useT();
   switch (item.status) {
     case "checking":
-      return <Chip tone="q">проверка…</Chip>;
+      return <Chip tone="q">{t("проверка…")}</Chip>;
     case "ready":
-      return item.check.warnings.length ? <Chip tone="warn">предупреждений: {item.check.warnings.length}</Chip> : <Chip tone="ok">готов</Chip>;
+      return item.check.warnings.length ? (
+        <Chip tone="warn">{t("предупреждений: {n}", { n: item.check.warnings.length })}</Chip>
+      ) : (
+        <Chip tone="ok">{t("готов")}</Chip>
+      );
     case "problems":
-      return <Chip tone="fail">не прошёл</Chip>;
+      return <Chip tone="fail">{t("не прошёл")}</Chip>;
     case "started":
       return (
         <Link to={`/runs/${encodeURIComponent(item.runId)}`}>
-          <Chip tone="run">в очереди →</Chip>
+          <Chip tone="run">{t("в очереди →")}</Chip>
         </Link>
       );
     case "error":
-      return <Chip tone="fail">ошибка</Chip>;
+      return <Chip tone="fail">{t("ошибка")}</Chip>;
   }
 }
 

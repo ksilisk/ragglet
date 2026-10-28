@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { ProblemIssue } from "../api/client";
+import { msg, useT } from "../i18n/i18n";
 import { fmtNumber, fmtTime } from "../lib/format";
 import { Chip } from "../ui/Chip";
 import { cx } from "../ui/cx";
@@ -9,14 +10,15 @@ import s from "./editor.module.css";
 import { useEditor, useEditorContext, type CheckResult } from "./store";
 
 const SOURCE: Record<CheckResult["source"], string> = {
-  save: "сохранение",
+  save: msg("сохранение"),
   check: "dry-run",
-  launch: "постановка",
-  task: "старт задачи",
+  launch: msg("постановка"),
+  task: msg("старт задачи"),
 };
 
 /** Панель «Проверка» (как Problems в IDE): клик по строке — к полю или к строке YAML. */
 export function ProblemsPanel({ report }: { report?: (check: CheckResult) => ReactNode }) {
+  const t = useT();
   const { store } = useEditorContext();
   const check = useEditor((st) => st.check);
   const stale = useEditor((st) => st.check !== null && st.checkedText !== st.text);
@@ -32,21 +34,21 @@ export function ProblemsPanel({ report }: { report?: (check: CheckResult) => Rea
   };
 
   return (
-    <section className={s.problems} aria-label="Проверка">
+    <section className={s.problems} aria-label={t("Проверка")}>
       <div className={s.problemsH}>
-        <span>Проверка</span>
+        <span>{t("Проверка")}</span>
         {check ? (
           <>
-            <Chip tone={errors ? "fail" : "q"}>{errors ? `${fmtNumber(errors)} ${errors === 1 ? "ошибка" : "ошибки"}` : "0 ошибок"}</Chip>
-            <Chip tone={warnings ? "warn" : "q"}>{`${fmtNumber(warnings)} предупр.`}</Chip>
-            {stale && <span className="small muted">текст изменён после проверки</span>}
+            <Chip tone={errors ? "fail" : "q"}>{errors === 0 ? t("0 ошибок") : errors === 1 ? t("{n} ошибка", { n: fmtNumber(errors) }) : t("{n} ошибки", { n: fmtNumber(errors) })}</Chip>
+            <Chip tone={warnings ? "warn" : "q"}>{fmtNumber(warnings) + " " + t.plural(warnings, "предупр.|предупр.|предупр.")}</Chip>
+            {stale && <span className="small muted">{t("текст изменён после проверки")}</span>}
             <span className={s.problemsMeta}>
-              {SOURCE[check.source]} {fmtTime(new Date(check.at))}
-              {check.durationMs !== null && ` · ${fmtNumber(check.durationMs / 1000, 1)} с`}
+              {t(SOURCE[check.source])} {fmtTime(new Date(check.at))}
+              {check.durationMs !== null && " · " + t("{s} с", { s: fmtNumber(check.durationMs / 1000, 1) })}
             </span>
           </>
         ) : (
-          <span className={s.problemsMeta}>ещё не было: «Проверить» — dry-run текущего текста без сохранения</span>
+          <span className={s.problemsMeta}>{t("ещё не было: «Проверить» — dry-run текущего текста без сохранения")}</span>
         )}
       </div>
       {check?.title && all.length > 0 && (
@@ -58,7 +60,7 @@ export function ProblemsPanel({ report }: { report?: (check: CheckResult) => Rea
       {all.map((issue, i) => {
         const hidden = !visibleSet.has(`${issue.code}|${issue.path}|${issue.message}`);
         return (
-          <div key={i} className={cx(s.prow, hidden && s.stale)} title={hidden ? "поле изменено после проверки" : undefined}>
+          <div key={i} className={cx(s.prow, hidden && s.stale)} title={hidden ? t("поле изменено после проверки") : undefined}>
             <span className={issue.severity === "error" ? k.x : k.w}>{issue.severity === "error" ? "✕" : "!"}</span>
             {issue.path || issue.where ? (
               <button type="button" className={s.plink} onClick={() => pick(issue)}>

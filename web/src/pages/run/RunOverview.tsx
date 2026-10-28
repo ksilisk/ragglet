@@ -2,7 +2,8 @@ import { useState } from "react";
 import type { S } from "../../api/client";
 import { useRunInclude } from "../../api/queries";
 import { parseYaml } from "../../config/yamlDoc";
-import { fmtMetric, fmtMs, fmtNumber, fmtPercent, fmtQps, plural } from "../../lib/format";
+import { useT } from "../../i18n/i18n";
+import { fmtMetric, fmtMs, fmtNumber, fmtPercent, fmtQps } from "../../lib/format";
 import k from "../../ui/kit.module.css";
 import { Card, Empty } from "../../ui/Layout";
 import { ErrorBox } from "../../ui/ProblemView";
@@ -49,20 +50,21 @@ function Tile({ label, value, sub, muted, small }: { label: string; value: strin
  * без графиков. Остальное на этом артборде — ragglet-32.
  */
 export function RunOverview({ run }: { run: S["RunStatus"] }) {
+  const t = useT();
   const query = useRunInclude(run.id, "summary");
   const snapshot = useRunInclude(run.id, "scenario");
   const summary = query.data?.summary ?? null;
   const ks = summary ? availableK(summary) : [];
   const [kSel, setK] = useState<number | null>(null);
   if (query.error) return <ErrorBox error={query.error} />;
-  if (query.isPending) return <span className="muted">Загрузка summary…</span>;
-  if (!summary) return <Empty>У прогона нет summary: ядро пишет его в конце успешного прогона.</Empty>;
+  if (query.isPending) return <span className="muted">{t("Загрузка summary…")}</span>;
+  if (!summary) return <Empty>{t("У прогона нет summary: ядро пишет его в конце успешного прогона.")}</Empty>;
 
   const kv = kSel ?? (ks.includes(10) ? 10 : (ks[ks.length - 1] ?? 10));
   const repeats = summary.repeats.length || Number(summary.aggregate.repeats ?? 1);
   const pm = (std: number | null, fmt: (x: number) => string) => (repeats > 1 && std !== null ? `± ${fmt(std)}` : null);
   const sub = (...parts: Array<string | null | false>) => parts.filter(Boolean).join(" · ");
-  const repeatsLabel = `${repeats} ${plural(repeats, "повтор|повтора|повторов")}`;
+  const repeatsLabel = String(repeats) + " " + t.plural(repeats, "повтор|повтора|повторов");
   const m = (key: string) => metric(summary, key);
   const ndcg = m(`doc_ndcg@${kv}_mean`);
   const recall = m(`doc_recall@${kv}_mean`);
@@ -95,7 +97,7 @@ export function RunOverview({ run }: { run: S["RunStatus"] }) {
               </option>
             ))}
           </select>
-          <span className="small muted">из metrics.quality.k · уровень doc</span>
+          <span className="small muted">{t("из metrics.quality.k · уровень doc")}</span>
         </div>
       )}
       <div className={s.tiles}>
@@ -104,22 +106,22 @@ export function RunOverview({ run }: { run: S["RunStatus"] }) {
           <Tile label={`Recall@${kv}`} value={fmtMetric(recall.mean)} sub={sub(pm(recall.std, fmtMetric), rcap.mean !== null && `R_cap@${kv} ${fmtNumber(rcap.mean, 2)}`)} />
         )}
         {mrr.mean !== null && <Tile label={`MRR@${kv}`} value={fmtNumber(mrr.mean, 2)} sub={hit.mean !== null ? `Hit@${kv} ${fmtNumber(hit.mean, 2)}` : undefined} />}
-        <Tile label="p50 total" value={fmtMs(p50.mean)} sub={sub("мс", p99.mean !== null && `p99 ${fmtMs(p99.mean)}`, pm(p50.std, fmtMs))} />
-        <Tile label="p95 total" value={fmtMs(p95.mean)} sub={sub("мс", pm(p95.std, fmtMs))} />
+        <Tile label="p50 total" value={fmtMs(p50.mean)} sub={sub(t("мс"), p99.mean !== null && `p99 ${fmtMs(p99.mean)}`, pm(p50.std, fmtMs))} />
+        <Tile label="p95 total" value={fmtMs(p95.mean)} sub={sub(t("мс"), pm(p95.std, fmtMs))} />
         <Tile
           label="QPS"
           value={fmtQps(qps.mean)}
-          sub={sub(wall.mean !== null && `wall ${fmtNumber(wall.mean / 1000, 1)} с`, concurrency !== undefined && `×${String(concurrency)}`, pm(qps.std, fmtQps))}
+          sub={sub(wall.mean !== null && t("wall {seconds} с", { seconds: fmtNumber(wall.mean / 1000, 1) }), concurrency !== undefined && `×${String(concurrency)}`, pm(qps.std, fmtQps))}
         />
-        <Tile label="Исходы" value={`${fmtNumber(sum("ok_count"))} · ${fmtNumber(sum("timeout_count"))} · ${fmtNumber(sum("error_count"))}`} sub="ok · timeout · error" small />
+        <Tile label={t("Исходы")} value={`${fmtNumber(sum("ok_count"))} · ${fmtNumber(sum("timeout_count"))} · ${fmtNumber(sum("error_count"))}`} sub="ok · timeout · error" small />
         {emb === null && ret === null ? (
-          <Tile label="Кэш" value="—" sub="выключен" muted />
+          <Tile label={t("Кэш")} value="—" sub={t("выключен")} muted />
         ) : (
-          <Tile label="Кэш" value={fmtPercent(emb ?? ret)} sub={[emb !== null ? `emb ${fmtPercent(emb)}` : null, ret !== null ? `ret ${fmtPercent(ret)}` : null].filter(Boolean).join(" · ")} />
+          <Tile label={t("Кэш")} value={fmtPercent(emb ?? ret)} sub={[emb !== null ? `emb ${fmtPercent(emb)}` : null, ret !== null ? `ret ${fmtPercent(ret)}` : null].filter(Boolean).join(" · ")} />
         )}
       </div>
-      <Card title="Повторы">
-        <table className={`${k.tbl} ${k.compact}`} aria-label="Повторы">
+      <Card title={t("Повторы")}>
+        <table className={`${k.tbl} ${k.compact}`} aria-label={t("Повторы")}>
           <thead>
             <tr>
               <th>#</th>
@@ -127,7 +129,7 @@ export function RunOverview({ run }: { run: S["RunStatus"] }) {
               <th className="r">ok</th>
               <th className="r">timeout</th>
               <th className="r">error</th>
-              <th className="r">wall, с</th>
+              <th className="r">{t("wall, с")}</th>
               <th className="r">QPS</th>
               <th className="r">p50</th>
               <th className="r">p95</th>
@@ -151,9 +153,11 @@ export function RunOverview({ run }: { run: S["RunStatus"] }) {
             ))}
           </tbody>
         </table>
-        {repeats === 1 && <span className="small muted">Один повтор: std по повторам не считается. Для оценки стабильности задержек нужны repeats ≥ 3.</span>}
+        {repeats === 1 && (
+          <span className="small muted">{t("Один повтор: std по повторам не считается. Для оценки стабильности задержек нужны repeats ≥ 3.")}</span>
+        )}
       </Card>
-      <span className="small muted">Графики, качество по k, задержки по стадиям и запросы — ragglet-32.</span>
+      <span className="small muted">{t("Графики, качество по k, задержки по стадиям и запросы — ragglet-32.")}</span>
     </>
   );
 }

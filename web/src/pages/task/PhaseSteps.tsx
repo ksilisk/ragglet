@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { S } from "../../api/client";
+import { useT } from "../../i18n/i18n";
 import { PHASE_LABEL, phaseOf, type Phase } from "../../lib/task";
 import { cx } from "../../ui/cx";
 import s from "./task.module.css";
@@ -13,6 +14,7 @@ export function PhaseSteps({ kind, state, progress, details }: {
   progress: S["ProgressOut"] | null | undefined;
   details: Partial<Record<Exclude<Phase, "done">, ReactNode>>;
 }) {
+  const t = useT();
   const phase = phaseOf(state, progress);
   const current = phase === "done" ? ORDER.length : ORDER.indexOf(phase);
   return (
@@ -27,7 +29,7 @@ export function PhaseSteps({ kind, state, progress, details }: {
                 <span className={cx(s.ic, s[status])} aria-hidden>
                   {status === "done" ? "✓" : status === "now" ? "●" : i + 1}
                 </span>
-                {PHASE_LABEL[kind][step]}
+                {t(PHASE_LABEL[kind][step])}
               </div>
               <div className={s.stepD}>{details[step]}</div>
             </div>

@@ -8,6 +8,7 @@ import { bindIssues } from "../../config/registry";
 import { SCENARIO_REGISTRY, SCENARIO_SECTIONS } from "../../config/scenarioFields";
 import { parseYaml } from "../../config/yamlDoc";
 import { useValue } from "../../editor/derived";
+import { useT } from "../../i18n/i18n";
 import s from "../../editor/editor.module.css";
 import { EditorShell } from "../../editor/EditorShell";
 import { FieldMessages, TagsField } from "../../editor/fields";
@@ -30,6 +31,7 @@ import { RetrievalSection } from "./RetrievalSection";
 import { CacheSection, ContextSection, GenerationSection, LoadSection, MetricsSection, RerankSection, TimeoutsSection } from "./StageSections";
 
 export default function ScenarioEditorPage() {
+  const t = useT();
   const { id = "" } = useParams();
   const doc = useLibraryDocument("scenario", id);
   const meta = useScenarioMeta();
@@ -37,16 +39,16 @@ export default function ScenarioEditorPage() {
     const notFound = doc.error instanceof ApiProblem && doc.error.status === 404;
     return (
       <Page>
-        <Crumbs items={[{ label: "Сценарии", to: "/scenarios" }, { label: id }]} />
-        {notFound ? <Empty>Сценария {id} нет в библиотеке.</Empty> : <ErrorBox error={doc.error ?? meta.error} />}
+        <Crumbs items={[{ label: t("Сценарии"), to: "/scenarios" }, { label: id }]} />
+        {notFound ? <Empty>{t("Сценария {id} нет в библиотеке.", { id })}</Empty> : <ErrorBox error={doc.error ?? meta.error} />}
       </Page>
     );
   }
   if (!doc.data || !meta.data) {
     return (
       <Page>
-        <Crumbs items={[{ label: "Сценарии", to: "/scenarios" }, { label: id }]} />
-        <span className="muted">Загрузка…</span>
+        <Crumbs items={[{ label: t("Сценарии"), to: "/scenarios" }, { label: id }]} />
+        <span className="muted">{t("Загрузка…")}</span>
       </Page>
     );
   }
@@ -73,6 +75,7 @@ function initialOpen(doc: S["ConfigDocument"]): Record<string, boolean> {
 }
 
 function ScenarioEditor({ doc, meta }: { doc: S["ConfigDocument"]; meta: S["ScenarioMeta"] }) {
+  const t = useT();
   const [store] = useState(() => createEditorStore("scenario", doc, initialOpen(doc)));
   const server = useLibraryDocument("scenario", doc.id).data;
   const indexes = useIndexes();
@@ -121,7 +124,7 @@ function ScenarioEditor({ doc, meta }: { doc: S["ConfigDocument"]; meta: S["Scen
           return out.kind === "ok" ? { kind: "ok", warnings: out.check.issues, report: out.check.report as S["RunCheck"] } : { kind: out.kind };
         },
         confirm: (warnings, check) =>
-          confirm({ title: "Запустить всё равно?", body: <WarningsBody warnings={warnings} check={check} />, confirm: "Запустить", wide: true }),
+          confirm({ title: t("Запустить всё равно?"), body: <WarningsBody warnings={warnings} check={check} />, confirm: t("Запустить"), wide: true }),
         submit: async () => {
           const st = store.getState();
           const out = await enqueueScenario(st.checkedText ?? st.text, st.id);
@@ -147,22 +150,22 @@ function ScenarioEditor({ doc, meta }: { doc: S["ConfigDocument"]; meta: S["Scen
 
   const actions = (
     <>
-      <Button onClick={() => void page.onSave()} disabled={!page.dirty || page.broken || page.busy !== null} title={page.broken ? "YAML не разбирается" : undefined}>
-        {page.busy === "save" ? "Сохранение…" : "Сохранить"}
+      <Button onClick={() => void page.onSave()} disabled={!page.dirty || page.broken || page.busy !== null} title={page.broken ? t("YAML не разбирается") : undefined}>
+        {page.busy === "save" ? t("Сохранение…") : t("Сохранить")}
       </Button>
-      <Button onClick={() => void onCheck()} disabled={page.broken || page.busy !== null} title={page.broken ? "YAML не разбирается" : undefined}>
-        {page.busy === "check" ? "Проверка…" : "Проверить"}
+      <Button onClick={() => void onCheck()} disabled={page.broken || page.busy !== null} title={page.broken ? t("YAML не разбирается") : undefined}>
+        {page.busy === "check" ? t("Проверка…") : t("Проверить")}
       </Button>
-      <Button variant="primary" onClick={() => void onLaunch()} disabled={page.broken || page.busy !== null} title={page.broken ? "YAML не разбирается" : "Сохранить, проверить и поставить в очередь"}>
-        {page.busy === "launch" ? "Запуск…" : "Запустить"}
+      <Button variant="primary" onClick={() => void onLaunch()} disabled={page.broken || page.busy !== null} title={page.broken ? t("YAML не разбирается") : t("Сохранить, проверить и поставить в очередь")}>
+        {page.busy === "launch" ? t("Запуск…") : t("Запустить")}
       </Button>
       <Menu
-        trigger={<Button aria-label="Ещё действия">⋯</Button>}
+        trigger={<Button aria-label={t("Ещё действия")}>⋯</Button>}
         items={[
-          { label: "Сохранить как…", onSelect: page.onSaveAs },
-          { label: "Сбросить к сохранённому", onSelect: () => void page.onReset(), disabled: !page.dirty },
-          { label: "Экспорт YAML", onSelect: page.onExport },
-          { label: "Удалить…", onSelect: () => void page.onDelete(), danger: true },
+          { label: t("Сохранить как…"), onSelect: page.onSaveAs },
+          { label: t("Сбросить к сохранённому"), onSelect: () => void page.onReset(), disabled: !page.dirty },
+          { label: t("Экспорт YAML"), onSelect: page.onExport },
+          { label: t("Удалить…"), onSelect: () => void page.onDelete(), danger: true },
         ]}
       />
     </>
@@ -189,6 +192,7 @@ function ScenarioEditor({ doc, meta }: { doc: S["ConfigDocument"]; meta: S["Scen
 }
 
 function ScenarioHead({ actions, note, banners }: { actions: ReactNode; note: string | null; banners: ReactNode }) {
+  const t = useT();
   const id = useEditor((st) => st.id);
   const dirty = useEditor((st) => st.text !== st.saved.text);
   const valid = useEditor((st) => st.saved.valid);
@@ -198,7 +202,7 @@ function ScenarioHead({ actions, note, banners }: { actions: ReactNode; note: st
   const { store } = useEditorContext();
   return (
     <>
-      <Crumbs items={[{ label: "Сценарии", to: "/scenarios" }, { label: id }]} />
+      <Crumbs items={[{ label: t("Сценарии"), to: "/scenarios" }, { label: id }]} />
       <div className={s.head}>
         <div className={s.headFields}>
           <div className={s.headRow}>
@@ -210,10 +214,10 @@ function ScenarioHead({ actions, note, banners }: { actions: ReactNode; note: st
               className={cx(k.inp, k.ro, s.nameInput)}
               value={name ?? ""}
               readOnly
-              title="Имя — это id файла: переименование — «Сохранить как…» под новым именем"
+              title={t("Имя — это id файла: переименование — «Сохранить как…» под новым именем")}
             />
-            {dirty && <Chip tone="warn">не сохранено</Chip>}
-            {!valid && <Chip tone="fail">черновик</Chip>}
+            {dirty && <Chip tone="warn">{t("не сохранено")}</Chip>}
+            {!valid && <Chip tone="fail">{t("черновик")}</Chip>}
           </div>
           <div id="f-name">
             <FieldMessages path="name" />
@@ -227,7 +231,7 @@ function ScenarioHead({ actions, note, banners }: { actions: ReactNode; note: st
               className={cx(k.inp, s.descInput)}
               value={description ?? ""}
               readOnly={readOnly}
-              placeholder="что проверяет этот сценарий"
+              placeholder={t("что проверяет этот сценарий")}
               onChange={(e) => store.getState().edit(["description"], e.target.value)}
               onBlur={(e) => e.target.value === "" && description !== undefined && store.getState().remove(["description"])}
             />
@@ -252,15 +256,26 @@ function ScenarioHead({ actions, note, banners }: { actions: ReactNode; note: st
 function runReport(check: CheckResult): ReactNode {
   const r = check.report as S["RunCheck"] | null;
   if (!r || !("plan" in r)) return null;
+  return <RunReport r={r} />;
+}
+
+function RunReport({ r }: { r: S["RunCheck"] }) {
+  const t = useT();
   const load = Object.entries(r.plan.load).map(([key, v]) => (key === "type" ? String(v) : `${key} ${String(v)}`)).join(" · ");
   return (
     <>
       <span>
-        <Chip tone="ok">dry-run пройден</Chip> {fmtDataset(r.dataset.label)} <span className="mono muted">{r.dataset.revision?.slice(0, 12)}</span> · split{" "}
-        {r.dataset.split} · {fmtNumber(r.dataset.queries)} запросов × {r.plan.repeats} = {fmtNumber(r.plan.total)} · нагрузка {load}
+        <Chip tone="ok">{t("dry-run пройден")}</Chip> {fmtDataset(r.dataset.label)} <span className="mono muted">{r.dataset.revision?.slice(0, 12)}</span> · split{" "}
+        {r.dataset.split} ·{" "}
+        {t("{queries} запросов × {repeats} = {total} · нагрузка {load}", {
+          queries: fmtNumber(r.dataset.queries),
+          repeats: r.plan.repeats,
+          total: fmtNumber(r.plan.total),
+          load,
+        })}
       </span>
       <span className="muted">
-        Цели:{" "}
+        {t("Цели:")}{" "}
         {r.targets.map((t, i) => (
           <span key={t.id}>
             {i > 0 && "; "}

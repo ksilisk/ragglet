@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { ApiProblem, type S } from "../../api/client";
 import { useScenarios, useStand, useTasks } from "../../api/queries";
+import { rich, translate, useT } from "../../i18n/i18n";
 import { compactNames } from "../../lib/names";
 import { fmtDataset, fmtMetric, fmtNumber, fmtWhen } from "../../lib/format";
 import { Button, LinkButton } from "../../ui/Button";
@@ -25,13 +26,14 @@ export function pipelineChips(p: S["Pipeline"]): Array<{ label: string; on: bool
   if (p.generation) chips.push({ label: "generation", on: true });
   if (p.cache) chips.push({ label: "cache", on: true });
   if (p.concurrency && p.concurrency > 1) chips.push({ label: `×${p.concurrency}`, on: false });
-  if (p.repeats > 1) chips.push({ label: `×${p.repeats} повт.`, on: false });
+  if (p.repeats > 1) chips.push({ label: translate("×{n} повт.", { n: p.repeats }), on: false });
   return chips;
 }
 
 type Dialogs = { kind: "new" } | { kind: "import" } | { kind: "duplicate"; id: string } | { kind: "launch"; ids: string[] } | null;
 
 export default function ScenariosPage() {
+  const t = useT();
   const scenarios = useScenarios();
   const stand = useStand();
   const [params, setParams] = useSearchParams();
@@ -64,19 +66,19 @@ export default function ScenariosPage() {
   return (
     <Page>
       <PageHead
-        title="Сценарии"
+        title={t("Сценарии")}
         count={scenarios.data ? items.length : undefined}
         actions={
           <>
             <input
               className={`${k.inp} ${s.search}`}
-              placeholder="поиск по имени и описанию"
-              aria-label="Поиск сценариев"
+              placeholder={t("поиск по имени и описанию")}
+              aria-label={t("Поиск сценариев")}
               value={q}
               onChange={(e) => setParam("q", e.target.value)}
             />
-            <select className={`${k.inp} ${s.filter}`} aria-label="Фильтр по датасету" value={dataset} onChange={(e) => setParam("dataset", e.target.value)}>
-              <option value="">все датасеты</option>
+            <select className={`${k.inp} ${s.filter}`} aria-label={t("Фильтр по датасету")} value={dataset} onChange={(e) => setParam("dataset", e.target.value)}>
+              <option value="">{t("все датасеты")}</option>
               {datasets.map((d) => (
                 <option key={d} value={d}>
                   {fmtDataset(d)}
@@ -87,13 +89,13 @@ export default function ScenariosPage() {
               disabled={selected.size === 0}
               onClick={() => setDialog({ kind: "launch", ids: shown.map((i) => i.id).filter((id) => selected.has(id)) })}
             >
-              Запустить выбранные · {selected.size}
+              {t("Запустить выбранные · {n}", { n: selected.size })}
             </Button>
             <Menu
-              trigger={<Button variant="primary">Новый сценарий ▾</Button>}
+              trigger={<Button variant="primary">{t("Новый сценарий ▾")}</Button>}
               items={[
-                { label: "Пустой…", onSelect: () => setDialog({ kind: "new" }) },
-                { label: "Из YAML…", onSelect: () => setDialog({ kind: "import" }) },
+                { label: t("Пустой…"), onSelect: () => setDialog({ kind: "new" }) },
+                { label: t("Из YAML…"), onSelect: () => setDialog({ kind: "import" }) },
               ]}
             />
           </>
@@ -101,24 +103,24 @@ export default function ScenariosPage() {
       />
       {scenarios.error && <ErrorBox error={scenarios.error} />}
       <section className={`${k.card} ${k.flush}`}>
-        <table className={`${k.tbl} ${s.tight}`} aria-label="Библиотека сценариев">
+        <table className={`${k.tbl} ${s.tight}`} aria-label={t("Библиотека сценариев")}>
           <thead>
             <tr>
               <th>
                 <input
                   type="checkbox"
-                  aria-label="Выбрать все"
+                  aria-label={t("Выбрать все")}
                   checked={shown.length > 0 && shown.every((i) => selected.has(i.id))}
                   onChange={(e) => setSelected(e.target.checked ? new Set(shown.map((i) => i.id)) : new Set())}
                 />
               </th>
-              <th>Имя</th>
-              <th>Описание</th>
-              <th>Датасет</th>
-              <th>Коллекция</th>
-              <th>Конвейер</th>
-              <th>Последний прогон</th>
-              <th>Изменён</th>
+              <th>{t("Имя")}</th>
+              <th>{t("Описание")}</th>
+              <th>{t("Датасет")}</th>
+              <th>{t("Коллекция")}</th>
+              <th>{t("Конвейер")}</th>
+              <th>{t("Последний прогон")}</th>
+              <th>{t("Изменён")}</th>
               <th />
             </tr>
           </thead>
@@ -142,11 +144,12 @@ export default function ScenariosPage() {
             ))}
           </tbody>
         </table>
-        {scenarios.data && shown.length === 0 && <Empty>{items.length ? "Ничего не нашлось." : "Библиотека пуста: создайте сценарий."}</Empty>}
+        {scenarios.data && shown.length === 0 && <Empty>{items.length ? t("Ничего не нашлось.") : t("Библиотека пуста: создайте сценарий.")}</Empty>}
       </section>
       <span className="small muted">
-        Библиотека — каталог <span className="mono">configs/scenarios/</span> на сервере: то же, что видит CLI. «Запустить выбранные» ставит
-        сценарии в очередь по порядку, каждый проходит dry-run.
+        {rich(t("Библиотека — каталог {dir} на сервере: то же, что видит CLI. «Запустить выбранные» ставит сценарии в очередь по порядку, каждый проходит dry-run."), {
+          dir: <span className="mono">configs/scenarios/</span>,
+        })}
       </span>
 
       {dialog?.kind === "new" && (
@@ -154,9 +157,9 @@ export default function ScenariosPage() {
           kind="scenario"
           open
           onClose={() => setDialog(null)}
-          title="Новый сценарий"
+          title={t("Новый сценарий")}
           initial="new_scenario"
-          confirm="Создать"
+          confirm={t("Создать")}
           taken={ids}
           onSubmit={(name) => createDocument("scenario", skeleton("scenario", name, stand.data?.qdrant[0]?.url))}
         />
@@ -166,9 +169,9 @@ export default function ScenariosPage() {
           kind="scenario"
           open
           onClose={() => setDialog(null)}
-          title={`Дублировать ${dialog.id}`}
+          title={t("Дублировать {id}", { id: dialog.id })}
           initial={`${dialog.id}_copy`}
-          confirm="Дублировать"
+          confirm={t("Дублировать")}
           taken={ids}
           onSubmit={(name) => duplicate("scenario", dialog.id, name)}
         />
@@ -194,6 +197,7 @@ function ScenarioRow({ item, selected, onSelect, onDuplicate, onLaunch }: {
   onDuplicate: () => void;
   onLaunch: () => void;
 }) {
+  const t = useT();
   const qc = useQueryClient();
   const confirm = useConfirm();
   const navigate = useNavigate();
@@ -201,14 +205,11 @@ function ScenarioRow({ item, selected, onSelect, onDuplicate, onLaunch }: {
 
   const onDelete = async () => {
     const ok = await confirm({
-      title: `Удалить сценарий ${item.id}?`,
-      body: (
-        <>
-          Файл <span className="mono">configs/scenarios/{item.id}.yaml</span> будет удалён. Прогоны останутся: у каждого есть свой snapshot
-          сценария.
-        </>
-      ),
-      confirm: "Удалить",
+      title: t("Удалить сценарий {id}?", { id: item.id }),
+      body: rich(t("Файл {file} будет удалён. Прогоны останутся: у каждого есть свой snapshot сценария."), {
+        file: <span className="mono">configs/scenarios/{item.id}.yaml</span>,
+      }),
+      confirm: t("Удалить"),
       danger: true,
     });
     if (!ok) return;
@@ -216,7 +217,7 @@ function ScenarioRow({ item, selected, onSelect, onDuplicate, onLaunch }: {
       await deleteDocument("scenario", item.id, item.etag);
     } catch (e) {
       if (e instanceof ApiProblem && e.status === 409) {
-        await confirm({ title: "Файл изменился", body: "Сценарий изменили вне редактора — обновите список и повторите.", confirm: "Понятно" });
+        await confirm({ title: t("Файл изменился"), body: t("Сценарий изменили вне редактора — обновите список и повторите."), confirm: t("Понятно") });
       } else throw e;
     } finally {
       invalidateLibrary(qc, "scenario");
@@ -226,7 +227,7 @@ function ScenarioRow({ item, selected, onSelect, onDuplicate, onLaunch }: {
   return (
     <tr className={selected ? k.sel : undefined}>
       <td>
-        <input type="checkbox" aria-label={`Выбрать ${item.id}`} checked={selected} onChange={(e) => onSelect(e.target.checked)} />
+        <input type="checkbox" aria-label={t("Выбрать {id}", { id: item.id })} checked={selected} onChange={(e) => onSelect(e.target.checked)} />
       </td>
       <td>
         <Link className={`${k.rowLink} mono`} to={href}>
@@ -239,7 +240,9 @@ function ScenarioRow({ item, selected, onSelect, onDuplicate, onLaunch }: {
             {item.description}
           </span>
         ) : (
-          <Chip tone="warn" title="Файл не проходит схему: откройте его в редакторе">черновик</Chip>
+          <Chip tone="warn" title={t("Файл не проходит схему: откройте его в редакторе")}>
+            {t("черновик")}
+          </Chip>
         )}
       </td>
       <td>{item.dataset ? fmtDataset(item.dataset) : <span className="muted">—</span>}</td>
@@ -254,22 +257,22 @@ function ScenarioRow({ item, selected, onSelect, onDuplicate, onLaunch }: {
       <td>
         <div className={s.acts}>
           <LinkButton small to={href}>
-            Открыть
+            {t("Открыть")}
           </LinkButton>
           <Button small onClick={onDuplicate}>
-            Дублировать
+            {t("Дублировать")}
           </Button>
           <Menu
             trigger={
-              <Button small aria-label={`Ещё: ${item.id}`}>
+              <Button small aria-label={t("Ещё: {id}", { id: item.id })}>
                 ⋯
               </Button>
             }
             items={[
-              { label: "Открыть", onSelect: () => navigate(href) },
-              { label: "Запустить…", onSelect: onLaunch, disabled: !item.valid },
-              { label: "Экспорт YAML", onSelect: () => void exportYaml("scenario", item.id) },
-              { label: "Удалить…", onSelect: () => void onDelete(), danger: true },
+              { label: t("Открыть"), onSelect: () => navigate(href) },
+              { label: t("Запустить…"), onSelect: onLaunch, disabled: !item.valid },
+              { label: t("Экспорт YAML"), onSelect: () => void exportYaml("scenario", item.id) },
+              { label: t("Удалить…"), onSelect: () => void onDelete(), danger: true },
             ]}
           />
         </div>

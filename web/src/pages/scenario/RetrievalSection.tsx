@@ -5,6 +5,7 @@ import { useEditorActions, useValue } from "../../editor/derived";
 import s from "../../editor/editor.module.css";
 import { CheckField, FieldMessages, Grid, Note, NumberField, SelectField, TextField } from "../../editor/fields";
 import { Section } from "../../editor/Section";
+import { useT } from "../../i18n/i18n";
 import { Button } from "../../ui/Button";
 import { cx } from "../../ui/cx";
 
@@ -17,6 +18,7 @@ export function sourceSummary(src: Source): string {
 }
 
 export function RetrievalSection() {
+  const t = useT();
   const meta = useScenarioMeta().data!;
   const { append, removeAt } = useEditorActions();
   const strategy = useValue<string>("retrieval.strategy") ?? "single";
@@ -31,13 +33,13 @@ export function RetrievalSection() {
   const shown = fanout ? sources : sources.slice(0, 1);
   const targetIds = backends.map((b) => b.id).filter((x): x is string => Boolean(x));
 
+  const asyncWord = asyncOn ? t("вкл") : t("выкл");
+  const sourcesWord = sources.length === 1 ? t("источник") : t("источника");
   const summary = [
     strategy,
     `top_k ${topK}`,
-    fanout ? `async ${asyncOn ? "вкл" : "выкл"}` : null,
-    sources.length
-      ? `${sources.length} ${sources.length === 1 ? "источник" : "источника"}: ${sources.map(sourceSummary).join("; ")}`
-      : "источник по умолчанию",
+    fanout ? `async ${asyncWord}` : null,
+    sources.length ? `${sources.length} ${sourcesWord}: ${sources.map(sourceSummary).join("; ")}` : t("источник по умолчанию"),
     fanout ? `${method}${method === "rrf" ? ` k=${rrfK}` : ""}` : null,
   ]
     .filter(Boolean)
@@ -49,25 +51,25 @@ export function RetrievalSection() {
         <SelectField
           path="retrieval.strategy"
           label="strategy"
-          options={meta.retrieval_strategies.map((v) => ({ value: v, label: v === "fanout_merge" ? "fanout_merge — несколько источников" : v }))}
+          options={meta.retrieval_strategies.map((v) => ({ value: v, label: v === "fanout_merge" ? t("fanout_merge — несколько источников") : v }))}
         />
         <NumberField path="retrieval.top_k" label="top_k" min={1} />
-        {fanout ? <CheckField path="retrieval.async" label="async — источники параллельно" /> : <div />}
+        {fanout ? <CheckField path="retrieval.async" label={t("async — источники параллельно")} /> : <div />}
       </Grid>
 
       <div className={s.cards} id={fieldDomId("retrieval.sources")}>
-        <h3 className={s.subhead}>Источники</h3>
+        <h3 className={s.subhead}>{t("Источники")}</h3>
         <FieldMessages path="retrieval.sources" />
-        {sources.length === 0 && <Note>Источников нет: single использует один vector-источник по умолчанию.</Note>}
+        {sources.length === 0 && <Note>{t("Источников нет: single использует один vector-источник по умолчанию.")}</Note>}
         {shown.map((src, i) => {
           const base = `retrieval.sources[${i}]`;
           const kind = src.kind ?? "vector";
           return (
             <div key={i} className={s.itemCard} id={fieldDomId(base)}>
               <div className={s.itemHead}>
-                <span className="mono grow">{src.name || `источник ${i + 1}`}</span>
+                <span className="mono grow">{src.name || t("источник {n}", { n: i + 1 })}</span>
                 <Button small onClick={() => removeAt(["retrieval", "sources"], i)}>
-                  Убрать
+                  {t("Убрать")}
                 </Button>
               </div>
               <FieldMessages path={base} />
@@ -80,7 +82,7 @@ export function RetrievalSection() {
               <Grid cols={4}>
                 {kind === "vector" ? (
                   <>
-                    <NumberField path={`${base}.params.ef_search`} label="params.ef_search" min={1} placeholder="по умолчанию Qdrant" />
+                    <NumberField path={`${base}.params.ef_search`} label="params.ef_search" min={1} placeholder={t("по умолчанию Qdrant")} />
                     {mode !== "single" && (
                       <SelectField path={`${base}.params.backend_ref`} label="params.backend_ref" options={targetIds} mono />
                     )}
@@ -95,11 +97,11 @@ export function RetrievalSection() {
             </div>
           );
         })}
-        {!fanout && sources.length > 1 && <Note>Ещё {sources.length - 1} в YAML: single берёт только первый, остальные не показаны.</Note>}
+        {!fanout && sources.length > 1 && <Note>{t("Ещё {n} в YAML: single берёт только первый, остальные не показаны.", { n: sources.length - 1 })}</Note>}
         {(fanout || sources.length === 0) && (
           <div>
             <Button small onClick={() => append(["retrieval", "sources"], { name: `source_${sources.length + 1}`, kind: "vector", weight: 1.0 })}>
-              + источник
+              {t("+ источник")}
             </Button>
           </div>
         )}
@@ -107,11 +109,11 @@ export function RetrievalSection() {
 
       {fanout && (
         <div className={cx(s.cards)}>
-          <h3 className={s.subhead}>Слияние (merge)</h3>
+          <h3 className={s.subhead}>{t("Слияние (merge)")}</h3>
           <Grid cols={4}>
             <SelectField path="retrieval.merge.method" label="method" options={enumAt(meta.json_schema, ["retrieval", "merge", "method"])} />
             {method === "rrf" && <NumberField path="retrieval.merge.rrf_k" label="rrf_k" min={1} />}
-            <CheckField path="retrieval.merge.deduplicate" label="deduplicate — влияет только на interleave" />
+            <CheckField path="retrieval.merge.deduplicate" label={t("deduplicate — влияет только на interleave")} />
           </Grid>
         </div>
       )}

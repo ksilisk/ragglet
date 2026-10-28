@@ -1,3 +1,4 @@
+import { currentLang, setLangForTest } from "../i18n/i18n";
 import { fmtBytes, fmtDataset, fmtDuration, fmtMetric, fmtMs, fmtNumber, fmtPercent, fmtWhen, plural, splitDataset } from "./format";
 
 const nbsp = (s: string) => s.replace(/ /g, " ");
@@ -31,6 +32,17 @@ describe("время", () => {
     expect(fmtWhen(new Date(2026, 9, 24, 18, 9), now)).toBe("24.10 18:09");
     expect(fmtWhen(new Date(2025, 0, 2, 3, 4), now)).toBe("02.01.2025 03:04");
     expect(fmtWhen(null, now)).toBe("—");
+  });
+  it("английская версия: месяц словом", () => {
+    const lang = currentLang();
+    try {
+      setLangForTest("en");
+      expect(fmtWhen(new Date(2026, 9, 24, 18, 9), now)).toBe("Oct 24 18:09");
+      expect(fmtWhen(new Date(2025, 0, 2, 3, 4), now)).toBe("Jan 2, 2025 03:04");
+      expect(fmtWhen(new Date(2026, 9, 27, 17, 15), now)).toBe("today 17:15");
+    } finally {
+      setLangForTest(lang);
+    }
   });
   it("длительности", () => {
     expect(fmtDuration(41)).toBe("0:41");

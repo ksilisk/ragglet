@@ -1,8 +1,9 @@
+import { translate } from "../i18n/i18n";
 import { finalDepth, profileHints, scenarioHints } from "./hints";
 
 const defaults = { retrieval: { top_k: 30 }, rerank: { input_top_k: 30, output_top_n: 10 }, timeouts: { total_ms: 6000, retrieval_ms: 1500, rerank_ms: 800, llm_ms: 3500 }, metrics: { quality: { k: [1, 3, 5, 10] } } };
 const warnings = (data: Record<string, unknown>, path: string) =>
-  scenarioHints(data, defaults).filter((h) => h.path === path && h.severity === "warning").map((h) => h.message);
+  scenarioHints(data, defaults).filter((h) => h.path === path && h.severity === "warning").map((h) => translate(h.message, h.vars, "ru"));
 
 describe("глубина финального списка", () => {
   it("без rerank — top_k", () => {

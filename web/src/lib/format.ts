@@ -1,6 +1,6 @@
 // Числа и даты по языку UI: ru — «0,331», «9 696»; en — «0.331», «9,696». Времена с сервера в UTC,
 // показываются в локальной зоне.
-import { msg, numberLocale, pluralize, translate } from "../i18n/i18n";
+import { currentLang, msg, numberLocale, pluralize, translate } from "../i18n/i18n";
 
 const formats = new Map<string, Intl.NumberFormat>();
 
@@ -54,8 +54,14 @@ export function fmtWhen(value: string | Date | null | undefined, now: Date = new
   if (!d) return DASH;
   const time = fmtTime(d, false);
   if (d.toDateString() === now.toDateString()) return translate("сегодня {time}", { time });
+  const sameYear = d.getFullYear() === now.getFullYear();
+  if (currentLang() === "en") {
+    // «Oct 24 18:09», «Jan 2, 2025 03:04»
+    const date = d.toLocaleDateString("en-US", { month: "short", day: "numeric", ...(sameYear ? {} : { year: "numeric" }) });
+    return `${date} ${time}`;
+  }
   const date = `${pad(d.getDate())}.${pad(d.getMonth() + 1)}`;
-  return d.getFullYear() === now.getFullYear() ? `${date} ${time}` : `${date}.${d.getFullYear()} ${time}`;
+  return sameYear ? `${date} ${time}` : `${date}.${d.getFullYear()} ${time}`;
 }
 
 /** Длительность в секундах: «0:41», «2:03», «1:02:03». */

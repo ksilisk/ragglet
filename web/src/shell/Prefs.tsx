@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { useLang, useT, type Lang } from "../i18n/i18n";
+import { msg, useLang, useT, type Lang } from "../i18n/i18n";
 import { useTheme, type Theme } from "../lib/theme";
 import { cx } from "../ui/cx";
 import s from "./shell.module.css";
@@ -25,9 +25,9 @@ const ICONS: Record<Theme, ReactNode> = {
 };
 
 const THEMES: Array<{ id: Theme; label: string }> = [
-  { id: "light", label: "Светлая" },
-  { id: "dark", label: "Тёмная" },
-  { id: "system", label: "Как в системе" },
+  { id: "light", label: msg("Светлая") },
+  { id: "dark", label: msg("Тёмная") },
+  { id: "system", label: msg("Как в системе") },
 ];
 const LANGS: Lang[] = ["ru", "en"];
 

@@ -2,15 +2,31 @@ import type { QueryClient } from "@tanstack/react-query";
 import { api, settle, unwrap, type S } from "../../api/client";
 import { keys } from "../../api/queries";
 import { setIn } from "../../config/yamlDoc";
+import { msg } from "../../i18n/i18n";
 
 /** Библиотека конфигов (ragglet-28 §4): сценарии и профили индексов — одна логика, два набора ручек. */
 export type LibraryKind = "scenario" | "profile";
 
 export const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 
+/** Фразы — msg()-шаблоны целиком (по-русски вид склоняется): переводятся при выводе через t(). */
 export const LIBRARY = {
-  scenario: { idField: "name", noun: "сценарий", genitive: "сценария", route: (id: string) => `/scenarios/${encodeURIComponent(id)}` },
-  profile: { idField: "id", noun: "профиль", genitive: "профиля", route: (id: string) => `/indexes/profiles/${encodeURIComponent(id)}` },
+  scenario: {
+    idField: "name",
+    route: (id: string) => `/scenarios/${encodeURIComponent(id)}`,
+    deleteTitle: msg("Удалить сценарий {id}?"),
+    importTitle: msg("Новый сценарий из YAML"),
+    importNote: msg("Имя сценария берётся из поля {field}. Невалидный по схеме текст сохраняется черновиком."),
+    saveAsNote: msg("Новый файл получит текущий текст редактора; исходный сценарий не изменится."),
+  },
+  profile: {
+    idField: "id",
+    route: (id: string) => `/indexes/profiles/${encodeURIComponent(id)}`,
+    deleteTitle: msg("Удалить профиль {id}?"),
+    importTitle: msg("Новый профиль из YAML"),
+    importNote: msg("Имя профиля берётся из поля {field}. Невалидный по схеме текст сохраняется черновиком."),
+    saveAsNote: msg("Новый файл получит текущий текст редактора; исходный профиль не изменится."),
+  },
 } as const;
 
 export function getDocument(kind: LibraryKind, id: string): Promise<S["ConfigDocument"]> {

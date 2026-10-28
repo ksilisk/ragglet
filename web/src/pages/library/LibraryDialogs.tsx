@@ -2,6 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent, type ReactNode } from "react";
 import { useNavigate } from "react-router";
 import { ApiProblem, type S } from "../../api/client";
+import { rich, useT } from "../../i18n/i18n";
 import { Button } from "../../ui/Button";
 import { Dialog } from "../../ui/Dialog";
 import { ErrorBox } from "../../ui/ProblemView";
@@ -20,12 +21,13 @@ export function NameDialog({ kind, open, onClose, title, initial, confirm, taken
   onSubmit: (name: string) => Promise<S["ConfigDocument"]>;
   children?: ReactNode;
 }) {
+  const t = useT();
   const [name, setName] = useState(initial);
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const navigate = useNavigate();
 
-  const invalid = !ID_PATTERN.test(name) ? "только латиница, цифры, «_» и «-», до 64 символов" : taken?.has(name) ? "такое имя уже есть" : null;
+  const invalid = !ID_PATTERN.test(name) ? t("только латиница, цифры, «_» и «-», до 64 символов") : taken?.has(name) ? t("такое имя уже есть") : null;
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -50,7 +52,7 @@ export function NameDialog({ kind, open, onClose, title, initial, confirm, taken
       title={title}
       footer={
         <>
-          <Button onClick={onClose}>Отмена</Button>
+          <Button onClick={onClose}>{t("Отмена")}</Button>
           <Button variant="primary" type="submit" form="name-dialog" disabled={Boolean(invalid) || busy}>
             {confirm}
           </Button>
@@ -59,7 +61,7 @@ export function NameDialog({ kind, open, onClose, title, initial, confirm, taken
     >
       <form id="name-dialog" onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         <label htmlFor="name-dialog-input" className="small muted">
-          Имя — оно же имя файла и каталога прогонов
+          {t("Имя — оно же имя файла и каталога прогонов")}
         </label>
         <input
           id="name-dialog-input"
@@ -79,6 +81,7 @@ export function NameDialog({ kind, open, onClose, title, initial, confirm, taken
 
 /** Новый из YAML: вставить текст или выбрать файл; id берётся из name / id в тексте. */
 export function ImportDialog({ kind, open, onClose }: { kind: LibraryKind; open: boolean; onClose: () => void }) {
+  const t = useT();
   const [text, setText] = useState("");
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
@@ -106,24 +109,21 @@ export function ImportDialog({ kind, open, onClose }: { kind: LibraryKind; open:
       open={open}
       onOpenChange={(o) => !o && onClose()}
       wide
-      title={kind === "scenario" ? "Новый сценарий из YAML" : "Новый профиль из YAML"}
+      title={t(LIBRARY[kind].importTitle)}
       footer={
         <>
-          <Button onClick={onClose}>Отмена</Button>
+          <Button onClick={onClose}>{t("Отмена")}</Button>
           <Button variant="primary" onClick={submit} disabled={!text.trim() || busy}>
-            Создать
+            {t("Создать")}
           </Button>
         </>
       }
     >
-      <span className="muted">
-        Имя {LIBRARY[kind].genitive} берётся из поля <span className="mono">{LIBRARY[kind].idField}</span>. Невалидный по схеме текст сохраняется
-        черновиком.
-      </span>
+      <span className="muted">{rich(t(LIBRARY[kind].importNote), { field: <span className="mono">{LIBRARY[kind].idField}</span> })}</span>
       <input
         type="file"
         accept=".yaml,.yml,text/yaml"
-        aria-label="Файл YAML"
+        aria-label={t("Файл YAML")}
         onChange={async (e) => {
           const file = e.target.files?.[0];
           if (file) setText(await file.text());
@@ -135,11 +135,11 @@ export function ImportDialog({ kind, open, onClose }: { kind: LibraryKind; open:
         value={text}
         onChange={(e) => setText(e.target.value)}
         placeholder={`${LIBRARY[kind].idField}: my_${kind}\n…`}
-        aria-label="Текст YAML"
+        aria-label={t("Текст YAML")}
         spellCheck={false}
       />
       {error !== null && <ErrorBox error={error} />}
-      {error instanceof ApiProblem && error.status === 409 && <span className="small muted">Такое имя уже занято: поменяйте его в тексте.</span>}
+      {error instanceof ApiProblem && error.status === 409 && <span className="small muted">{t("Такое имя уже занято: поменяйте его в тексте.")}</span>}
     </Dialog>
   );
 }

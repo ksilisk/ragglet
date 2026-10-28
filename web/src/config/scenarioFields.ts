@@ -1,18 +1,20 @@
+import { msg } from "../i18n/i18n";
 import type { Registry } from "./registry";
 
 export type ScenarioSection = "general" | "data" | "retrieval" | "rerank" | "context" | "generation" | "cache" | "load" | "timeouts" | "metrics";
 
 /** Секции в порядке стадий конвейера (ragglet-15, решение 3). */
 export const SCENARIO_SECTIONS: ReadonlyArray<{ id: ScenarioSection; title: string }> = [
-  { id: "data", title: "Датасет и индекс" },
+  // title — msg(): переводится при выводе (SectionNav)
+  { id: "data", title: msg("Датасет и индекс") },
   { id: "retrieval", title: "Retrieval" },
   { id: "rerank", title: "Rerank" },
   { id: "context", title: "Context" },
   { id: "generation", title: "Generation" },
-  { id: "cache", title: "Кэш" },
-  { id: "load", title: "Нагрузка и повторы" },
-  { id: "timeouts", title: "Таймауты" },
-  { id: "metrics", title: "Метрики и вывод" },
+  { id: "cache", title: msg("Кэш") },
+  { id: "load", title: msg("Нагрузка и повторы") },
+  { id: "timeouts", title: msg("Таймауты") },
+  { id: "metrics", title: msg("Метрики и вывод") },
 ];
 
 const fields: Record<ScenarioSection, string[]> = {

@@ -1,13 +1,15 @@
+import { msg } from "../i18n/i18n";
 import type { Registry } from "./registry";
 
 export type ProfileSection = "general" | "dataset" | "chunking" | "embedding" | "storage" | "index";
 
 export const PROFILE_SECTIONS: ReadonlyArray<{ id: ProfileSection; title: string }> = [
-  { id: "dataset", title: "Датасет" },
-  { id: "chunking", title: "Чанкинг" },
-  { id: "embedding", title: "Эмбеддинг" },
-  { id: "storage", title: "Хранилище" },
-  { id: "index", title: "Параметры индекса" },
+  // title — msg(): переводится при выводе (SectionNav)
+  { id: "dataset", title: msg("Датасет") },
+  { id: "chunking", title: msg("Чанкинг") },
+  { id: "embedding", title: msg("Эмбеддинг") },
+  { id: "storage", title: msg("Хранилище") },
+  { id: "index", title: msg("Параметры индекса") },
 ];
 
 const fields: Record<ProfileSection, string[]> = {

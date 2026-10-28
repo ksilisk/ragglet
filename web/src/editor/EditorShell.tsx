@@ -1,5 +1,6 @@
 import { useEffect, useMemo, type ReactNode } from "react";
 import { parsePath } from "../config/paths";
+import { useT } from "../i18n/i18n";
 import { bindIssue, fieldDomId } from "../config/registry";
 import { Tabs } from "../ui/Tabs";
 import { useVisibleIssues } from "./derived";
@@ -18,6 +19,7 @@ export function EditorShell({ head, sections, children, report }: {
   children: ReactNode;
   report?: (check: CheckResult) => ReactNode;
 }) {
+  const t = useT();
   const { store, registry } = useEditorContext();
   const tab = useEditor((st) => st.tab);
   const text = useEditor((st) => st.text);
@@ -67,20 +69,25 @@ export function EditorShell({ head, sections, children, report }: {
     <>
       {head}
       <Tabs<"form" | "yaml">
-        label="Вид"
+        label={t("Вид")}
         value={tab}
-        onChange={(t) => store.getState().setTab(t)}
+        onChange={(next) => store.getState().setTab(next)}
         items={[
-          { id: "form", label: "Форма" },
-          { id: "yaml", label: parsed.error ? "YAML ●" : "YAML", title: parsed.error ? "YAML не разбирается" : undefined },
+          { id: "form", label: t("Форма") },
+          { id: "yaml", label: parsed.error ? "YAML ●" : "YAML", title: parsed.error ? t("YAML не разбирается") : undefined },
         ]}
       />
       {tab === "form" ? (
         <>
           {parsed.error && (
             <div className={`${s.banner} ${s.danger}`} role="alert">
-              YAML не разбирается{parsed.error.line ? `: строка ${parsed.error.line}, столбец ${parsed.error.col}` : ""} — {parsed.error.message}. Форма только
-              для чтения, исправьте текст во вкладке YAML.
+              {parsed.error.line
+                ? t("YAML не разбирается: строка {line}, столбец {col} — {message}. Форма только для чтения, исправьте текст во вкладке YAML.", {
+                    line: parsed.error.line,
+                    col: parsed.error.col ?? "?",
+                    message: t(parsed.error.message),
+                  })
+                : t("YAML не разбирается — {message}. Форма только для чтения, исправьте текст во вкладке YAML.", { message: t(parsed.error.message) })}
             </div>
           )}
           <div className={s.layout}>
@@ -90,11 +97,14 @@ export function EditorShell({ head, sections, children, report }: {
         </>
       ) : (
         <div className={s.yaml}>
-          <YamlEditor label="YAML" value={text} onChange={(t) => store.getState().setText(t)} diagnostics={diagnostics} reveal={reveal} />
+          <YamlEditor label="YAML" value={text} onChange={(next) => store.getState().setText(next)} diagnostics={diagnostics} reveal={reveal} />
           {parsed.error && (
             <div className={s.yamlErr} role="alert">
-              Строка {parsed.error.line ?? "?"}, столбец {parsed.error.col ?? "?"}: {parsed.error.message}. Пока текст не разбирается, сохранить и проверить его
-              нельзя.
+              {t("Строка {line}, столбец {col}: {message}. Пока текст не разбирается, сохранить и проверить его нельзя.", {
+                line: parsed.error.line ?? "?",
+                col: parsed.error.col ?? "?",
+                message: t(parsed.error.message),
+              })}
             </div>
           )}
         </div>

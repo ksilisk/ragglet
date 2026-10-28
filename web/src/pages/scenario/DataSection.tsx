@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import type { S } from "../../api/client";
 import { useDatasets, useIndexes, useScenarioMeta } from "../../api/queries";
 import { fieldDomId } from "../../config/registry";
+import { useT } from "../../i18n/i18n";
 import { fmtNumber, fmtWhen } from "../../lib/format";
 import { Button } from "../../ui/Button";
 import { Chip } from "../../ui/Chip";
@@ -30,6 +31,7 @@ export function useSelectedCollection(): Collection | null {
 
 /** Строка о коллекции под выбором, как на артборде: состояние · points · датасет · модель · chunking · собрана · профиль. */
 export function CollectionLine({ c }: { c: Collection }) {
+  const t = useT();
   const meta = c.ragglet ?? {};
   const state = COLLECTION_STATE[c.state];
   const parts = [
@@ -37,13 +39,13 @@ export function CollectionLine({ c }: { c: Collection }) {
     meta.dataset_id ? `${String(meta.dataset_source)}:${String(meta.dataset_id)}` : null,
     meta.embedding_model ? String(meta.embedding_model) : null,
     meta.chunking_method ? `${String(meta.chunking_method)}${meta.chunk_size ? ` ${String(meta.chunk_size)}/${String(meta.chunk_overlap)}` : ""}` : null,
-    meta.built_at ? `собрана ${fmtWhen(String(meta.built_at))}` : null,
-    meta.index_profile_id ? `профиль ${String(meta.index_profile_id)}` : null,
+    meta.built_at ? t("собрана {when}", { when: fmtWhen(String(meta.built_at)) }) : null,
+    meta.index_profile_id ? t("профиль {id}", { id: String(meta.index_profile_id) }) : null,
   ].filter(Boolean);
   return (
     <span className={s.hint}>
       <Chip tone={state.tone} title={`status ${c.status}`}>
-        {state.label}
+        {t(state.label)}
       </Chip>{" "}
       {parts.join(" · ")}
     </span>
@@ -58,6 +60,7 @@ function CollectionSelect({ path, label, collections, onPick }: {
 }) {
   const endpoint = useValue(`${path}.endpoint`);
   const name = useValue(`${path}.collection`);
+  const t = useT();
   const readOnly = useEditor((st) => st.parsed.error !== null);
   const current = collections.find((c) => norm(c.endpoint) === norm(endpoint) && c.name === name);
   const value = current ? keyOf(current.endpoint, current.name) : name ? keyOf(endpoint, name) : "";
@@ -72,16 +75,16 @@ function CollectionSelect({ path, label, collections, onPick }: {
           if (picked) onPick(picked);
         }}
       >
-        {!value && <option value="">— выберите коллекцию —</option>}
+        {!value && <option value="">{t("— выберите коллекцию —")}</option>}
         {value && !current && (
           <option value={value}>
-            {String(name)} — {hostOf(String(endpoint ?? ""))} · не найдена
+            {String(name)} — {hostOf(String(endpoint ?? ""))} · {t("не найдена")}
           </option>
         )}
         {collections.map((c) => (
           <option key={keyOf(c.endpoint, c.name)} value={keyOf(c.endpoint, c.name)}>
             {c.name} — {hostOf(c.endpoint)}
-            {c.state !== "ready" ? ` (${COLLECTION_STATE[c.state].label})` : ""}
+            {c.state !== "ready" ? ` (${t(COLLECTION_STATE[c.state].label)})` : ""}
           </option>
         ))}
       </select>
@@ -91,6 +94,7 @@ function CollectionSelect({ path, label, collections, onPick }: {
 }
 
 export function DataSection() {
+  const t = useT();
   const meta = useScenarioMeta().data!;
   const indexes = useIndexes();
   const datasets = useDatasets();
@@ -132,13 +136,13 @@ export function DataSection() {
   const datasetDiffers = Boolean(ragglet?.dataset_id && datasetId && (ragglet.dataset_id !== datasetId || ragglet.dataset_source !== source));
 
   return (
-    <Section id="data" title="Датасет и индекс" summary={`${source}:${datasetId ?? "—"} · ${collectionName}`}>
+    <Section id="data" title={t("Датасет и индекс")} summary={`${source}:${datasetId ?? "—"} · ${collectionName}`}>
       <div className={cx(s.grid)} style={{ gridTemplateColumns: "minmax(0, 2fr) minmax(0, 1fr)" }}>
         <div className={s.field}>
-          <CollectionSelect path="storage.backend" label={mode === "single" ? "Коллекция (индекс)" : "Основная коллекция (storage.backend)"} collections={collections} onPick={pickPrimary} />
+          <CollectionSelect path="storage.backend" label={mode === "single" ? t("Коллекция (индекс)") : t("Основная коллекция (storage.backend)")} collections={collections} onPick={pickPrimary} />
           {selected && <CollectionLine c={selected} />}
           {indexes.data && indexes.data.endpoints.some((e) => !e.available) && (
-            <span className={cx(s.hint, s.warn)}>Часть Qdrant недоступна: их коллекций нет в списке.</span>
+            <span className={cx(s.hint, s.warn)}>{t("Часть Qdrant недоступна: их коллекций нет в списке.")}</span>
           )}
         </div>
         <SelectField path="storage.mode" label="storage.mode" options={["single", "sharded", "replicated"]} />
@@ -150,9 +154,9 @@ export function DataSection() {
           {backends.map((b, i) => (
             <div key={i} className={s.itemCard} id={fieldDomId(`storage.backends[${i}]`)}>
               <div className={s.itemHead}>
-                <span className="mono grow">{String(b.id ?? `цель ${i + 1}`)}</span>
+                <span className="mono grow">{String(b.id ?? t("цель {n}", { n: i + 1 }))}</span>
                 <Button small onClick={() => removeAt(["storage", "backends"], i)}>
-                  Убрать
+                  {t("Убрать")}
                 </Button>
               </div>
               <Grid cols={3}>
@@ -160,7 +164,7 @@ export function DataSection() {
                 <div className={`${s.field} ${s.span2}`}>
                   <CollectionSelect
                     path={`storage.backends[${i}]`}
-                    label="Коллекция"
+                    label={t("Коллекция")}
                     collections={collections}
                     onPick={(c) => {
                       edit(["storage", "backends", i, "endpoint"], c.endpoint);
@@ -173,7 +177,7 @@ export function DataSection() {
           ))}
           <div>
             <Button small onClick={() => append(["storage", "backends"], { id: `shard_${backends.length}`, type: "qdrant", endpoint: selected?.endpoint ?? "", collection: "" })}>
-              + цель storage.backends
+              {t("+ цель storage.backends")}
             </Button>
           </div>
         </div>
@@ -182,7 +186,7 @@ export function DataSection() {
       <Grid cols={5}>
         <SelectField path="dataset.source" label="dataset.source" options={meta.dataset_sources.map((d) => d.id)} />
         <TextField path="dataset.id" label="dataset.id" mono optional={false} span={2} list="dl-dataset-ids" placeholder={source === "hf" ? "BeIR/nfcorpus" : "datasets/demo"} />
-        {supportsRevision ? <TextField path="dataset.revision" label="revision" mono placeholder="последняя" /> : <div />}
+        {supportsRevision ? <TextField path="dataset.revision" label="revision" mono placeholder={t("последняя")} /> : <div />}
         <TextField path="dataset.split" label="split" mono list="dl-dataset-splits" />
       </Grid>
       <datalist id="dl-dataset-ids">
@@ -197,7 +201,10 @@ export function DataSection() {
       </datalist>
       {datasetDiffers && ragglet && (
         <div className={s.banner}>
-          Коллекция собрана по {String(ragglet.dataset_source)}:{String(ragglet.dataset_id)}, а в сценарии — {source}:{datasetId}.
+          {t("Коллекция собрана по {collection}, а в сценарии — {scenario}.", {
+            collection: `${String(ragglet.dataset_source)}:${String(ragglet.dataset_id)}`,
+            scenario: `${source}:${datasetId}`,
+          })}
           <Button
             small
             onClick={() => {
@@ -205,7 +212,7 @@ export function DataSection() {
               edit(["dataset", "id"], ragglet.dataset_id);
             }}
           >
-            Взять датасет коллекции
+            {t("Взять датасет коллекции")}
           </Button>
         </div>
       )}
@@ -215,11 +222,11 @@ export function DataSection() {
         {fromIndex ? (
           <>
             <div className={`${s.field} ${s.span3}`}>
-              <span className={s.label}>embedding — из индекса</span>
-              <input className={cx(k.inp, k.ro, "mono")} value={`${effectiveModel} · normalize: ${String(effectiveNormalize)}`} readOnly aria-label="embedding из индекса" />
+              <span className={s.label}>{t("embedding — из индекса")}</span>
+              <input className={cx(k.inp, k.ro, "mono")} value={`${effectiveModel} · normalize: ${String(effectiveNormalize)}`} readOnly aria-label={t("embedding из индекса")} />
             </div>
             <div className={s.field} style={{ alignSelf: "end" }}>
-              <Button onClick={() => setManual(true)}>Задать вручную</Button>
+              <Button onClick={() => setManual(true)}>{t("Задать вручную")}</Button>
             </div>
           </>
         ) : (
@@ -233,7 +240,10 @@ export function DataSection() {
       </Grid>
       {!fromIndex && indexModel && (
         <Note>
-          В индексе: {indexModel}, normalize: {String(indexNormalize)}. Preflight сверяет модель с метаданными коллекции строго по строке.
+          {t("В индексе: {model}, normalize: {normalize}. Preflight сверяет модель с метаданными коллекции строго по строке.", {
+            model: indexModel,
+            normalize: String(indexNormalize),
+          })}
         </Note>
       )}
     </Section>

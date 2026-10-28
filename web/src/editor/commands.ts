@@ -1,4 +1,5 @@
 import { ApiProblem, api, settle, type Problem, type S } from "../api/client";
+import { translate } from "../i18n/i18n";
 import { writeDocument, type LibraryKind } from "../pages/library/library";
 import { checkFromProblem, type CheckResult, type EditorState } from "./store";
 import type { StoreApi } from "zustand";
@@ -46,7 +47,7 @@ export async function dryRun(store: StoreApi<EditorState>, kind: LibraryKind = s
       at: Date.now(),
       durationMs: performance.now() - started,
       ok: true,
-      title: data.warnings.length ? "Проверка пройдена с предупреждениями" : null,
+      title: data.warnings.length ? translate("Проверка пройдена с предупреждениями") : null,
       hint: null,
       issues: data.warnings,
       report: data,

@@ -2,6 +2,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { render } from "@testing-library/react";
 import { RouterProvider, createMemoryRouter, type RouteObject } from "react-router";
 import { createQueryClient } from "../api/queries";
+import { I18nProvider, type Lang } from "../i18n/i18n";
 import { ConfirmProvider } from "../ui/Dialog";
 import datasets from "./fixtures/datasets.json";
 import indexes from "./fixtures/indexes.json";
@@ -37,14 +38,16 @@ export function mockApi(handler: Handler = () => undefined) {
   return { calls, fetchMock };
 }
 
-export function renderRoutes(routes: RouteObject[], path: string): ReturnType<typeof render> {
+export function renderRoutes(routes: RouteObject[], path: string, lang: Lang = "ru"): ReturnType<typeof render> {
   const router = createMemoryRouter(routes, { initialEntries: [path] });
   const qc = createQueryClient();
   return render(
-    <QueryClientProvider client={qc}>
-      <ConfirmProvider>
-        <RouterProvider router={router} />
-      </ConfirmProvider>
-    </QueryClientProvider>,
+    <I18nProvider initialLang={lang}>
+      <QueryClientProvider client={qc}>
+        <ConfirmProvider>
+          <RouterProvider router={router} />
+        </ConfirmProvider>
+      </QueryClientProvider>
+    </I18nProvider>,
   );
 }

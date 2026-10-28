@@ -100,4 +100,15 @@ describe("страница прогона", () => {
     await act(() => vi.advanceTimersByTimeAsync(5000));
     expect(polls()).toBe(after);
   });
+
+  it("по-английски: подписи, вкладки и числа в en", async () => {
+    serve([light]);
+    renderRoutes(routes, `/runs/${ID}`, "en");
+    expect(await screen.findByText("0.865", { selector: "span" })).toBeInTheDocument(); // плитка nDCG@10, en-US
+    expect(screen.getByText("Done")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Overview" })).toBeInTheDocument();
+    expect(screen.getByRole("table", { name: "Repeats" }).querySelectorAll("tbody tr")).toHaveLength(5);
+    expect(screen.getByText("off")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Repeat" })).toBeEnabled();
+  });
 });

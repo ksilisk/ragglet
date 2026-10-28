@@ -1,6 +1,7 @@
 import type { ProblemIssue } from "../api/client";
 import { parsePath } from "../config/paths";
 import { rangeOf, type Parsed } from "../config/yamlDoc";
+import { translate } from "../i18n/i18n";
 import type { Diagnostic } from "./YamlEditor";
 
 const LINE_COL = /line (\d+)(?:, column (\d+))?/;
@@ -35,7 +36,7 @@ export function yamlDiagnostics(text: string, parsed: Parsed, issues: readonly P
   const out: Diagnostic[] = [];
   if (parsed.error) {
     const from = parsed.error.line ? offsetOf(text, parsed.error.line, parsed.error.col ?? 1) : parsed.error.offset;
-    out.push({ from, to: Math.min(from + 1, text.length), severity: "error", message: `YAML не разбирается: ${parsed.error.message}` });
+    out.push({ from, to: Math.min(from + 1, text.length), severity: "error", message: translate("YAML не разбирается: {message}", { message: translate(parsed.error.message) }) });
   }
   for (const issue of issues) {
     const at = locate(issue, text, parsed);

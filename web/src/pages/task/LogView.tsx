@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { S } from "../../api/client";
+import { useT } from "../../i18n/i18n";
 import { Card } from "../../ui/Layout";
 import { ErrorBox } from "../../ui/ProblemView";
 import { cx } from "../../ui/cx";
@@ -8,6 +9,7 @@ import { useTaskLog } from "./useTaskLog";
 
 /** Лог задачи: автопрокрутка, пока пользователь внизу; у упавшей — трейсбек видно сразу. */
 export function LogView({ kind, id, active, tall, downloadHref }: { kind: S["TaskKind"]; id: string; active: boolean; tall?: boolean; downloadHref?: string }) {
+  const t = useT();
   const log = useTaskLog(kind, id, active);
   const box = useRef<HTMLPreElement>(null);
   const [follow, setFollow] = useState(true);
@@ -28,29 +30,29 @@ export function LogView({ kind, id, active, tall, downloadHref }: { kind: S["Tas
 
   return (
     <Card
-      title="Лог"
+      title={t("Лог")}
       aside={
         <span className="small muted">
           {active && (
             <>
-              автопрокрутка ·{" "}
+              {t("автопрокрутка")} ·{" "}
               <button type="button" onClick={() => setPaused((p) => !p)} style={{ all: "unset", cursor: "pointer", color: "var(--accent)" }}>
-                {paused ? "продолжить" : "пауза"}
+                {paused ? t("продолжить") : t("пауза")}
               </button>
               {downloadHref && " · "}
             </>
           )}
           {downloadHref && (
             <a href={downloadHref} download>
-              скачать
+              {t("скачать")}
             </a>
           )}
         </span>
       }
     >
-      {log.truncated && <span className="small muted">Начало лога обрезано (больше 1 МиБ) — полностью он в файле task.log.</span>}
-      <pre ref={box} className={cx(s.log, tall && s.tall)} aria-label="Лог задачи" tabIndex={0}>
-        {log.text ? <Lines text={log.text} /> : <span className="muted">{log.complete ? "Лог пуст." : "Ждём вывода задачи…"}</span>}
+      {log.truncated && <span className="small muted">{t("Начало лога обрезано (больше 1 МиБ) — полностью он в файле task.log.")}</span>}
+      <pre ref={box} className={cx(s.log, tall && s.tall)} aria-label={t("Лог задачи")} tabIndex={0}>
+        {log.text ? <Lines text={log.text} /> : <span className="muted">{log.complete ? t("Лог пуст.") : t("Ждём вывода задачи…")}</span>}
       </pre>
       {log.error !== null && <ErrorBox error={log.error} />}
     </Card>

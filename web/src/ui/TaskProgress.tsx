@@ -1,4 +1,5 @@
 import type { S } from "../api/client";
+import { useT } from "../i18n/i18n";
 import { progressView } from "../lib/eta";
 import { fmtDuration, fmtNumber, fmtQps } from "../lib/format";
 import { PHASE_HINT, PHASE_LABEL, UNIT, phaseOf } from "../lib/task";
@@ -14,6 +15,7 @@ export function TaskProgress({ kind, state, progress, plan, startedAt, big }: {
   startedAt: string | null | undefined;
   big?: boolean;
 }) {
+  const t = useT();
   const now = useNow(1000, state === "running");
   const phase = phaseOf(state, progress);
   const view = progressView(progress, plan, startedAt, now);
@@ -25,30 +27,30 @@ export function TaskProgress({ kind, state, progress, plan, startedAt, big }: {
     <div style={{ display: "flex", flexDirection: "column", gap: big ? 8 : 6 }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", fontSize: big ? 14 : 13 }}>
         <span>
-          {PHASE_LABEL[kind][phase]}
+          {t(PHASE_LABEL[kind][phase])}
           {view ? (
             <>
               {" · "}
               <span className="num">
                 {fmtNumber(view.done)} / {fmtNumber(view.total)}
               </span>
-              {kind === "run" && view.repeat && ` · повтор ${view.repeat.index} из ${view.repeat.of}`}
+              {kind === "run" && view.repeat && " · " + t("повтор {index} из {of}", { index: view.repeat.index, of: view.repeat.of })}
             </>
           ) : (
-            <span className="muted"> · {PHASE_HINT[kind].preparing}</span>
+            <span className="muted"> · {t(PHASE_HINT[kind].preparing)}</span>
           )}
-          {phase === "finishing" && <span className="muted"> · {PHASE_HINT[kind].finishing}</span>}
+          {phase === "finishing" && <span className="muted"> · {t(PHASE_HINT[kind].finishing)}</span>}
         </span>
         <span className="muted">
-          прошло <b className="num">{fmtDuration(elapsed)}</b>
+          {t("прошло")} <b className="num">{fmtDuration(elapsed)}</b>
           {phase === "progress" && (
             <>
-              {" · осталось "}
-              <b className="num">{view?.remainingS === null || view?.remainingS === undefined ? "оценивается…" : `≈ ${fmtDuration(view.remainingS)}`}</b>
+              {" · " + t("осталось") + " "}
+              <b className="num">{view?.remainingS === null || view?.remainingS === undefined ? t("оценивается…") : `≈ ${fmtDuration(view.remainingS)}`}</b>
               {view?.rate ? (
                 <>
                   {" · "}
-                  <span className="num">≈ {fmtQps(view.rate)}</span> {kind === "run" ? "запр./с" : "док./с"}
+                  <span className="num">≈ {fmtQps(view.rate)}</span> {kind === "run" ? t("запр./с") : t("док./с")}
                 </>
               ) : null}
             </>
@@ -58,7 +60,7 @@ export function TaskProgress({ kind, state, progress, plan, startedAt, big }: {
       <ProgressBar
         big={big}
         fraction={phase === "preparing" ? null : view ? view.fraction : null}
-        label={`Прогресс: ${view ? `${view.done} из ${view.total} ${UNIT[kind]}` : PHASE_LABEL[kind][phase]}`}
+        label={view ? t("Прогресс: {done} из {total} {unit}", { done: view.done, total: view.total, unit: t(UNIT[kind]) }) : t("Прогресс: {phase}", { phase: t(PHASE_LABEL[kind][phase]) })}
       />
     </div>
   );

@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { ApiProblem, api, unwrap, type S } from "../../api/client";
 import { keys, useCancelTask, useRun, useRunArtifacts, useRunInclude, useTasks } from "../../api/queries";
 import { launch } from "../../editor/launch";
+import { msg, rich, useT } from "../../i18n/i18n";
 import { YamlEditor } from "../../editor/YamlEditor";
 import { fmtBytes, fmtDuration, fmtNumber, fmtTime, fmtWhen, splitDataset } from "../../lib/format";
 import { PHASE_HINT } from "../../lib/task";
@@ -30,36 +31,37 @@ type TabId = "overview" | "quality" | "latency" | "queries" | "conditions" | "co
 
 /**
  * Реестр вкладок прогона (ragglet-31 §8): 32 добавляет свои записи вместо заглушек «soon», не трогая
- * страницу. available решает, есть ли вкладка у прогона в этом состоянии.
+ * страницу. available решает, есть ли вкладка у прогона в этом состоянии. title — msg(), перевод при выводе.
  */
 export const RUN_TABS: Array<{ id: TabId; title: string; available: (run: S["RunStatus"]) => boolean | "soon"; Component?: ComponentType<{ run: S["RunStatus"] }> }> = [
-  { id: "overview", title: "Обзор", available: (r) => r.state === "completed", Component: RunOverview },
-  { id: "quality", title: "Качество", available: () => "soon" },
-  { id: "latency", title: "Задержки и нагрузка", available: () => "soon" },
-  { id: "queries", title: "Запросы", available: () => "soon" },
-  { id: "conditions", title: "Условия", available: () => "soon" },
-  { id: "config", title: "Конфиг", available: () => true, Component: RunConfig },
-  { id: "log", title: "Лог", available: (r) => r.state !== "queued", Component: RunLog },
-  { id: "files", title: "Файлы", available: (r) => r.state !== "queued", Component: RunFiles },
+  { id: "overview", title: msg("Обзор"), available: (r) => r.state === "completed", Component: RunOverview },
+  { id: "quality", title: msg("Качество"), available: () => "soon" },
+  { id: "latency", title: msg("Задержки и нагрузка"), available: () => "soon" },
+  { id: "queries", title: msg("Запросы"), available: () => "soon" },
+  { id: "conditions", title: msg("Условия"), available: () => "soon" },
+  { id: "config", title: msg("Конфиг"), available: () => true, Component: RunConfig },
+  { id: "log", title: msg("Лог"), available: (r) => r.state !== "queued", Component: RunLog },
+  { id: "files", title: msg("Файлы"), available: (r) => r.state !== "queued", Component: RunFiles },
 ];
 
 export default function RunPage() {
+  const t = useT();
   const { id = "" } = useParams();
   const run = useRun(id);
   if (run.error) {
     const notFound = run.error instanceof ApiProblem && run.error.status === 404;
     return (
       <Page>
-        <Crumbs items={[{ label: "Прогоны", to: "/runs" }, { label: id }]} />
-        {notFound ? <Empty>Прогона {id} нет в реестре.</Empty> : <ErrorBox error={run.error} />}
+        <Crumbs items={[{ label: t("Прогоны"), to: "/runs" }, { label: id }]} />
+        {notFound ? <Empty>{t("Прогона {id} нет в реестре.", { id })}</Empty> : <ErrorBox error={run.error} />}
       </Page>
     );
   }
   if (!run.data) {
     return (
       <Page>
-        <Crumbs items={[{ label: "Прогоны", to: "/runs" }, { label: id }]} />
-        <span className="muted">Загрузка…</span>
+        <Crumbs items={[{ label: t("Прогоны"), to: "/runs" }, { label: id }]} />
+        <span className="muted">{t("Загрузка…")}</span>
       </Page>
     );
   }
@@ -67,26 +69,27 @@ export default function RunPage() {
 }
 
 function RunView({ run }: { run: S["RunStatus"] }) {
+  const t = useT();
   const [params, setParams] = useSearchParams();
   const active = ACTIVE.has(run.state);
-  const tabs = RUN_TABS.filter((t) => t.available(run) !== false);
+  const tabs = RUN_TABS.filter((x) => x.available(run) !== false);
   const fallback: TabId = run.state === "completed" ? "overview" : run.state === "queued" ? "config" : "log";
   const requested = params.get("tab") as TabId | null;
-  const tab = requested && tabs.some((t) => t.id === requested && t.available(run) === true) ? requested : fallback;
-  const current = RUN_TABS.find((t) => t.id === tab)!;
+  const tab = requested && tabs.some((x) => x.id === requested && x.available(run) === true) ? requested : fallback;
+  const current = RUN_TABS.find((x) => x.id === tab)!;
 
   return (
     <Page>
-      <Crumbs items={[{ label: "Прогоны", to: "/runs" }, { label: run.id }]} />
+      <Crumbs items={[{ label: t("Прогоны"), to: "/runs" }, { label: run.id }]} />
       <RunHeader run={run} />
       {active && <ActiveCard run={run} />}
       {run.state === "failed" && <FailedBox run={run} />}
       {run.state === "cancelled" && <CancelledBox run={run} />}
       <Tabs<TabId>
-        label="Вкладки прогона"
+        label={t("Вкладки прогона")}
         value={tab}
         onChange={(next) => setParams(next === fallback ? {} : { tab: next }, { replace: true })}
-        items={tabs.map((t) => ({ id: t.id, label: t.title, disabled: t.available(run) === "soon", title: t.available(run) === "soon" ? "ragglet-32" : undefined }))}
+        items={tabs.map((x) => ({ id: x.id, label: t(x.title), disabled: x.available(run) === "soon", title: x.available(run) === "soon" ? "ragglet-32" : undefined }))}
       />
       {current.Component && <current.Component run={run} />}
     </Page>
@@ -94,6 +97,7 @@ function RunView({ run }: { run: S["RunStatus"] }) {
 }
 
 function RunHeader({ run }: { run: S["RunStatus"] }) {
+  const t = useT();
   const qc = useQueryClient();
   const navigate = useNavigate();
   const confirm = useConfirm();
@@ -109,10 +113,10 @@ function RunHeader({ run }: { run: S["RunStatus"] }) {
 
   const onCancel = async () => {
     const ok = await confirm({
-      title: `Отменить прогон ${run.scenario}?`,
-      body: run.state === "queued" ? "Прогон уберут из очереди." : "Процесс прогона будет остановлен; уже записанные файлы останутся.",
-      confirm: "Отменить прогон",
-      cancel: "Не отменять",
+      title: t("Отменить прогон {scenario}?", { scenario: run.scenario }),
+      body: run.state === "queued" ? t("Прогон уберут из очереди.") : t("Процесс прогона будет остановлен; уже записанные файлы останутся."),
+      confirm: t("Отменить прогон"),
+      cancel: t("Не отменять"),
       danger: true,
     });
     if (ok) cancel.mutate({ kind: "run", id: run.id }, { onError: (e) => !(e instanceof ApiProblem && e.status === 409) && setError(e) });
@@ -132,7 +136,7 @@ function RunHeader({ run }: { run: S["RunStatus"] }) {
           if (!out.ok) problem = out.problem;
           return checkStep(out);
         },
-        confirm: (warnings, check) => confirm({ title: "Повторить всё равно?", body: <WarningsBody warnings={warnings} check={check} />, confirm: "Повторить", wide: true }),
+        confirm: (warnings, check) => confirm({ title: t("Повторить всё равно?"), body: <WarningsBody warnings={warnings} check={check} />, confirm: t("Повторить"), wide: true }),
         submit: async () => {
           const out = await enqueueScenario(text, run.scenario_id ?? null);
           if (out.ok) return { kind: "accepted", id: out.accepted.id, position: out.accepted.position ?? null };
@@ -167,11 +171,11 @@ function RunHeader({ run }: { run: S["RunStatus"] }) {
             <span className="muted small mono">{run.id}</span>
           </div>
           <div className={s.facts}>
-            <span>поставлен {fmtWhen(run.enqueued_at)}</span>
+            <span>{t("поставлен {when}", { when: fmtWhen(run.enqueued_at) })}</span>
             {run.started_at && (
               <>
                 <span>·</span>
-                <span>старт {fmtTime(run.started_at)}</span>
+                <span>{t("старт {time}", { time: fmtTime(run.started_at) })}</span>
               </>
             )}
             {duration !== null && (
@@ -189,22 +193,26 @@ function RunHeader({ run }: { run: S["RunStatus"] }) {
             <span className="mono">{run.collection}</span>
             <span>·</span>
             <ScenarioLink run={run} />
-            {run.origin === "import" && <Chip tone="tag" title="каталог без записи реестра: прогон из CLI или старый">из CLI</Chip>}
-            {run.tags.map((t) => (
-              <Tag key={t}>{t}</Tag>
+            {run.origin === "import" && (
+              <Chip tone="tag" title={t("каталог без записи реестра: прогон из CLI или старый")}>
+                {t("из CLI")}
+              </Chip>
+            )}
+            {run.tags.map((tag) => (
+              <Tag key={tag}>{tag}</Tag>
             ))}
           </div>
         </div>
         <div className={k.actions}>
-          <Button onClick={() => void onRepeat()} disabled={active || busy} title={active ? "доступно после завершения" : "новый прогон из того же snapshot"}>
-            {busy ? "Проверка…" : "Повторить"}
+          <Button onClick={() => void onRepeat()} disabled={active || busy} title={active ? t("доступно после завершения") : t("новый прогон из того же snapshot")}>
+            {busy ? t("Проверка…") : t("Повторить")}
           </Button>
-          <Button onClick={() => setAsScenario(true)}>Открыть как сценарий</Button>
+          <Button onClick={() => setAsScenario(true)}>{t("Открыть как сценарий")}</Button>
           {files.size > 0 && (
             <Menu
-              trigger={<Button>Скачать ▾</Button>}
+              trigger={<Button>{t("Скачать ▾")}</Button>}
               items={[
-                { label: "Все файлы (zip)", onSelect: () => (window.location.href = `/v1/runs/${encodeURIComponent(run.id)}/artifacts.zip`) },
+                { label: t("Все файлы (zip)"), onSelect: () => (window.location.href = `/v1/runs/${encodeURIComponent(run.id)}/artifacts.zip`) },
                 ...["summary.json", "manifest.json", "scenario.snapshot.yaml", "task.log"]
                   .filter((name) => files.has(name))
                   .map((name) => ({ label: <span className="mono">{name}</span>, onSelect: () => (window.location.href = fileHref(name)) })),
@@ -213,7 +221,7 @@ function RunHeader({ run }: { run: S["RunStatus"] }) {
           )}
           {active && (
             <Button variant="danger" onClick={() => void onCancel()} disabled={cancel.isPending}>
-              Отменить
+              {t("Отменить")}
             </Button>
           )}
         </div>
@@ -224,12 +232,12 @@ function RunHeader({ run }: { run: S["RunStatus"] }) {
           kind="scenario"
           open
           onClose={() => setAsScenario(false)}
-          title="Открыть как сценарий"
+          title={t("Открыть как сценарий")}
           initial={`${run.scenario}_from_run`}
-          confirm="Создать сценарий"
+          confirm={t("Создать сценарий")}
           onSubmit={(name) => fromRun(run.id, name)}
         >
-          <span className="small muted">Новый сценарий библиотеки из snapshot прогона, без run.artifacts_dir.</span>
+          <span className="small muted">{t("Новый сценарий библиотеки из snapshot прогона, без run.artifacts_dir.")}</span>
         </NameDialog>
       )}
     </>
@@ -237,23 +245,25 @@ function RunHeader({ run }: { run: S["RunStatus"] }) {
 }
 
 function ScenarioLink({ run }: { run: S["RunStatus"] }) {
-  if (!run.scenario_id) return <span>сценарий не из библиотеки</span>;
-  if (run.scenario_file === "deleted") return <span>сценарий {run.scenario_id} удалён, snapshot остался</span>;
+  const t = useT();
+  if (!run.scenario_id) return <span>{t("сценарий не из библиотеки")}</span>;
+  if (run.scenario_file === "deleted") return <span>{t("сценарий {id} удалён, snapshot остался", { id: run.scenario_id })}</span>;
   return (
     <span>
-      сценарий <Link to={`/scenarios/${encodeURIComponent(run.scenario_id)}`}>{run.scenario_id}</Link>
-      {run.scenario_file === "changed" && <span title="файл сценария изменён после прогона"> · изменён после прогона</span>}
+      {rich(t("сценарий {link}"), { link: <Link to={`/scenarios/${encodeURIComponent(run.scenario_id)}`}>{run.scenario_id}</Link> })}
+      {run.scenario_file === "changed" && <span title={t("файл сценария изменён после прогона")}> · {t("изменён после прогона")}</span>}
     </span>
   );
 }
 
 /** Активный прогон: шаги фаз, прогресс, предупреждения постановки, очередь (артборд RunRunning). */
 function ActiveCard({ run }: { run: S["RunStatus"] }) {
+  const t = useT();
   const tasks = useTasks();
   const plan = run.plan;
   const concurrency = plan?.load?.concurrency;
   const repeat = plan && run.progress && plan.queries_per_repeat > 0 ? Math.min(plan.repeats, Math.floor(Math.max(0, run.progress.done - 1) / plan.queries_per_repeat) + 1) : 1;
-  const ahead = (tasks.data ?? []).filter((t) => t.state === "running" || (t.position !== null && run.position !== null && run.position !== undefined && t.position < run.position));
+  const ahead = (tasks.data ?? []).filter((x) => x.state === "running" || (x.position !== null && run.position !== null && run.position !== undefined && x.position < run.position));
 
   return (
     <Card>
@@ -262,10 +272,13 @@ function ActiveCard({ run }: { run: S["RunStatus"] }) {
         state={run.state}
         progress={run.progress}
         details={{
-          queued: run.state === "queued" ? `поставлен ${fmtTime(run.enqueued_at)} · позиция ${run.position ?? "—"}` : `${fmtTime(run.enqueued_at)} → ${fmtTime(run.started_at)}`,
-          preparing: PHASE_HINT.run.preparing,
-          progress: plan ? `повтор ${repeat} из ${plan.repeats}${concurrency !== undefined ? ` · concurrency ${String(concurrency)}` : ""}` : undefined,
-          finishing: PHASE_HINT.run.finishing,
+          queued:
+            run.state === "queued"
+              ? t("поставлен {time} · позиция {position}", { time: fmtTime(run.enqueued_at), position: run.position ?? "—" })
+              : `${fmtTime(run.enqueued_at)} → ${fmtTime(run.started_at)}`,
+          preparing: t(PHASE_HINT.run.preparing),
+          progress: plan ? t("повтор {index} из {of}", { index: repeat, of: plan.repeats }) + (concurrency !== undefined ? ` · concurrency ${String(concurrency)}` : "") : undefined,
+          finishing: t(PHASE_HINT.run.finishing),
         }}
       />
       {run.state === "running" && (
@@ -273,8 +286,7 @@ function ActiveCard({ run }: { run: S["RunStatus"] }) {
           <TaskProgress kind="run" state={run.state} progress={run.progress} plan={plan} startedAt={run.started_at} big />
           {run.phase === "progress" && (
             <span className="small muted">
-              Скорость — по событиям прогресса, оценка. Итоговый throughput_qps появится в summary. Метрик по ходу прогона нет: ядро сообщает только
-              прогресс.
+              {t("Скорость — по событиям прогресса, оценка. Итоговый throughput_qps появится в summary. Метрик по ходу прогона нет: ядро сообщает только прогресс.")}
             </span>
           )}
         </>
@@ -282,21 +294,21 @@ function ActiveCard({ run }: { run: S["RunStatus"] }) {
       {run.state === "queued" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 13 }}>
           {ahead.length === 0 ? (
-            <span>Следующий в очереди — стартует, как только освободится стенд.</span>
+            <span>{t("Следующий в очереди — стартует, как только освободится стенд.")}</span>
           ) : (
             <>
-              <span>Впереди:</span>
-              {ahead.map((t) => (
-                <span key={`${t.kind}:${t.id}`}>
-                  {KIND_LABEL[t.kind]}{" "}
-                  <Link className="mono" to={taskHref(t.kind, t.id)}>
-                    {t.name}
+              <span>{t("Впереди:")}</span>
+              {ahead.map((task) => (
+                <span key={`${task.kind}:${task.id}`}>
+                  {t(KIND_LABEL[task.kind])}{" "}
+                  <Link className="mono" to={taskHref(task.kind, task.id)}>
+                    {task.name}
                   </Link>{" "}
-                  <StateChip state={t.state} />
-                  {t.progress && (
+                  <StateChip state={task.state} />
+                  {task.progress && (
                     <span className="num muted">
                       {" "}
-                      {fmtNumber(t.progress.done)} / {fmtNumber(t.progress.total)}
+                      {fmtNumber(task.progress.done)} / {fmtNumber(task.progress.total)}
                     </span>
                   )}
                 </span>
@@ -307,7 +319,7 @@ function ActiveCard({ run }: { run: S["RunStatus"] }) {
       )}
       {run.warnings.length > 0 && (
         <div style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
-          <span className="small muted">Preflight при постановке:</span>
+          <span className="small muted">{t("Preflight при постановке:")}</span>
           {run.warnings.map((w, i) => (
             <span key={i} className="small">
               <Chip tone="warn">{w.code}</Chip> <span className="muted">{w.message}</span>
@@ -320,116 +332,137 @@ function ActiveCard({ run }: { run: S["RunStatus"] }) {
 }
 
 function FailedBox({ run }: { run: S["RunStatus"] }) {
+  const t = useT();
   const navigate = useNavigate();
   const error = run.error;
-  if (!error) return <ProblemBox problem={{ title: "Прогон упал", hint: null, issues: [] }} />;
+  if (!error) return <ProblemBox problem={{ title: t("Прогон упал"), hint: null, issues: [] }} />;
   return (
     <div className={k.problem} role="alert">
       <div className={k.problemTitle}>
         {error.type}: {error.message.split("\n")[0]}
       </div>
       {error.qid && (
-        <span>
-          На запросе <span className="mono">{error.qid}</span>.
-        </span>
+        <span>{rich(t("На запросе {qid}."), { qid: <span className="mono">{error.qid}</span> })}</span>
       )}
       {error.problem && (
         <>
-          <span>
-            <b>{error.problem.title}</b> — второй preflight при старте задачи.
-          </span>
+          <span>{rich(t("{title} — второй preflight при старте задачи."), { title: <b>{error.problem.title}</b> })}</span>
           {error.problem.hint && <span className="muted">{error.problem.hint}</span>}
           <IssueList issues={error.problem.issues} />
           {run.scenario_id && run.scenario_file !== "deleted" && (
             <div>
               <Button small onClick={() => navigate(`/scenarios/${encodeURIComponent(run.scenario_id!)}`, { state: { problem: error.problem } })}>
-                Открыть в редакторе
+                {t("Открыть в редакторе")}
               </Button>
             </div>
           )}
         </>
       )}
-      <span className="muted small">Подробности — во вкладке «Лог»{run.finished_at ? ` · упал в ${fmtTime(run.finished_at)}` : ""}.</span>
+      <span className="muted small">
+        {run.finished_at ? t("Подробности — во вкладке «Лог» · упал в {time}.", { time: fmtTime(run.finished_at) }) : t("Подробности — во вкладке «Лог».")}
+      </span>
     </div>
   );
 }
 
 function CancelledBox({ run }: { run: S["RunStatus"] }) {
+  const t = useT();
   return (
     <div className={s.banner}>
       <span>
-        <b>Отменён</b>
-        {run.finished_at ? ` в ${fmtTime(run.finished_at)}` : ""}
-        {run.progress ? `, выполнено ${fmtNumber(run.progress.done)} / ${fmtNumber(run.progress.total)}` : run.started_at ? "" : " до старта"}.
+        <b>{t("Отменён")}</b>
+        {run.finished_at && <> {t("в {time}", { time: fmtTime(run.finished_at) })}</>}
+        {run.progress ? (
+          <>, {t("выполнено {done} / {total}", { done: fmtNumber(run.progress.done), total: fmtNumber(run.progress.total) })}</>
+        ) : run.started_at ? (
+          ""
+        ) : (
+          <> {t("до старта")}</>
+        )}
+        .
       </span>
     </div>
   );
 }
 
 function RunLog({ run }: { run: S["RunStatus"] }) {
+  const t = useT();
   const active = ACTIVE.has(run.state);
   const tasks = useTasks();
-  const next = (tasks.data ?? []).find((t) => t.state === "queued");
+  const next = (tasks.data ?? []).find((x) => x.state === "queued");
   return (
     <div className={s.split}>
       <LogView kind="run" id={run.id} active={active} tall={!active} downloadHref={`/v1/runs/${encodeURIComponent(run.id)}/artifacts/task.log`} />
-      <Card title={active ? "Условия на старте" : "Условия"}>
+      <Card title={active ? t("Условия на старте") : t("Условия")}>
         <KeyValue
           items={[
-            ["Датасет", <span className="mono">{run.dataset}</span>],
-            ["Коллекция", <span className="mono">{run.collection}</span>],
-            run.plan && ["План", `${fmtNumber(run.plan.queries_per_repeat)} запросов × ${run.plan.repeats} = ${fmtNumber(run.plan.total)}`],
+            [t("Датасет"), <span className="mono">{run.dataset}</span>],
+            [t("Коллекция"), <span className="mono">{run.collection}</span>],
             run.plan && [
-              "Нагрузка",
+              t("План"),
+              t("{queries} запросов × {repeats} = {total}", { queries: fmtNumber(run.plan.queries_per_repeat), repeats: run.plan.repeats, total: fmtNumber(run.plan.total) }),
+            ],
+            run.plan && [
+              t("Нагрузка"),
               Object.entries(run.plan.load)
                 .map(([key, v]) => (key === "type" ? String(v) : `${key} ${String(v)}`))
                 .join(" · "),
             ],
-            ["Предупреждения", run.warnings.length ? run.warnings.map((w) => w.code).join(", ") : "нет"],
-            active && next && ["Следом", <span className="mono">{next.name}</span>],
+            [t("Предупреждения"), run.warnings.length ? run.warnings.map((w) => w.code).join(", ") : t("нет")],
+            active && next && [t("Следом"), <span className="mono">{next.name}</span>],
           ]}
         />
-        <span className="small muted">Полный manifest — во вкладке «Условия» (ragglet-32) и в файле manifest.json.</span>
+        <span className="small muted">{t("Полный manifest — во вкладке «Условия» (ragglet-32) и в файле manifest.json.")}</span>
       </Card>
     </div>
   );
 }
 
 function RunConfig({ run }: { run: S["RunStatus"] }) {
+  const t = useT();
   const snapshot = useRunInclude(run.id, "scenario");
   if (snapshot.error) return <ErrorBox error={snapshot.error} />;
-  if (!snapshot.data) return <span className="muted">Загрузка snapshot…</span>;
+  if (!snapshot.data) return <span className="muted">{t("Загрузка snapshot…")}</span>;
   return (
     <Card
       title="scenario.snapshot"
       aside={
         <span className="small muted">
-          только чтение{run.scenario_file === "changed" ? " · сценарий библиотеки изменён после прогона" : ""}
+          {t("только чтение")}
+          {run.scenario_file === "changed" && <> · {t("сценарий библиотеки изменён после прогона")}</>}
         </span>
       }
     >
       <div className={k.card} style={{ padding: 0, overflow: "hidden" }}>
-        <YamlEditor label="Snapshot сценария" value={snapshot.data.scenario_yaml ?? ""} readOnly minHeight={320} />
+        <YamlEditor label={t("Snapshot сценария")} value={snapshot.data.scenario_yaml ?? ""} readOnly minHeight={320} />
       </div>
     </Card>
   );
 }
 
 function RunFiles({ run }: { run: S["RunStatus"] }) {
+  const t = useT();
   const artifacts = useRunArtifacts(run.id);
   const href = (name: string) => `/v1/runs/${encodeURIComponent(run.id)}/artifacts/${encodeURIComponent(name)}`;
   return (
-    <Card title="Файлы" aside={<FileButton href={`/v1/runs/${encodeURIComponent(run.id)}/artifacts.zip`} small>Скачать всё (zip)</FileButton>}>
+    <Card
+      title={t("Файлы")}
+      aside={
+        <FileButton href={`/v1/runs/${encodeURIComponent(run.id)}/artifacts.zip`} small>
+          {t("Скачать всё (zip)")}
+        </FileButton>
+      }
+    >
       {artifacts.error && <ErrorBox error={artifacts.error} />}
       {artifacts.data && artifacts.data.length === 0 ? (
-        <Empty>В каталоге прогона пока нет файлов.</Empty>
+        <Empty>{t("В каталоге прогона пока нет файлов.")}</Empty>
       ) : (
-        <table className={`${k.tbl} ${k.compact}`} aria-label="Файлы прогона">
+        <table className={`${k.tbl} ${k.compact}`} aria-label={t("Файлы прогона")}>
           <thead>
             <tr>
-              <th>Файл</th>
-              <th className="r">Размер</th>
-              <th>Изменён</th>
+              <th>{t("Файл")}</th>
+              <th className="r">{t("Размер")}</th>
+              <th>{t("Изменён")}</th>
             </tr>
           </thead>
           <tbody>
