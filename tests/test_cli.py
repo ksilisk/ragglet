@@ -425,6 +425,7 @@ def stub(tmp_path, monkeypatch):
     tasks.write_text("[]", encoding="utf-8")
     monkeypatch.setattr(cli, "RESULTS", tmp_path / "results")
     monkeypatch.setattr(cli, "prepare_env", lambda: sys.executable)
+    monkeypatch.setattr(cli, "prepare_ui", lambda: None)  # настоящий web/ здесь не собираем
     monkeypatch.setattr(cli, "server_command", lambda python, host, port: [python, str(script), str(port), str(tasks)])
     monkeypatch.delenv("RAGGLET_API_URL", raising=False)
     yield tasks
@@ -478,6 +479,128 @@ def test_start_without_docker_prints_the_compose_command(stub, monkeypatch, caps
     assert cli.main(["start", "--port", str(_free_port())]) == 1
     assert "docker compose -f docker/docker-compose.yaml --profile qdrant up -d qdrant redis" in (
         capsys.readouterr().err)
+
+
+def test_start_builds_ui_unless_no_ui(stub, monkeypatch, capsys):
+    calls: list[str] = []
+    monkeypatch.setattr(cli, "prepare_ui", lambda: calls.append("ui"))
+    port = str(_free_port())
+
+    assert cli.main(["start", "--port", port, "--no-services", "--no-ui"]) == 0
+    assert calls == []
+    assert cli.main(["stop"]) == 0
+    assert cli.main(["start", "--port", port, "--no-services"]) == 0
+    assert calls == ["ui"]
+
+
+# -----------------------
+# Сборка UI в start (ragglet-31)
+# -----------------------
+
+
+@pytest.fixture
+def web(tmp_path, monkeypatch):
+    """Каталог web/ с исходниками; npm и node — заглушки: `ci` ставит node_modules, `run build` пишет dist."""
+    root = tmp_path / "web"
+    (root / "src").mkdir(parents=True)
+    for name in ("package.json", "package-lock.json", "index.html", "src/main.tsx"):
+        (root / name).write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(cli, "WEB", root)
+    monkeypatch.setattr(cli, "RESULTS", tmp_path / "results")
+    monkeypatch.delenv("RAGGLET_UI_DIR", raising=False)
+    monkeypatch.setattr(cli.shutil, "which", lambda name: f"/usr/bin/{name}" if name in ("npm", "node") else None)
+    monkeypatch.setattr(cli, "node_major", lambda node: 22)
+    steps: list[list[str]] = []
+    fail: set[str] = set()
+
+    def run(step, **kwargs):
+        steps.append(step[1:])
+        if step[1] in fail:
+            kwargs["stdout"].write(b"npm ERR! boom\n")
+            return cli.subprocess.CompletedProcess(step, 1)
+        if step[1] == "ci":
+            (root / "node_modules").mkdir(exist_ok=True)
+            (root / "node_modules" / ".package-lock.json").write_text("{}", encoding="utf-8")
+        if step[1:] == ["run", "build"]:
+            (root / "dist").mkdir(exist_ok=True)
+            (root / "dist" / "index.html").write_text("<html>", encoding="utf-8")
+        return cli.subprocess.CompletedProcess(step, 0)
+
+    monkeypatch.setattr(cli.subprocess, "run", run)
+    return root, steps, fail
+
+
+def _age(path: Path, seconds: float) -> None:
+    """mtime в прошлое: порядок «исходники ↔ сборка» не зависит от точности часов ФС."""
+    stamp = time.time() - seconds
+    import os
+
+    os.utime(path, (stamp, stamp))
+
+
+def test_ui_built_once_and_rebuilt_when_sources_change(web, capsys):
+    root, steps, _ = web
+    for path in [*root.rglob("*")]:
+        _age(path, 100)
+
+    cli.prepare_ui()
+    assert steps == [["ci", "--no-audit", "--no-fund"], ["run", "build"]]
+    assert "Building the web UI (installing packages takes a minute)" in capsys.readouterr().err
+    assert cli.server_env()["RAGGLET_UI_DIR"] == str(root / "dist")
+
+    steps.clear()
+    cli.prepare_ui()  # сборка свежее исходников — ничего не делаем
+    assert steps == []
+
+    (root / "src" / "main.tsx").write_text("changed", encoding="utf-8")  # правка после сборки
+    cli.prepare_ui()
+    assert steps == [["run", "build"]]  # пакеты на месте: только сборка
+    assert "Rebuilding the web UI, log:" in capsys.readouterr().err
+
+
+def test_ui_reinstalls_packages_after_lockfile_change(web):
+    root, steps, _ = web
+    cli.prepare_ui()
+    _age(root / "node_modules" / ".package-lock.json", 100)
+    (root / "package-lock.json").write_text('{"v": 2}', encoding="utf-8")  # git pull с новыми зависимостями
+    steps.clear()
+    cli.prepare_ui()
+    assert steps == [["ci", "--no-audit", "--no-fund"], ["run", "build"]]
+
+
+def test_ui_without_node_starts_without_ui(web, monkeypatch, capsys):
+    root, steps, _ = web
+    monkeypatch.setattr(cli.shutil, "which", lambda name: None)
+    cli.prepare_ui()
+    assert steps == []
+    assert "Node.js is not installed; the server starts without the UI" in capsys.readouterr().err
+    assert "RAGGLET_UI_DIR" not in cli.server_env()
+
+
+def test_ui_with_old_node_is_skipped(web, monkeypatch, capsys):
+    _, steps, _ = web
+    monkeypatch.setattr(cli, "node_major", lambda node: 18)
+    cli.prepare_ui()
+    assert steps == []
+    assert "needs Node.js 22+ (v18)" in capsys.readouterr().err
+
+
+def test_ui_build_failure_does_not_stop_start(web, capsys):
+    root, steps, fail = web
+    fail.add("run")
+    cli.prepare_ui()  # не бросает: сервер стартует без UI
+    err = capsys.readouterr().err
+    assert "npm run build failed, the server starts without the new UI" in err
+    assert "npm ERR! boom" in err
+    assert "RAGGLET_UI_DIR" not in cli.server_env()
+
+
+def test_ui_dir_set_explicitly_is_not_built(web, monkeypatch):
+    _, steps, _ = web
+    monkeypatch.setenv("RAGGLET_UI_DIR", "/srv/ui")
+    cli.prepare_ui()
+    assert steps == []
+    assert cli.server_env()["RAGGLET_UI_DIR"] == "/srv/ui"
 
 
 # -----------------------

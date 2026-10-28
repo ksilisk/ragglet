@@ -80,13 +80,16 @@ python3 ragglet stop
    (без Docker печатает эту команду и останавливается; `--no-services` — не трогать);
 2. готовит окружение сервера в `.venv` (`uv sync --frozen --inexact`; первый раз — несколько
    минут, вывод — в `results/env.log`);
-3. запускает сервер в фоне (`.venv/bin/python -m ragglet.server`, лог — `results/server.log`,
-   pid и адрес — `results/server.json`) и печатает адрес. Собранный UI (`web/dist`) раздаётся
-   с того же адреса.
+3. собирает веб-интерфейс в `web/dist`, если его нет или исходники `web/` новее
+   (`npm ci` — только при новом `package-lock.json`; вывод — в `results/web.log`). Нужен
+   Node.js 22+; без него или при ошибке сборки сервер стартует без UI, API работает;
+4. запускает сервер в фоне (`.venv/bin/python -m ragglet.server`, лог — `results/server.log`,
+   pid и адрес — `results/server.json`) и печатает адрес. Собранный UI раздаётся с того же
+   адреса.
 
 Повторный `start` при живом сервере только печатает адрес и состояние. `--port`, `--host` —
 адрес сервера, `--open` — открыть браузер, `--foreground` — сервер в этом терминале (для
-разработки). Переменные `RAGGLET_*` сервера (таблица в разделе «REST API») передаются как есть.
+разработки), `--no-ui` — не собирать UI. Переменные `RAGGLET_*` сервера (таблица в разделе «REST API») передаются как есть.
 
 ```bash
 python3 ragglet status            # сервисы, сервер, текущая задача и очередь
@@ -348,17 +351,17 @@ uv run pytest -m "not integration"  # быстрые, без сервисов
 
 SPA в каталоге `web/` (React + TypeScript + Vite) — клиент того же REST API: стенд, библиотека
 сценариев и профилей, редактор сценария с проверкой, запуск и страница прогона (дизайн —
-[docs/designs/ragglet-31-web-ui-app.md](docs/designs/ragglet-31-web-ui-app.md)). Для сборки нужен
-Node.js 22 или новее.
+[docs/designs/ragglet-31-web-ui-app.md](docs/designs/ragglet-31-web-ui-app.md)).
 
 ```bash
-cd web && npm ci && npm run build      # → web/dist
-cd .. && python3 ragglet start --open
+python3 ragglet start --open
 ```
 
-`start` раздаёт собранный `web/dist` с адреса сервера (`http://127.0.0.1:8000/`), `--open`
-открывает его в браузере. Без лаунчера — `RAGGLET_UI_DIR=web/dist uv run python -m ragglet.server`;
-каталог должен существовать, иначе сервер не стартует. В шапке — тема (светлая / тёмная /
+`start` сам собирает UI в `web/dist`, когда его нет или исходники новее (нужен Node.js 22+), и
+раздаёт его с адреса сервера (`http://127.0.0.1:8000/`); `--open` открывает браузер. Собрать
+руками — `cd web && npm ci && npm run build`. Без лаунчера —
+`RAGGLET_UI_DIR=web/dist uv run python -m ragglet.server`; каталог должен существовать, иначе
+сервер не стартует. В шапке — тема (светлая / тёмная /
 как в системе) и язык интерфейса (RU / EN); выбор запоминается в браузере.
 
 Разработка — сервер и Vite рядом, `/v1` проксируется на API (`RAGGLET_API_URL`, по умолчанию

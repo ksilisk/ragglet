@@ -451,8 +451,11 @@ UTC, показываются в локальной зоне.
   проксирует `/v1` на `http://127.0.0.1:8000` (`RAGGLET_API_URL` меняет адрес). Origin
   один, CORS не нужен.
 - **Сборка**: `cd web && npm ci && npm run build` → `web/dist` (ассеты с хэшами в
-  `dist/assets/`). Раздача: `python3 ragglet start` сам подставляет `RAGGLET_UI_DIR=web/dist`,
-  если UI собран (без лаунчера — `RAGGLET_UI_DIR=web/dist uv run python -m ragglet.server`)
+  `dist/assets/`). `python3 ragglet start` (решение 7 ревью) собирает UI сам, если `web/dist`
+  нет или исходники `web/` новее: `npm ci` — только при новом `package-lock.json`, вывод — в
+  `results/web.log`; без Node.js 22+ или при ошибке сборки сервер стартует без UI, `--no-ui`
+  пропускает шаг. Сборка в git не коммитится. Раздача: `start` подставляет
+  `RAGGLET_UI_DIR=web/dist`, если UI собран (без лаунчера — `RAGGLET_UI_DIR=web/dist uv run python -m ragglet.server`)
   → `http://127.0.0.1:8000/`, `--open` открывает браузер. `SpaStaticFiles` уже отдаёт `index.html` на прямые
   ссылки вроде `/runs/<id>?tab=log`. Правок Python не нужно.
 - **`.gitignore`**: добавляется `node_modules/`; `dist/` уже игнорируется общим правилом.
@@ -612,3 +615,6 @@ e2e в CI нет: в репозитории нет CI, а сквозной пу�
 6. **Навигация по секциям редактора — оглавление** (комментарий на канвасе): подсвечена одна
    секция, которая сейчас на экране, а не все раскрытые; выключенные стадии помечены «выкл».
    Раскрыта секция или нет, видно по самой секции.
+7. **UI собирает `python3 ragglet start`** (§11): сборка у пользователя, а не в git; шаг
+   пропускается без Node.js и при свежей сборке. Для тех, у кого Node.js нет, UI соберёт
+   Docker-образ (ragglet-34, multi-stage).
