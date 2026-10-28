@@ -53,8 +53,7 @@ GROUPS = {
 }
 EPILOG = f"""\
 options of a command: {CMD} <command> -h
-global options: --json (raw API response), --api URL (or RAGGLET_API_URL)
-exit codes: 0 done, 1 task failed or cancelled, 2 config/dataset/index problems, 3 server not running"""
+global options: --json (raw API response), --api URL (or RAGGLET_API_URL)"""
 
 sleep = time.sleep  # тесты подменяют: на каждом тике двигают заглушку менеджера задач
 
@@ -1380,12 +1379,12 @@ def command_list(choices: dict[str, argparse.ArgumentParser], nested: dict[str, 
     lines = []
     for group, names in GROUPS.items():
         lines += [""] if lines else []
-        lines.append(f"{group}:")
+        lines.append(color(f"{group}:", "1"))
         for name in names:
             about = choices[name].description or ""
             if name in nested:
                 about += ": " + ", ".join(nested[name].choices)
-            lines.append(f"  {name:<{width}}  {about}")
+            lines.append(f"  {color(name, '36')}{' ' * (width - len(name))}  {about}")  # отступ по длине без цвета
     return "\n".join(lines)
 
 

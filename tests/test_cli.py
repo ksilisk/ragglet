@@ -140,7 +140,15 @@ def test_no_arguments_prints_help_with_groups(capsys):
     assert "stand:\n  start " in printed and "results:\n  runs " in printed
     assert "scenarios  the scenario library on the server: list, show, edit, new, check, delete" in printed
     assert "start the stand" in printed and printed.count("start the stand") == 1  # без плоского списка argparse
-    assert "exit codes:" in printed
+    assert "\033[" not in printed  # не терминал — без цвета
+
+
+def test_help_colors_keep_the_columns(monkeypatch):
+    monkeypatch.setattr(cli, "color", lambda text, code, stream=None: f"<{code}>{text}</>")
+    listing = cli.build_parser().description
+
+    assert "<1>stand:</>" in listing
+    assert "  <36>run</>        run a scenario" in listing  # ширина колонки — по имени без кода цвета
 
 
 def test_every_command_is_in_exactly_one_help_group():
