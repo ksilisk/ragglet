@@ -1,0 +1,71 @@
+/* Вкладки результата прогона и сравнение (ragglet-32): раскладка артбордов RunOverview и RunQueries. */
+.grid2 {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.toolbar .end {
+  margin-left: auto;
+}
+.caption {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--muted);
+}
+.legendNote {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--muted);
+}
+.count {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.on .count {
+  color: inherit;
+}
+.links {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.std {
+  color: var(--muted);
+  font-size: 12px;
+}
+.subRow td {
+  color: var(--muted);
+  font-size: 12px;
+}
+.expander {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.caret {
+  display: inline-block;
+  width: 10px;
+  color: var(--muted);
+  font-size: 10px;
+}
+@media (max-width: 1100px) {
+  .grid2 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

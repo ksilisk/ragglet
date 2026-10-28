@@ -80,12 +80,16 @@ describe("страница прогона", () => {
     expect(screen.getByRole("button", { name: "Открыть в редакторе" })).toBeInTheDocument();
   });
 
-  it("готово: урезанный «Обзор» — плитки и таблица повторов", async () => {
+  it("готово: «Обзор» — плитки, графики и таблица повторов", async () => {
     serve([light]);
     renderRoutes(routes, `/runs/${ID}`);
     expect(await screen.findByText("0,865", { selector: "span" })).toBeInTheDocument(); // плитка nDCG@10
     expect(screen.getByRole("table", { name: "Повторы" }).querySelectorAll("tbody tr")).toHaveLength(5);
     expect(screen.getByText("выключен")).toBeInTheDocument(); // кэш выключен в snapshot
+    // графики «Обзора»: полоса стадий (embed, retrieve, total) и качество по k (4 метрики + усы)
+    expect(await screen.findByLabelText("Задержки по стадиям, p50")).toHaveAttribute("data-series", "3");
+    expect(screen.getByLabelText("Качество по k, уровень doc")).toHaveAttribute("data-series", "8");
+    expect(screen.getByRole("table", { name: "Перцентили по стадиям" })).toBeInTheDocument();
   });
 
   it("опрос раз в секунду до completed, потом останавливается", async () => {

@@ -155,7 +155,7 @@ offscreen-экземплярами при экспорте. Plotly дал бы �
 
 ### 3. Данные: откуда что берётся
 
-**Summary.** Разбор ключей уходит из `RunOverview.tsx` в `web/src/results/summary.ts`,
+**Summary.** Разбор ключей уходит из `RunOverview.tsx` в `web/src/analysis/summary.ts`,
 это чистые функции:
 
 | Что | Ключи (`summary.repeats[i]`; агрегат — `<ключ>_{mean,std,min,max}_over_repeats`) |
@@ -216,7 +216,7 @@ lat_*,outcome,timeout_stage,emb_cache,ret_cache&limit=5000` (новый `fields`
 
 - **Таблица метрика × k**: ячейка `mean ± std` (при одном повторе только `mean`), под
   строкой метрики раскрываются строки повторов. ⓘ у метрики — определение и формула из
-  `docs/metrics.md`, переведённые и сокращённые в `results/metricInfo.ts` (ru/en). Ниже
+  `docs/metrics.md`, переведённые и сокращённые в `analysis/metricInfo.ts` (ru/en). Ниже
   строка «список короче k» — `doc_short@k_rate` в процентах — с пояснением из раздела
   «Граничные случаи» `docs/metrics.md`.
 - **График метрика(k)** — тот же построитель, что в «Обзоре», с переключателем уровня.
@@ -261,7 +261,7 @@ lat_*,outcome,timeout_stage,emb_cache,ret_cache&limit=5000` (новый `fields`
 
 **Фильтры и состояние — в URL** под теми же именами, что параметры API, без слоя
 перевода: `tab=queries&repeat=0&outcome=timeout&miss_at=10&min_total_ms=1000&q=fava&
-sort=-lat_total_ms&offset=50&k=10&qid=PLAIN-1161`. Разбор и сборка — `results/queryParams.ts`.
+sort=-lat_total_ms&offset=50&k=10&qid=PLAIN-1161`. Разбор и сборка — `analysis/queryParams.ts`.
 Умолчания в URL не пишутся. Смена фильтра сбрасывает `offset` и `qid`.
 
 - Строка фильтров: повтор (`repeats` из ответа), чипы исхода «все · ok · timeout · N ·
@@ -416,7 +416,7 @@ class RunCompare(BaseModel):
   и CSV различий.
 - Больше ничего: ни отчётов, ни PDF, ни LaTeX-таблиц.
 
-Сборка CSV — `results/csv.ts` (экранирование, числа), скачивание — `Blob` +
+Сборка CSV — `analysis/csv.ts` (экранирование, числа), скачивание — `Blob` +
 `<a download>`.
 
 ### 11. Код
@@ -431,7 +431,7 @@ web/src/
     palette.ts            слоты, STAGE_SLOT, METRIC_SLOT, маркеры и штрихи, исходы
     exportChart.ts        SVG/PNG через offscreen-экземпляр
     options/              qualityByK.ts, stageBar.ts, latencyCdf.ts, timeline.ts, cacheCurve.ts
-  results/
+  analysis/             (не results/: корневой .gitignore игнорирует любой каталог results)
     summary.ts            ключи summary и агрегата → таблицы и ряды
     metricInfo.ts         определения метрик (docs/metrics.md), ru/en
     manifest.ts           manifest → карточки «Условий», выводимые предупреждения
@@ -489,12 +489,12 @@ web/src/
 `npm run check`, `npm test`, pytest и проверкой во встроенном браузере.
 
 1. **Графики и «Обзор».** `echarts` ленивым чанком, `Chart`, `ChartCard`, тема, палитра и
-   токены, `results/summary.ts` (из `RunOverview`), полоса стадий, качество по k,
+   токены, `analysis/summary.ts` (из `RunOverview`), полоса стадий, качество по k,
    кнопки-ссылки в «Запросы», «—» вместо `0 · 0 · 0`.
 2. **«Качество» и «Задержки и нагрузка».** `fields` и `limit` в API, `usePerQueryColumns`,
    CDF, линия времени, таблицы повторов и кэша, `metricInfo`.
 3. **«Запросы» с панелью.** `@tanstack/react-table`, `queryParams`, таблица, панель запроса.
-4. **«Условия»** и карточка «Условия» в «Обзоре», `results/manifest.ts`.
+4. **«Условия»** и карточка «Условия» в «Обзоре», `analysis/manifest.ts`.
 5. **Сравнение**: `compare_trees`, `verdict`, `GET /v1/runs/compare`, pytest; выбор в
    «Прогонах», страница `/compare`, плашка, различия, метрики, графики, ссылка «Сравнить с
    предыдущим» из «Условий».

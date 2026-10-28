@@ -33,6 +33,17 @@
   --warn-border: #f3d48a;
   --tab-off: #b3bac3;
 
+  /*
+   * Серии графиков (ragglet-32 §2): шесть слотов, соседние чередуются по светлоте, проверены на
+   * различимость для дальтоников. Цвет закреплён за сущностью: стадией, метрикой, прогоном.
+   */
+  --series-1: #285cc2;
+  --series-2: #f2823b;
+  --series-3: #0a978b;
+  --series-4: #6331a0;
+  --series-5: #e0ab22;
+  --series-6: #d4679f;
+
   --s-run-bg: #dbeafe;
   --s-run: #1e40af;
   --s-queued-bg: #e5e7eb;
@@ -119,6 +130,13 @@
   --warn-border: #5c4512;
   --tab-off: #4b5260;
 
+  --series-1: #3a6cce;
+  --series-2: #dc7533;
+  --series-3: #0a978b;
+  --series-4: #7347af;
+  --series-5: #bb8d07;
+  --series-6: #c65b93;
+
   --s-run-bg: #1e3a5f;
   --s-run: #93c5fd;
   --s-queued-bg: #2a2f37;
@@ -187,6 +205,13 @@
     --warn-soft: #2a2110;
     --warn-border: #5c4512;
     --tab-off: #4b5260;
+
+    --series-1: #3a6cce;
+    --series-2: #dc7533;
+    --series-3: #0a978b;
+    --series-4: #7347af;
+    --series-5: #bb8d07;
+    --series-6: #c65b93;
 
     --s-run-bg: #1e3a5f;
     --s-run: #93c5fd;
