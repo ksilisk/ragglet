@@ -57,7 +57,7 @@ export async function settle<T>(request: Promise<FetchResult>): Promise<{ data: 
     result = await request;
   } catch (e) {
     const reason = e instanceof Error ? e.message : String(e);
-    throw new ApiProblem(0, problemOf(translate("API недоступен"), translate("Запущен ли ragglet serve? {reason}", { reason }), "network.error"));
+    throw new ApiProblem(0, problemOf(translate("API недоступен"), translate("Запущен ли сервер (python3 ragglet start)? {reason}", { reason }), "network.error"));
   }
   const { response } = result;
   if (!response.ok) {

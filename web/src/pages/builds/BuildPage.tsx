@@ -205,6 +205,7 @@ function BuildResult({ build }: { build: S["BuildStatus"] }) {
         <KeyValue
           items={[
             [t("Датасет"), fmtDataset(build.dataset)],
+            [t("Каталог"), <span className="mono">{build.build_dir}</span>],
             documents !== undefined && [t("Документы"), <span className="num">{fmtNumber(documents)}</span>],
             ...build.targets.map((x): [string, ReactNode] => [t("Цель"), <span className="mono">{`${hostOf(x.endpoint)} / ${x.collection}`}</span>]),
           ]}

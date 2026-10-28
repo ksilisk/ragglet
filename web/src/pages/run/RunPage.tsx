@@ -453,6 +453,9 @@ function RunFiles({ run }: { run: S["RunStatus"] }) {
         </FileButton>
       }
     >
+      <span className="small muted">
+        {rich(t("Каталог на сервере: {dir}"), { dir: <span className="mono">{run.run_dir}</span> })}
+      </span>
       {artifacts.error && <ErrorBox error={artifacts.error} />}
       {artifacts.data && artifacts.data.length === 0 ? (
         <Empty>{t("В каталоге прогона пока нет файлов.")}</Empty>

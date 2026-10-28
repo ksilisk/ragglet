@@ -525,6 +525,8 @@ export interface components {
             profile: string;
             /** Profile Id */
             profile_id: string | null;
+            /** Build Dir */
+            build_dir: string;
             state: components["schemas"]["TaskState"];
             /**
              * Enqueued At
@@ -589,6 +591,8 @@ export interface components {
             profile_id: string | null;
             /** Etag */
             etag: string;
+            /** Build Dir */
+            build_dir: string;
             /** Dataset */
             dataset: string;
             /** Targets */
@@ -988,6 +992,8 @@ export interface components {
              * @enum {string}
              */
             origin: "api" | "import";
+            /** Run Dir */
+            run_dir: string;
             state: components["schemas"]["TaskState"];
             /**
              * Enqueued At
@@ -1091,6 +1097,8 @@ export interface components {
              * @enum {string}
              */
             origin: "api" | "import";
+            /** Run Dir */
+            run_dir: string;
             /** Scenario File */
             scenario_file?: ("unchanged" | "changed" | "deleted") | null;
             plan: components["schemas"]["RunPlanOut"] | null;

@@ -461,7 +461,7 @@ export const en: Record<string, string> = {
   "{s} с": "{s} s",
   "API недоступен": "API unavailable",
   "API недоступен: запущен ли {cmd}?": "API unavailable: is {cmd} running?",
-  "Запущен ли ragglet serve? {reason}": "Is ragglet serve running? {reason}",
+  "Запущен ли сервер (python3 ragglet start)? {reason}": "Is the server running (python3 ragglet start)? {reason}",
   "YAML не разбирается — {message}. Форма только для чтения, исправьте текст во вкладке YAML.": "YAML does not parse — {message}. The form is read-only; fix the text in the YAML tab.",
   "YAML не разбирается: строка {line}, столбец {col} — {message}. Форма только для чтения, исправьте текст во вкладке YAML.": "YAML does not parse: line {line}, column {col} — {message}. The form is read-only; fix the text in the YAML tab.",
   "Строка {line}, столбец {col}: {message}. Пока текст не разбирается, сохранить и проверить его нельзя.": "Line {line}, column {col}: {message}. The text can't be saved or checked until it parses.",
@@ -513,4 +513,6 @@ export const en: Record<string, string> = {
   "не число (целое)": "not an integer",
   "числа через запятую": "comma-separated numbers",
   "предупреждение": "warning",
+  "Каталог на сервере: {dir}": "Directory on the server: {dir}",
+  "Каталог": "Directory",
 };

@@ -19,7 +19,7 @@ export function StandStrip() {
       <div className={s.strip}>
         <span className={s.down}>
           <Dot tone="down" />
-          {rich(t("API недоступен: запущен ли {cmd}?"), { cmd: <span className="mono">ragglet serve</span> })}
+          {rich(t("API недоступен: запущен ли {cmd}?"), { cmd: <span className="mono">python3 ragglet start</span> })}
         </span>
       </div>
     );
