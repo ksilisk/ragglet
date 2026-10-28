@@ -27,6 +27,7 @@ import { PhaseSteps } from "../task/PhaseSteps";
 import s from "../task/task.module.css";
 import { LatencyTab } from "./LatencyTab";
 import { QualityTab } from "./QualityTab";
+import { QueriesTab } from "./QueriesTab";
 import { RunOverview } from "./RunOverview";
 
 type TabId = "overview" | "quality" | "latency" | "queries" | "conditions" | "config" | "log" | "files";
@@ -39,7 +40,8 @@ export const RUN_TABS: Array<{ id: TabId; title: string; available: (run: S["Run
   { id: "overview", title: msg("Обзор"), available: (r) => r.state === "completed", Component: RunOverview },
   { id: "quality", title: msg("Качество"), available: (r) => r.state === "completed", Component: QualityTab },
   { id: "latency", title: msg("Задержки и нагрузка"), available: (r) => r.state === "completed", Component: LatencyTab },
-  { id: "queries", title: msg("Запросы"), available: () => "soon" },
+  // у упавшего и отменённого — если успел записаться хоть один повтор (решает ответ /queries)
+  { id: "queries", title: msg("Запросы"), available: (r) => r.state === "completed" || ((r.state === "failed" || r.state === "cancelled") && r.started_at !== null), Component: QueriesTab },
   { id: "conditions", title: msg("Условия"), available: () => "soon" },
   { id: "config", title: msg("Конфиг"), available: () => true, Component: RunConfig },
   { id: "log", title: msg("Лог"), available: (r) => r.state !== "queued", Component: RunLog },

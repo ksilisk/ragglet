@@ -4,7 +4,9 @@ import { useRunInclude } from "../../api/queries";
 import { useT } from "../../i18n/i18n";
 import { fmtMetric, fmtMs, fmtNumber, fmtPercent, fmtQps } from "../../lib/format";
 import { snapshotFacts } from "../../analysis/snapshot";
-import { availableK, num, outcomeTotals, repeatCount, stat, type Summary } from "../../analysis/summary";
+import { queriesSearch } from "../../analysis/queryParams";
+import { availableK, misses, num, outcomeTotals, repeatCount, stat, type Summary } from "../../analysis/summary";
+import { LinkButton } from "../../ui/Button";
 import k from "../../ui/kit.module.css";
 import { Card, Empty } from "../../ui/Layout";
 import { ErrorBox } from "../../ui/ProblemView";
@@ -151,7 +153,30 @@ export function RunOverview({ run }: { run: S["RunStatus"] }) {
         {repeats === 1 && (
           <span className="small muted">{t("Один повтор: std по повторам не считается. Для оценки стабильности задержек нужны repeats ≥ 3.")}</span>
         )}
+        <QueryLinks summary={summary} k={kv} />
       </Card>
     </>
+  );
+}
+
+/** Кнопки артборда в «Запросы» с фильтром: таймауты и промахи при k, по повтору 0. */
+function QueryLinks({ summary, k: kv }: { summary: Summary; k: number }) {
+  const t = useT();
+  const timeouts = num(summary.repeats[0], "timeout_count");
+  const missed = misses(summary, kv)[0] ?? null;
+  if (!timeouts && missed === null) return null;
+  return (
+    <div className={r.links}>
+      {timeouts !== null && timeouts > 0 && (
+        <LinkButton small to={{ search: queriesSearch({ outcome: "timeout" }) }}>
+          {t("Запросы с таймаутом")} <span className={r.count}>{fmtNumber(timeouts)}</span>
+        </LinkButton>
+      )}
+      {missed !== null && (
+        <LinkButton small to={{ search: queriesSearch({ miss_at: kv }) }}>
+          {t("Промахи при k={k}", { k: kv })} <span className={r.count}>{fmtNumber(missed)}</span>
+        </LinkButton>
+      )}
+    </div>
   );
 }

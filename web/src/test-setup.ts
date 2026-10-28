@@ -19,3 +19,20 @@ vi.mock("./charts/Chart", async () => {
     },
   };
 });
+
+// React Router создаёт Request с AbortSignal из jsdom, а Request из Node (undici) ждёт свой: при смене
+// параметров URL (фильтры «Запросов») навигация падала бы. В тестах сигнал отмены не нужен.
+{
+  const NativeRequest = globalThis.Request;
+  globalThis.Request = class extends NativeRequest {
+    constructor(input: RequestInfo | URL, init?: RequestInit) {
+      if (init?.signal) {
+        const { signal: _signal, ...rest } = init;
+        void _signal;
+        super(input, rest);
+      } else {
+        super(input, init);
+      }
+    }
+  } as typeof Request;
+}

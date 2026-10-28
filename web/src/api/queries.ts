@@ -212,3 +212,28 @@ export function useRunColumns(id: string, fields: string[], enabled = true) {
     refetchOnWindowFocus: false,
   });
 }
+
+export type QueriesQuery = NonNullable<operations["list_queries_v1_runs__run_id__queries_get"]["parameters"]["query"]>;
+
+/** Страница «Запросов»: фильтры, сортировка и страницы — на сервере (ragglet-32 §7). */
+export function useRunQueries(id: string, query: QueriesQuery, enabled = true) {
+  return useQuery({
+    queryKey: [...keys.runInclude(id, "queries"), query],
+    queryFn: () => unwrap(api.GET("/v1/runs/{run_id}/queries", { params: { path: { run_id: id }, query } })),
+    enabled,
+    placeholderData: keepPreviousData,
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+  });
+}
+
+/** Деталь запроса для панели: оценки qrels, заголовки и тексты чанков. */
+export function useQueryDetail(id: string, qid: string | null, repeat: number) {
+  return useQuery({
+    queryKey: [...keys.runInclude(id, "query"), repeat, qid],
+    queryFn: () => unwrap(api.GET("/v1/runs/{run_id}/queries/{qid}", { params: { path: { run_id: id, qid: qid! }, query: { repeat } } })),
+    enabled: Boolean(qid),
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+  });
+}
