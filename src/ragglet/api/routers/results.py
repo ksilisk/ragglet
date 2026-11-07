@@ -58,15 +58,20 @@ async def list_queries(
         min_total_ms: Annotated[float | None, Query(ge=0)] = None,
         q: Annotated[str | None, Query(description="подстрока в qid или тексте запроса")] = None,
         sort: Annotated[str | None, Query(description="колонка или first_relevant_rank, '-' — по убыванию")] = None,
+        fields: Annotated[str | None, Query(description="колонки строки через запятую; незнакомые пропускаются")] = None,
         offset: Annotated[int, Query(ge=0)] = 0,
-        limit: Annotated[int, Query(ge=1, le=1000)] = 100,
+        limit: Annotated[int, Query(ge=1, le=5000)] = 100,
 ) -> QueryPageOut:
-    """Строки per-query повтора: parquet или CSV, NaN -> null; списки и длинные тексты — в детали запроса."""
+    """
+    Строки per-query повтора: parquet или CSV, NaN -> null; списки и длинные тексты — в детали запроса.
+    fields — проекция для графиков: задержки всех запросов повтора одним ответом, без лишних колонок.
+    """
     await _record(svc, run_id)
+    names = tuple(name for part in fields.split(",") if (name := part.strip())) if fields is not None else None
     with problems(run_id):
         page = await svc.registry.queries(run_id, QueryFilter(
             repeat=repeat, outcome=outcome, offset=offset, limit=limit, miss_at=miss_at,
-            min_total_ms=min_total_ms, text=q, sort=sort,
+            min_total_ms=min_total_ms, text=q, sort=sort, fields=names,
         ))
     return QueryPageOut(repeat=page.repeat, repeats=page.repeats, source=page.source, columns=page.columns,
                         total=page.total, items=page.items)

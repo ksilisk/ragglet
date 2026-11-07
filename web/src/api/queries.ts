@@ -1,5 +1,6 @@
 import { QueryClient, keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiProblem, api, unwrap, type S } from "./client";
+import type { RepeatRows } from "../analysis/perQuery";
 import type { operations } from "./schema";
 
 // Интервалы опроса (ragglet-31 §3). Скрытая вкладка браузера не опрашивает:
@@ -181,5 +182,69 @@ export function useRunArtifacts(id: string, enabled = true) {
     queryKey: keys.runArtifacts(id),
     queryFn: () => unwrap(api.GET("/v1/runs/{run_id}/artifacts", { params: { path: { run_id: id } } })),
     enabled,
+  });
+}
+
+const COLUMNS_PAGE = 5000;
+
+/**
+ * Per-query колонками для графиков (ragglet-32 §3): все запросы всех записанных повторов, только поля
+ * `fields`. Результаты завершённого прогона не меняются — без срока и без опроса.
+ */
+export function useRunColumns(id: string, fields: string[], enabled = true) {
+  return useQuery({
+    queryKey: [...keys.runInclude(id, "columns"), fields.join(",")],
+    queryFn: async (): Promise<RepeatRows> => {
+      const page = (repeat: number, offset: number) =>
+        unwrap(api.GET("/v1/runs/{run_id}/queries", { params: { path: { run_id: id }, query: { repeat, offset, limit: COLUMNS_PAGE, fields: fields.join(",") } } }));
+      const whole = async (repeat: number) => {
+        const first = await page(repeat, 0);
+        const items = [...first.items];
+        while (items.length < first.total) items.push(...(await page(repeat, items.length)).items);
+        return { first, items };
+      };
+      const zero = await whole(0);
+      const rest = await Promise.all(zero.first.repeats.filter((r) => r !== 0).map(async (r) => [r, (await whole(r)).items] as const));
+      return { repeats: zero.first.repeats, columns: zero.first.columns, rows: new Map([[0, zero.items], ...rest]) };
+    },
+    enabled,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+  });
+}
+
+export type QueriesQuery = NonNullable<operations["list_queries_v1_runs__run_id__queries_get"]["parameters"]["query"]>;
+
+/** Страница «Запросов»: фильтры, сортировка и страницы — на сервере (ragglet-32 §7). */
+export function useRunQueries(id: string, query: QueriesQuery, enabled = true) {
+  return useQuery({
+    queryKey: [...keys.runInclude(id, "queries"), query],
+    queryFn: () => unwrap(api.GET("/v1/runs/{run_id}/queries", { params: { path: { run_id: id }, query } })),
+    enabled,
+    placeholderData: keepPreviousData,
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+  });
+}
+
+/** Деталь запроса для панели: оценки qrels, заголовки и тексты чанков. */
+export function useQueryDetail(id: string, qid: string | null, repeat: number) {
+  return useQuery({
+    queryKey: [...keys.runInclude(id, "query"), repeat, qid],
+    queryFn: () => unwrap(api.GET("/v1/runs/{run_id}/queries/{qid}", { params: { path: { run_id: id, qid: qid! }, query: { repeat } } })),
+    enabled: Boolean(qid),
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+  });
+}
+
+/** Сравнение прогонов (ragglet-32 §9): различия, вердикт и summary всех прогонов одним ответом. */
+export function useCompare(ids: string[]) {
+  return useQuery({
+    queryKey: ["runs", "compare", ids.join(",")],
+    queryFn: () => unwrap(api.GET("/v1/runs/compare", { params: { query: { ids: ids.join(",") } } })),
+    enabled: ids.length >= 2,
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
   });
 }

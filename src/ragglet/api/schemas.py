@@ -404,6 +404,37 @@ class BuildStatus(_Live):
     profile_yaml: str | None = None  # ?include=profile
 
 
+class CompareRun(BaseModel):
+    """Прогон на странице сравнения: шапка и summary как есть."""
+
+    id: str
+    scenario: str  # name
+    state: TaskState
+    enqueued_at: datetime
+    dataset: str
+    collection: str
+    tags: list[str]
+    has_manifest: bool
+    summary: RunSummaryOut | None  # как ?include=summary; None — summary нет
+
+
+class CompareDifference(BaseModel):
+    kind: Literal["data", "config", "env"]
+    path: str  # "scenario.rerank.enabled", "env.compute.device"
+    values: list[Any]  # по одному на прогон, в порядке ids; None — ключа нет
+
+
+class RunCompare(BaseModel):
+    """Сравнение прогонов (ragglet-32 §9): различия из compare_trees и вердикт сопоставимости."""
+
+    runs: list[CompareRun]
+    differences: list[CompareDifference]
+    quality_comparable: bool | None  # нет различий data; None — у кого-то нет manifest
+    latency_comparable: bool | None  # нет различий env.system / env.compute / env.services
+    confounders: list[str]  # прочие пути env: commit, python, index.build_env.*
+    missing_manifest: list[str]  # id прогонов без manifest: сравнивался только конфиг
+
+
 class RunItem(BaseModel):
     """Строка списка прогонов: запись реестра и колонки сводки, без чтения per-query."""
 

@@ -143,6 +143,7 @@ class QueryFilter:
     min_total_ms: float | None = None
     text: str | None = None  # подстрока в qid или query
     sort: str | None = None  # колонка файла или first_relevant_rank; None — порядок файла
+    fields: tuple[str, ...] | None = None  # только эти колонки строки; незнакомые пропускаются
 
 
 @dataclass(frozen=True)

@@ -1,3 +1,4 @@
+import * as Tooltip from "@radix-ui/react-tooltip";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { render } from "@testing-library/react";
 import { RouterProvider, createMemoryRouter, type RouteObject } from "react-router";
@@ -44,9 +45,11 @@ export function renderRoutes(routes: RouteObject[], path: string, lang: Lang = "
   return render(
     <I18nProvider initialLang={lang}>
       <QueryClientProvider client={qc}>
-        <ConfirmProvider>
-          <RouterProvider router={router} />
-        </ConfirmProvider>
+        <Tooltip.Provider>
+          <ConfirmProvider>
+            <RouterProvider router={router} />
+          </ConfirmProvider>
+        </Tooltip.Provider>
       </QueryClientProvider>
     </I18nProvider>,
   );

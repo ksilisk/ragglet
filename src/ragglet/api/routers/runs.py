@@ -16,10 +16,13 @@ from ragglet.api.problems import Problem, issues_out, parse_config, problem_erro
 from ragglet.api.refs import snapshot_yaml
 from ragglet.api.routers.tasks import cancel, parse_include, read_log
 from ragglet.api.schemas import (
+    CompareDifference,
+    CompareRun,
     DatasetCheck,
     LogChunkOut,
     RunAccepted,
     RunCheck,
+    RunCompare,
     RunItem,
     RunList,
     RunPlanOut,
@@ -30,6 +33,7 @@ from ragglet.api.schemas import (
     TargetCheck,
     live_fields,
 )
+from ragglet.bench.compare import compare_trees, verdict
 from ragglet.bench.plan import run_plan
 from ragglet.bench.preflight import Preflight
 from ragglet.config.scenario import ScenarioConfig
@@ -43,6 +47,7 @@ router = APIRouter(tags=["runs"])
 
 TITLE = "Scenario config is invalid"
 INCLUDE = {"summary", "manifest", "scenario"}
+MIN_COMPARE, MAX_COMPARE = 2, 6  # шесть — столько различимых слотов палитры графиков
 
 
 def check_library_ref(ref: str | None, declared: str, field: str) -> None:
@@ -234,6 +239,47 @@ async def run_status(svc: Services, record: RunRecord, include: Collection[str] 
     if "scenario" in include:
         out.scenario_yaml = snapshot_yaml(record.scenario)
     return out
+
+
+@router.get("/runs/compare", responses={404: {"model": Problem}, 422: {"model": Problem}})
+async def compare(
+        svc: Svc,
+        ids: Annotated[str, Query(description="2–6 id прогонов через запятую; первый — базовый")],
+) -> RunCompare:
+    """
+    Сравнение прогонов: различия snapshot и manifest по классам data / config / env (compare_trees)
+    и вердикт сопоставимости. Объявлен до /runs/{run_id}, иначе «compare» ушёл бы туда как id.
+    """
+    names = [part.strip() for part in ids.split(",") if part.strip()]
+    if not MIN_COMPARE <= len(names) <= MAX_COMPARE or len(set(names)) != len(names):
+        raise problem_error(422, "request.compare", "Request is invalid",
+                            f"ids: from {MIN_COMPARE} to {MAX_COMPARE} distinct run ids, got {names}", path="ids")
+    records = [await _record(svc, name) for name in names]
+    manifests = [await svc.registry.manifest(record.id) for record in records]
+    summaries = [await svc.registry.summary(record.id) for record in records]
+    missing = [record.id for record, manifest in zip(records, manifests, strict=True) if manifest is None]
+    # без manifest хоть у одного сравнивается только конфиг: None против manifest объявил бы датасеты
+    # разными без оснований. record.scenario — это cfg.model_dump(), как scenario.snapshot.json
+    trees = [{"scenario": record.scenario, **({} if missing else manifest or {})}
+             for record, manifest in zip(records, manifests, strict=True)]
+    spreads = compare_trees(trees)
+    judged = None if missing else verdict(spreads)
+    return RunCompare(
+        runs=[
+            CompareRun(
+                id=record.id, scenario=record.name, state=record.state, enqueued_at=record.enqueued_at,
+                dataset=record.dataset, collection=record.collection, tags=run_tags(record),
+                has_manifest=manifest is not None,
+                summary=RunSummaryOut(repeats=summary.repeats, aggregate=summary.aggregate) if summary else None,
+            )
+            for record, manifest, summary in zip(records, manifests, summaries, strict=True)
+        ],
+        differences=[CompareDifference(kind=s.kind, path=s.path, values=list(s.values)) for s in spreads],
+        quality_comparable=judged.quality_comparable if judged else None,
+        latency_comparable=judged.latency_comparable if judged else None,
+        confounders=judged.confounders if judged else [],
+        missing_manifest=missing,
+    )
 
 
 @router.get("/runs/{run_id}", responses={404: {"model": Problem}})

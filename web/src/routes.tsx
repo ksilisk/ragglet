@@ -16,6 +16,7 @@ export const router = createBrowserRouter([
       { path: "builds/:id", lazy: async () => ({ Component: (await import("./pages/builds/BuildPage")).default }) },
       { path: "runs", lazy: async () => ({ Component: (await import("./pages/runs/RunsPage")).default }) },
       { path: "runs/:id", lazy: async () => ({ Component: (await import("./pages/run/RunPage")).default }) },
+      { path: "compare", lazy: async () => ({ Component: (await import("./pages/compare/ComparePage")).default }) },
       { path: "*", element: <NotFound /> },
     ],
   },

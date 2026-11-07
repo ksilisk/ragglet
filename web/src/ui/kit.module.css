@@ -185,6 +185,34 @@
   color: var(--accent);
 }
 
+/* переключатель «линии | столбики», «doc | chunk» */
+.seg {
+  display: inline-flex;
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-control);
+  overflow: hidden;
+  background: var(--surface);
+}
+.segItem {
+  height: 26px;
+  padding: 0 10px;
+  border: none;
+  background: none;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.segItem + .segItem {
+  border-left: 1px solid var(--input-border);
+}
+.segItem:hover {
+  color: var(--text);
+}
+.segItem.on {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
 /* .dot */
 .dot {
   display: inline-block;
@@ -521,4 +549,17 @@ textarea.inp {
   line-height: 16px;
   max-width: 360px;
   z-index: 70;
+}
+.info {
+  border: none;
+  background: none;
+  padding: 0 2px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--muted);
+  cursor: help;
+}
+.info:hover {
+  color: var(--accent);
 }

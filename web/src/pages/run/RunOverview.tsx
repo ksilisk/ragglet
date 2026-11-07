@@ -1,36 +1,27 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { S } from "../../api/client";
 import { useRunInclude } from "../../api/queries";
-import { parseYaml } from "../../config/yamlDoc";
 import { useT } from "../../i18n/i18n";
 import { fmtMetric, fmtMs, fmtNumber, fmtPercent, fmtQps } from "../../lib/format";
+import { snapshotFacts } from "../../analysis/snapshot";
+import { downloadCsv, fileName } from "../../analysis/csv";
+import { queriesSearch } from "../../analysis/queryParams";
+import { repeatsTable } from "../../analysis/tables";
+import { CsvButton } from "../../charts/ExportMenu";
+import { availableK, misses, num, outcomeTotals, repeatCount, stat, type Summary } from "../../analysis/summary";
+import { LinkButton } from "../../ui/Button";
 import k from "../../ui/kit.module.css";
 import { Card, Empty } from "../../ui/Layout";
 import { ErrorBox } from "../../ui/ProblemView";
 import s from "../task/task.module.css";
-
-type Row = Record<string, unknown>;
-
-const num = (row: Row | undefined, key: string): number | null => {
-  const v = row?.[key];
-  return typeof v === "number" && Number.isFinite(v) ? v : null;
-};
+import { ConditionsSummary } from "./ConditionsTab";
+import { QualityCard, StageCard } from "./resultCards";
+import r from "./results.module.css";
 
 /** Колонка агрегата: среднее и разброс по повторам (summary.aggregate.json) или значение единственного повтора. */
-export function metric(summary: S["RunSummaryOut"], key: string): { mean: number | null; std: number | null } {
-  const agg = summary.aggregate;
-  const mean = num(agg, `${key}_mean_over_repeats`) ?? num(summary.repeats[0], key);
-  return { mean, std: num(agg, `${key}_std_over_repeats`) };
-}
-
-export function availableK(summary: S["RunSummaryOut"]): number[] {
-  const keys = [...Object.keys(summary.aggregate), ...Object.keys(summary.repeats[0] ?? {})];
-  const ks = new Set<number>();
-  for (const key of keys) {
-    const m = /^doc_ndcg@(\d+)_mean/.exec(key);
-    if (m) ks.add(Number(m[1]));
-  }
-  return [...ks].sort((a, b) => a - b);
+export function metric(summary: Summary, key: string): { mean: number | null; std: number | null } {
+  const x = stat(summary, key);
+  return { mean: x.mean, std: x.std };
 }
 
 function Tile({ label, value, sub, muted, small }: { label: string; value: string; sub?: string; muted?: boolean; small?: boolean }) {
@@ -46,14 +37,15 @@ function Tile({ label, value, sub, muted, small }: { label: string; value: strin
 }
 
 /**
- * «Обзор» в объёме 31 (решение 1 ревью): верхний ряд плиток и таблица «Повторы» артборда RunOverview,
- * без графиков. Остальное на этом артборде — ragglet-32.
+ * «Обзор» по артборду RunOverview: плитки, полоса задержек по стадиям, качество по k, повторы
+ * (ragglet-32 §4).
  */
 export function RunOverview({ run }: { run: S["RunStatus"] }) {
   const t = useT();
   const query = useRunInclude(run.id, "summary");
   const snapshot = useRunInclude(run.id, "scenario");
   const summary = query.data?.summary ?? null;
+  const facts = useMemo(() => snapshotFacts(snapshot.data?.scenario_yaml), [snapshot.data?.scenario_yaml]);
   const ks = summary ? availableK(summary) : [];
   const [kSel, setK] = useState<number | null>(null);
   if (query.error) return <ErrorBox error={query.error} />;
@@ -61,7 +53,7 @@ export function RunOverview({ run }: { run: S["RunStatus"] }) {
   if (!summary) return <Empty>{t("У прогона нет summary: ядро пишет его в конце успешного прогона.")}</Empty>;
 
   const kv = kSel ?? (ks.includes(10) ? 10 : (ks[ks.length - 1] ?? 10));
-  const repeats = summary.repeats.length || Number(summary.aggregate.repeats ?? 1);
+  const repeats = repeatCount(summary);
   const pm = (std: number | null, fmt: (x: number) => string) => (repeats > 1 && std !== null ? `± ${fmt(std)}` : null);
   const sub = (...parts: Array<string | null | false>) => parts.filter(Boolean).join(" · ");
   const repeatsLabel = String(repeats) + " " + t.plural(repeats, "повтор|повтора|повторов");
@@ -76,12 +68,11 @@ export function RunOverview({ run }: { run: S["RunStatus"] }) {
   const p99 = m("lat_total_p99");
   const qps = m("throughput_qps");
   const wall = m("wall_ms");
-  const sum = (key: string) => summary.repeats.reduce((acc, row) => acc + (num(row, key) ?? 0), 0);
+  const outcomes = outcomeTotals(summary);
   // доля попаданий есть в summary и при выключенном кэше (0), поэтому слои берутся из snapshot
-  const cache = (parseYaml(snapshot.data?.scenario_yaml ?? "").data?.cache ?? {}) as { enabled?: boolean; embedding?: unknown; retrieval?: unknown };
-  const emb = cache.enabled && cache.embedding ? m("emb_hit_rate").mean : null;
-  const ret = cache.enabled && cache.retrieval ? m("ret_hit_rate").mean : null;
-  const concurrency = run.plan?.load?.concurrency;
+  const emb = facts.cache.emb ? m("emb_hit_rate").mean : null;
+  const ret = facts.cache.ret ? m("ret_hit_rate").mean : null;
+  const concurrency = run.plan?.load?.concurrency ?? facts.load.concurrency ?? undefined;
 
   return (
     <>
@@ -113,14 +104,36 @@ export function RunOverview({ run }: { run: S["RunStatus"] }) {
           value={fmtQps(qps.mean)}
           sub={sub(wall.mean !== null && t("wall {seconds} с", { seconds: fmtNumber(wall.mean / 1000, 1) }), concurrency !== undefined && `×${String(concurrency)}`, pm(qps.std, fmtQps))}
         />
-        <Tile label={t("Исходы")} value={`${fmtNumber(sum("ok_count"))} · ${fmtNumber(sum("timeout_count"))} · ${fmtNumber(sum("error_count"))}`} sub="ok · timeout · error" small />
+        <Tile
+          label={t("Исходы")}
+          value={outcomes ? `${fmtNumber(outcomes.ok)} · ${fmtNumber(outcomes.timeout)} · ${fmtNumber(outcomes.error)}` : "—"}
+          sub={outcomes ? "ok · timeout · error" : t("нет в этом формате summary")}
+          muted={!outcomes}
+          small={Boolean(outcomes)}
+        />
         {emb === null && ret === null ? (
           <Tile label={t("Кэш")} value="—" sub={t("выключен")} muted />
         ) : (
           <Tile label={t("Кэш")} value={fmtPercent(emb ?? ret)} sub={[emb !== null ? `emb ${fmtPercent(emb)}` : null, ret !== null ? `ret ${fmtPercent(ret)}` : null].filter(Boolean).join(" · ")} />
         )}
       </div>
-      <Card title={t("Повторы")}>
+      <div className={r.grid2}>
+        <ConditionsSummary run={run} summaryN={num(summary.repeats[0], "n")} />
+        <StageCard summary={summary} facts={facts} name={run.id} />
+      </div>
+      <div className={r.grid2}>
+        <QualityCard summary={summary} level="doc" name={run.id} />
+        <Card
+          title={t("Повторы")}
+          aside={
+            <CsvButton
+              onClick={() => {
+                const table = repeatsTable(summary);
+                downloadCsv(`${fileName(run.id, "repeats")}.csv`, table.header, table.rows);
+              }}
+            />
+          }
+        >
         <table className={`${k.tbl} ${k.compact}`} aria-label={t("Повторы")}>
           <thead>
             <tr>
@@ -156,8 +169,31 @@ export function RunOverview({ run }: { run: S["RunStatus"] }) {
         {repeats === 1 && (
           <span className="small muted">{t("Один повтор: std по повторам не считается. Для оценки стабильности задержек нужны repeats ≥ 3.")}</span>
         )}
-      </Card>
-      <span className="small muted">{t("Графики, качество по k, задержки по стадиям и запросы — ragglet-32.")}</span>
+        <QueryLinks summary={summary} k={kv} />
+        </Card>
+      </div>
     </>
+  );
+}
+
+/** Кнопки артборда в «Запросы» с фильтром: таймауты и промахи при k, по повтору 0. */
+function QueryLinks({ summary, k: kv }: { summary: Summary; k: number }) {
+  const t = useT();
+  const timeouts = num(summary.repeats[0], "timeout_count");
+  const missed = misses(summary, kv)[0] ?? null;
+  if (!timeouts && missed === null) return null;
+  return (
+    <div className={r.links}>
+      {timeouts !== null && timeouts > 0 && (
+        <LinkButton small to={{ search: queriesSearch({ outcome: "timeout" }) }}>
+          {t("Запросы с таймаутом")} <span className={r.count}>{fmtNumber(timeouts)}</span>
+        </LinkButton>
+      )}
+      {missed !== null && (
+        <LinkButton small to={{ search: queriesSearch({ miss_at: kv }) }}>
+          {t("Промахи при k={k}", { k: kv })} <span className={r.count}>{fmtNumber(missed)}</span>
+        </LinkButton>
+      )}
+    </div>
   );
 }

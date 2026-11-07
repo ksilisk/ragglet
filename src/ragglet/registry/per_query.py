@@ -129,6 +129,10 @@ def query_page(run_dir: Path, f: QueryFilter) -> QueryPage:
         if key not in columns:
             raise RegistryError(422, "request.sort", f"unknown sort column {key!r}; columns: {columns}", path="sort")
         out = out.sort_values(key, ascending=not f.sort.startswith("-"), na_position="last", kind="stable")
+    if f.fields is not None:
+        # проекция после сортировки: сортировать можно и по колонке, которую не просили
+        columns = [c for c in columns if c in f.fields]
+        out = out[columns]
     return QueryPage(
         items=_records(out.iloc[f.offset:f.offset + f.limit]),
         total=len(out),

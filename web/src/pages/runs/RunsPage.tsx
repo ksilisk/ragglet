@@ -1,5 +1,6 @@
-import { useMemo } from "react";
-import { Link, useSearchParams } from "react-router";
+import { useMemo, useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router";
+import { MAX_COMPARE } from "../../analysis/compare";
 import type { S } from "../../api/client";
 import { useDatasets, useIndexes, useRuns, useScenarios, useTasks, type RunsQuery } from "../../api/queries";
 import { msg, useT } from "../../i18n/i18n";
@@ -65,6 +66,10 @@ export default function RunsPage() {
     since,
   };
   const runs = useRuns(query);
+  const navigate = useNavigate();
+  // выбор для сравнения: в порядке отметки (первый — базовый), переживает смену фильтров и страниц
+  const [selected, setSelected] = useState<string[]>([]);
+  const toggle = (id: string) => setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   const tasks = useTasks();
   const scenarios = useScenarios();
   const datasets = useDatasets();
@@ -125,8 +130,13 @@ export default function RunsPage() {
                 </option>
               ))}
             </select>
-            <Button disabled title="ragglet-32">
-              {t("Сравнить · {count}", { count: 0 })}
+            <Button
+              variant={selected.length >= 2 ? "primary" : "default"}
+              disabled={selected.length < 2}
+              title={selected.length < 2 ? t("Отметьте от двух до шести прогонов") : undefined}
+              onClick={() => navigate(`/compare?ids=${selected.map(encodeURIComponent).join(",")}`)}
+            >
+              {t("Сравнить")} <span className="num">{selected.length}</span>
             </Button>
           </>
         }
@@ -176,7 +186,14 @@ export default function RunsPage() {
           <thead>
             <tr>
               <th>
-                <input type="checkbox" disabled aria-label={t("Выбрать все")} title={t("Сравнение — ragglet-32")} />
+                <input
+                  type="checkbox"
+                  checked={selected.length > 0}
+                  disabled={selected.length === 0}
+                  onChange={() => setSelected([])}
+                  aria-label={t("Снять выбор")}
+                  title={t("Снять выбор")}
+                />
               </th>
               <th>{t("Состояние")}</th>
               {th("scenario", t("Сценарий"))}
@@ -195,7 +212,14 @@ export default function RunsPage() {
           </thead>
           <tbody>
             {rows.map((r) => (
-              <RunRow key={r.id} r={r} live={progress.get(r.id)} />
+              <RunRow
+                key={r.id}
+                r={r}
+                live={progress.get(r.id)}
+                selected={selected.includes(r.id)}
+                full={selected.length >= MAX_COMPARE}
+                onToggle={() => toggle(r.id)}
+              />
             ))}
           </tbody>
         </table>
@@ -227,7 +251,7 @@ export default function RunsPage() {
   );
 }
 
-function RunRow({ r, live }: { r: S["RunItem"]; live?: S["TaskItem"] }) {
+function RunRow({ r, live, selected, full, onToggle }: { r: S["RunItem"]; live?: S["TaskItem"]; selected: boolean; full: boolean; onToggle: () => void }) {
   const t = useT();
   const running = r.state === "running";
   const now = useNow(1000, running);
@@ -238,9 +262,16 @@ function RunRow({ r, live }: { r: S["RunItem"]; live?: S["TaskItem"] }) {
     <td className={value === null || value === undefined ? "r muted" : "r num"}>{format(value ?? null)}</td>
   );
   return (
-    <tr className={ACTIVE.has(r.state) ? k.act : undefined}>
+    <tr className={selected ? k.sel : ACTIVE.has(r.state) ? k.act : undefined}>
       <td>
-        <input type="checkbox" disabled aria-label={t("Выбрать {id}", { id: r.id })} title={t("Сравнение — ragglet-32")} />
+        <input
+          type="checkbox"
+          checked={selected}
+          disabled={!selected && full}
+          onChange={onToggle}
+          aria-label={t("Выбрать {id}", { id: r.id })}
+          title={!selected && full ? t("Сравнить можно не больше шести прогонов") : undefined}
+        />
       </td>
       <td>
         <StateChip state={r.state} suffix={r.state === "queued" && live?.position ? String(live.position) : undefined} />

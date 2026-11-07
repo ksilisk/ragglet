@@ -1,0 +1,118 @@
+/* Страница сравнения прогонов (ragglet-32 §9): классы в стиле артбордов, цвета — токены. */
+.runs {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 12px;
+}
+.run {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.runHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.runHead a {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.runActions {
+  display: flex;
+  gap: 12px;
+}
+.swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex: none;
+}
+.base {
+  font-size: 11px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0 6px;
+}
+.verdicts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.verdict {
+  border-radius: var(--radius-card);
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+}
+.verdict.ok {
+  background: var(--s-ok-bg);
+  color: var(--s-ok);
+  border-color: transparent;
+}
+.verdict.warn {
+  background: var(--warn-soft);
+  border-color: var(--warn-border);
+  color: var(--warning-text);
+}
+.verdict.bad {
+  background: var(--danger-soft);
+  border-color: var(--danger-border);
+  color: var(--danger-text);
+}
+.verdict span {
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.thRun {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 12px;
+  color: var(--text);
+}
+.groupRow td {
+  font-size: 11px;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: var(--hover);
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+.delta {
+  font-size: 11px;
+  color: var(--muted);
+}
+.delta.better {
+  color: var(--s-ok);
+}
+.delta.worse {
+  color: var(--danger-text);
+}
+.delta.noise {
+  color: var(--faint);
+}
+.value {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.changed {
+  background: var(--warn-soft);
+}
