@@ -552,6 +552,7 @@ def test_ui_built_once_and_rebuilt_when_sources_change(web, capsys):
     cli.prepare_ui()  # сборка свежее исходников — ничего не делаем
     assert steps == []
 
+    _age(root / "dist" / "index.html", 100)  # записи в один тик ФС могут иметь одинаковый mtime
     (root / "src" / "main.tsx").write_text("changed", encoding="utf-8")  # правка после сборки
     cli.prepare_ui()
     assert steps == [["run", "build"]]  # пакеты на месте: только сборка
@@ -561,6 +562,7 @@ def test_ui_built_once_and_rebuilt_when_sources_change(web, capsys):
 def test_ui_reinstalls_packages_after_lockfile_change(web):
     root, steps, _ = web
     cli.prepare_ui()
+    _age(root / "dist" / "index.html", 100)
     _age(root / "node_modules" / ".package-lock.json", 100)
     (root / "package-lock.json").write_text('{"v": 2}', encoding="utf-8")  # git pull с новыми зависимостями
     steps.clear()
