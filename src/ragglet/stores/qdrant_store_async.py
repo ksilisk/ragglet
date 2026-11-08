@@ -9,7 +9,7 @@ from qdrant_client import AsyncQdrantClient
 from qdrant_client.http import models as qm
 from qdrant_client.http.exceptions import ResponseHandlingException
 
-from ragglet.core.errors import ServiceUnavailable
+from ragglet.core.errors import ServiceUnavailable, SourceNetworkTimeout
 from ragglet.indexing.metadata import chunk_point_id
 
 
@@ -44,13 +44,19 @@ class AsyncQdrantStore:
         if ef_search is not None:
             search_params = qm.SearchParams(hnsw_ef=int(ef_search))
 
-        res = await self.client.query_points(
-            collection_name=self.collection,
-            query=vector,
-            limit=top_k,
-            with_payload=True,
-            search_params=search_params,
-        )
+        try:
+            res = await self.client.query_points(
+                collection_name=self.collection,
+                query=vector,
+                limit=top_k,
+                with_payload=True,
+                search_params=search_params,
+            )
+        except (httpx.TimeoutException, ResponseHandlingException) as e:
+            cause = e.source if isinstance(e, ResponseHandlingException) else e
+            if isinstance(cause, httpx.TimeoutException):
+                raise SourceNetworkTimeout(f"{self.endpoint}: {type(cause).__name__}: {cause}") from e
+            raise
 
         points = res.points if hasattr(res, "points") else []
         return [Candidate(id=str(p.id), score_raw=float(p.score), payload=p.payload) for p in points]

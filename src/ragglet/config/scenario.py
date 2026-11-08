@@ -167,6 +167,15 @@ class RetrievalConfig(BaseModel):
         return v
 
     @model_validator(mode="after")
+    def _unique_source_names(self) -> RetrievalConfig:
+        seen: set[str] = set()
+        for i, source in enumerate(self.sources):
+            if source.name in seen:
+                raise FieldError(f"sources[{i}].name", f"duplicate retrieval source name: {source.name!r}")
+            seen.add(source.name)
+        return self
+
+    @model_validator(mode="after")
     def _single_keyword_not_supported(self) -> RetrievalConfig:
         if self.strategy == "single" and any(s.kind == "keyword" for s in self.sources):
             raise FieldError(

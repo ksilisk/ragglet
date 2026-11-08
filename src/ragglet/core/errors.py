@@ -4,6 +4,10 @@ class StageTimeout(Exception):
         self.stage = stage
 
 
+class SourceNetworkTimeout(Exception):
+    """Подтверждённый timeout HTTP-клиента поиска; отличается от отмены по бюджету."""
+
+
 class ServiceUnavailable(Exception):
     """Сервис (Qdrant, Redis) не ответил: соединение, таймаут. Ответ с ошибкой — не это."""
 
