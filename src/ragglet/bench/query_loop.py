@@ -23,12 +23,14 @@ from ragglet.rerank.engine import rerank_items
 from ragglet.retrieval.backends import BackendRegistry
 from ragglet.retrieval.engine import retrieve_items
 from ragglet.retrieval.merge import RetrievedItem
+from ragglet.retrieval.sources import active_sources
+from ragglet.retrieval.timing import RetrievalTimings
 
 if TYPE_CHECKING:  # только аннотация: модуль не должен тянуть torch (его импортирует API)
     from ragglet.modules.embedders.st_embedder import SentenceTransformerEmbedder
 
 STAGES = ("embed", "retrieve", "rerank", "context", "generation")
-LATENCY_STEPS = (*STAGES, "total")  # стадии, для которых в строке есть lat_*_ms
+LATENCY_STEPS = (*STAGES, "sources", "merge", "total")  # подоперации retrieval не входят в STAGES
 
 
 def _lap(lat: dict[str, float], stage: str, start: float, done: bool = True) -> float:
@@ -104,6 +106,7 @@ async def run_queries_once(
         on_done: Callable[[], None] = lambda: None,
 ) -> pd.DataFrame:
     total_budget = cfg.timeouts.total_ms / 1000.0
+    source_count = len(active_sources(cfg.retrieval))
 
     async def run_one(it, planned_at: float) -> dict[str, Any]:
         outcome = "ok"
@@ -129,6 +132,7 @@ async def run_queries_once(
         lat_total_ms = 0.0
         emb_cache: Lookup = None
         ret_cache: Lookup = None
+        retrieval_timings = RetrievalTimings()
 
         try:
             # бюджет идёт с планового момента: ожидание старта входит в него
@@ -141,7 +145,7 @@ async def run_queries_once(
                         vec = await embedder.embed_query(it.query)
                         await caches.set_embedding(it.query, vec)
                     t = _lap(lat, "embed", t)
-                    retrieved_items = await retrieve_items(cfg, backends, it.query, vec)
+                    retrieved_items = await retrieve_items(cfg, backends, it.query, vec, timings=retrieval_timings)
                     caches.set_retrieval(it.query, retrieved_items)
                 retrieved_ids = [item.chunk_id for item in retrieved_items]
                 retrieved_doc_ids = project_to_docs(retrieved_items)
@@ -225,6 +229,7 @@ async def run_queries_once(
             **quality,
             "t_start_ms": (planned_at - t0) * 1000.0,
             **{f"lat_{stage}_ms": lat.get(stage, math.nan) for stage in STAGES},
+            **retrieval_timings.columns(source_count),
             "lat_total_ms": lat_total_ms,
             "emb_cache": emb_cache,
             "ret_cache": ret_cache,

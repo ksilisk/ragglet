@@ -29,6 +29,7 @@ from ragglet.stores.qdrant_store_async import Candidate
 TIMING = [
     "t_start_ms", "lat_embed_ms", "lat_retrieve_ms", "lat_rerank_ms", "lat_context_ms",
     "lat_generation_ms", "lat_total_ms",
+    "lat_sources_ms", "lat_merge_ms", "lat_source_0_ms", "lat_source_0_network_timeout_ms",
 ]
 
 

@@ -7,6 +7,7 @@ import pandas as pd
 
 from ragglet.bench.evaluation import quality_columns
 from ragglet.config.scenario import ScenarioConfig
+from ragglet.retrieval.sources import active_sources
 
 _LATENCY_COLUMNS = {
     "embed": "lat_embed_ms",
@@ -16,6 +17,7 @@ _LATENCY_COLUMNS = {
     "generation": "lat_generation_ms",
     "total": "lat_total_ms",
     "merge": "lat_merge_ms",
+    "sources": "lat_sources_ms",
 }
 
 OUTCOMES = ("ok", "timeout", "error")
@@ -25,15 +27,28 @@ CACHE_LAYERS = {"emb": "embedding", "ret": "retrieval"}  # префикс кол
 
 def _latency_percentiles(cfg: ScenarioConfig, df: pd.DataFrame) -> dict[str, float]:
     out: dict[str, float] = {}
-    for step in cfg.metrics.latency_steps:
-        col = _LATENCY_COLUMNS.get(step)
+    columns = {step: _LATENCY_COLUMNS.get(step) for step in cfg.metrics.latency_steps}
+    for i in range(len(active_sources(cfg.retrieval))):
+        timeout = f"source_{i}_network_timeout"
+        if f"lat_{timeout}_ms" in df.columns:
+            out[f"{timeout}_count"] = int(_finite(df[f"lat_{timeout}_ms"]).count())
+        if "sources" in cfg.metrics.latency_steps:
+            columns[f"source_{i}"] = f"lat_source_{i}_ms"
+            columns[timeout] = f"lat_{timeout}_ms"
+    for step, col in columns.items():
         if col is None or col not in df.columns:
             continue
-
+        values = _finite(df[col])
+        if step in {"sources", "merge"} or (step.startswith("source_") and not step.endswith("_network_timeout")):
+            out[f"{step}_completed_count"] = int(values.count())
         for percentile in cfg.metrics.percentiles:
             # пустые значения (этап не завершился или выключен) quantile пропускает
-            out[f"lat_{step}_p{percentile}"] = float(df[col].quantile(percentile / 100.0))
+            out[f"lat_{step}_p{percentile}"] = float(values.quantile(percentile / 100.0))
     return out
+
+
+def _finite(values: pd.Series) -> pd.Series:
+    return values.replace([math.inf, -math.inf], math.nan)
 
 
 def _outcomes(df: pd.DataFrame) -> dict[str, float]:

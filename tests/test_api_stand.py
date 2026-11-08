@@ -28,7 +28,7 @@ def test_scenario_meta_adds_what_the_schema_lacks(stand):
     assert meta["retrieval_strategies"] == ["single", "fanout_merge"]
     assert {"ndcg", "recall", "r_cap"} & set(meta["metrics"]["chunk"]) == set()
     assert {"ndcg", "recall", "r_cap", "hit", "mrr", "precision"} == set(meta["metrics"]["doc"])
-    assert "merge" not in meta["latency_steps"] and "total" in meta["latency_steps"]
+    assert {"merge", "sources", "total"} <= set(meta["latency_steps"])
     defaults = meta["defaults"]
     assert defaults["metrics"]["quality"]["k"] == [1, 3, 5, 10]
     assert defaults["run"]["load"] == {"type": "closed", "concurrency": 1}

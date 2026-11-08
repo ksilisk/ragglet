@@ -21,6 +21,7 @@ from ragglet.generation.engine import build_generator
 from ragglet.modules.embedders.st_embedder import SentenceTransformerEmbedder
 from ragglet.rerank.engine import build_reranker
 from ragglet.retrieval.backends import BackendRegistry
+from ragglet.retrieval.sources import active_sources
 from ragglet.stores.qdrant_store_async import AsyncQdrantStore
 
 
@@ -111,7 +112,7 @@ async def run_scenario(
             summary["repeat_idx"] = r
             summary["retrieval_parallel"] = bool(cfg.retrieval.async_enabled)
             summary["retrieval_strategy"] = cfg.retrieval.strategy
-            summary["sources_count"] = len(cfg.retrieval.sources) if cfg.retrieval.sources else 1
+            summary["sources_count"] = len(active_sources(cfg.retrieval))
             all_summaries.append(summary)
 
             if cfg.run.save_per_query:

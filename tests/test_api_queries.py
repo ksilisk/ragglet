@@ -1,6 +1,7 @@
 """Запросы прогона: per-query parquet и CSV, фильтры, ранг первого релевантного, деталь запроса."""
 from __future__ import annotations
 
+import pandas as pd
 import pytest
 from api_support import make_stand, scenario_yaml
 from registry_support import RUN_ID, TRUTH, make_feb_run_dir, make_run_dir
@@ -147,3 +148,28 @@ def test_fields_project_columns_for_charts(stand):
     # сортировать можно по колонке, которой нет в проекции
     assert _page(stand, fields="qid", sort="t_start_ms")["columns"] == ["qid"]
     assert stand.client.get(f"/v1/runs/{RUN_ID}/queries", params={"limit": 5001}).status_code == 422
+
+
+@pytest.mark.parametrize("format", ["csv", "parquet"])
+def test_retrieval_timings_roundtrip_projection_sort_and_detail(stand, format):
+    run_dir = make_run_dir(stand.settings.artifacts_dir, formats=(format,))
+    path = run_dir / f"per_query.repeat0.{format}"
+    df = pd.read_csv(path) if format == "csv" else pd.read_parquet(path)
+    df["lat_source_0_ms"] = [12.0, 20.0, float("nan")]
+    df["lat_sources_ms"] = df["lat_source_0_ms"]
+    df["lat_merge_ms"] = [1.0, 2.0, float("nan")]
+    df["lat_source_0_network_timeout_ms"] = [float("nan"), float("nan"), 30.0]
+    df["lat_source_1_network_timeout_ms"] = float("nan")
+    if format == "csv":
+        df.to_csv(path, index=False)
+    else:
+        df.to_parquet(path, index=False)
+
+    page = _page(stand, fields="qid,lat_source_0_ms,lat_merge_ms,lat_source_1_network_timeout_ms",
+                 sort="-lat_source_0_ms")
+    assert _qids(page) == ["q003", "q001", "q007"]
+    assert [row["lat_source_0_ms"] for row in page["items"]] == [20.0, 12.0, None]
+    assert all(row["lat_source_1_network_timeout_ms"] is None for row in page["items"])
+    detail = stand.client.get(f"/v1/runs/{RUN_ID}/queries/q007").json()["row"]
+    assert detail["lat_source_0_ms"] is None
+    assert detail["lat_source_0_network_timeout_ms"] == 30.0
