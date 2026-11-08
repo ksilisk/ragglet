@@ -1,5 +1,6 @@
 /** Английские переводы: ключ — русский текст из кода (см. i18n.tsx). */
 export const en: Record<string, string> = {
+  "входит в retrieve": "included in retrieve",
   // шапка и настройки
   "Стенд": "Stand",
   "Сценарии": "Scenarios",

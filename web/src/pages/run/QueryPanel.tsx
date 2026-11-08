@@ -85,6 +85,7 @@ function PanelBody({ d, k: kv }: { d: S["QueryDetail"]; k: number }) {
         {stages.map(([stage, v]) => (
           <span key={stage}>
             {stage} <b className="num">{fmtMs(v)}</b>
+            {stage === "merge" && <span className="muted small"> · {t("входит в retrieve")}</span>}
           </span>
         ))}
         <span className="muted">{t("мс")}</span>

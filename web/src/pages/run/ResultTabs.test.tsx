@@ -4,6 +4,7 @@ import nfManifest from "../../test/fixtures/manifest-nfcorpus.json";
 import completed from "../../test/fixtures/run-completed.json";
 import { json, mockApi, renderRoutes } from "../../test/render";
 import RunPage from "./RunPage";
+import type { Summary } from "../../analysis/summary";
 
 // Вкладки результата на настоящем прогоне через API (s0_baseline_rag, 5 повторов по 100 запросов).
 const ID = completed.id;
@@ -25,11 +26,11 @@ function rowsOf(repeat: number) {
   }));
 }
 
-function serve(perQuery: "rows" | "none") {
+function serve(perQuery: "rows" | "none", stats: Summary = summary) {
   return mockApi((_req, url) => {
     if (url.pathname === `/v1/runs/${ID}`) {
       const include = url.searchParams.get("include");
-      if (include === "summary") return json({ ...light, summary });
+      if (include === "summary") return json({ ...light, summary: stats });
       if (include === "scenario") return json({ ...light, scenario_yaml });
       return json(light);
     }
@@ -45,6 +46,15 @@ function serve(perQuery: "rows" | "none") {
 }
 
 describe("вкладки результата", () => {
+  it("merge подписан как часть retrieve и имеет count без per-query", async () => {
+    serve("none", { repeats: summary.repeats.map((row) => ({ ...row, lat_merge_p50: 3, merge_completed_count: 2 })), aggregate: {} });
+    renderRoutes(routes, `/runs/${ID}?tab=latency`);
+    const table = await screen.findByRole("table", { name: "Перцентили по стадиям" });
+    const label = await within(table).findByText(/входит в retrieve/);
+    const cells = within(label.closest("tr")!).getAllByRole("cell");
+    expect(cells.at(-1)).toHaveTextContent(String(summary.repeats.length * 2));
+  });
+
   it("«Качество»: метрика × k, раскрытие по повторам, промахи — ссылки в «Запросы»", async () => {
     serve("rows");
     renderRoutes(routes, `/runs/${ID}?tab=quality`);

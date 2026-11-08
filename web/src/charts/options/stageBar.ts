@@ -29,11 +29,13 @@ export const axisMs = (v: number) => (Number.isInteger(v) ? fmtNumber(v) : fmtMs
 export const stageBarHeight = (rows: number) => 64 + rows * 34;
 
 export function stageBarOption(d: StageBarData, theme: ChartTheme): EChartsOption {
+  // Merge уже включён в retrieve, в том числе в старых/неполных summary без retrieve.
+  const pipeline = d.stages.filter((stage) => stage !== "merge");
   const totalName = translate("total p{p}", { p: d.percentile });
-  const widest = Math.max(1, ...d.rows.map((r) => Math.max(r.total ?? 0, d.stages.reduce((a, st) => a + (r.values[st] ?? 0), 0))));
+  const widest = Math.max(1, ...d.rows.map((r) => Math.max(r.total ?? 0, pipeline.reduce((a, st) => a + (r.values[st] ?? 0), 0))));
   const many = d.rows.length > 1;
 
-  const stages: BarSeriesOption[] = d.stages.map((stage) => ({
+  const stages: BarSeriesOption[] = pipeline.map((stage) => ({
     type: "bar",
     name: stage,
     stack: "stages",
@@ -75,7 +77,7 @@ export function stageBarOption(d: StageBarData, theme: ChartTheme): EChartsOptio
     grid: { left: many ? 8 : 0, right: 56, top: 8, bottom: 36, containLabel: true },
     xAxis: valueAxis(theme, { axisLabel: { color: theme.muted, fontFamily: theme.fontMono, fontSize: 11, formatter: axisMs } }),
     yAxis: categoryAxis(theme, d.rows.map((r) => r.label), { inverse: true, show: many }),
-    legend: legend(theme, { data: [...d.stages, totalName] }),
+    legend: legend(theme, { data: [...pipeline, totalName] }),
     tooltip: tooltip(theme, {
       trigger: "axis",
       axisPointer: { type: "shadow", shadowStyle: { color: theme.grid, opacity: 0.6 } },
