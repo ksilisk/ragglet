@@ -206,6 +206,13 @@ results/runs/<scenario_name>_<utc_timestamp>/
 
 Формат per-query файлов задается через `output.format: csv | parquet | both`. Summary-файлы сейчас всегда пишутся в CSV и JSON.
 
+Для детализации retrieval добавьте `sources` и `merge` в `metrics.latency_steps`.
+В строках доступны `lat_source_<i>_ms`, `lat_sources_ms`, `lat_merge_ms` и время до
+сетевого timeout `lat_source_<i>_network_timeout_ms`; в summary — перцентили и counts.
+`i` соответствует источнику в snapshot. Merge входит в полное время retrieve,
+а параллельные источники перекрываются: их длительности не складываются.
+Правила кэша, таймаутов и пропусков — в [описании метрик](docs/metrics.md#источники-и-слияние-retrieval).
+
 Quality-метрики двух прогонов сравнимы, если в `manifest.json` у них равны `dataset.corpus_sha256` и `dataset.eval_sha256`. Различия индекса (chunking, модель) — экспериментальный фактор и видны в секции `index`.
 
 `ragglet.bench.compare.compare_runs(a, b)` сравнивает два каталога прогонов (`compare_trees` — любое их число, его зовёт `GET /v1/runs/compare` и страница сравнения в UI) и относит каждое различие к одному из классов:

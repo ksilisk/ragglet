@@ -3,7 +3,7 @@ from __future__ import annotations
 import anyio
 
 from ragglet.config.scenario import ScenarioConfig
-from ragglet.core.errors import StageTimeout
+from ragglet.core.errors import SourceNetworkTimeout, StageTimeout
 from ragglet.retrieval.backends import BackendRegistry
 from ragglet.retrieval.merge import (
     RetrievedItem,
@@ -13,6 +13,8 @@ from ragglet.retrieval.merge import (
     run_sources,
     weighted_sum_merge,
 )
+from ragglet.retrieval.sources import active_sources
+from ragglet.retrieval.timing import RetrievalTimings
 
 # стратегии, которые умеет retrieve_items; схема знает и cascade
 IMPLEMENTED_STRATEGIES = ("single", "fanout_merge")
@@ -52,81 +54,78 @@ async def retrieve_items(
     backends: BackendRegistry,
     query_text: str,
     vec: list[float],
+    *,
+    timings: RetrievalTimings | None = None,
 ) -> list[RetrievedItem]:
     """
     Возвращает retrieved items with payloads.
     """
     strategy = cfg.retrieval.strategy
     top_k = cfg.retrieval.top_k
+    sources = active_sources(cfg.retrieval)
+    timings = timings if timings is not None else RetrievalTimings()
+
+    async def query_source(index: int, source: SourceSpec):
+        if source.kind == "vector":
+            store = backends.vector_for(_backend_ref(source.params))
+            params = _search_params(source.params)
+            with timings.source(index):
+                return await store.search(vec, top_k=top_k, params=params)
+        if source.kind == "keyword":
+            with timings.source(index):
+                return await backends.keyword.search(query_text, top_k=top_k)
+        raise NotImplementedError("Only 'vector' or 'keyword' sources are implemented yet")
+
     try:
         with anyio.fail_after(cfg.timeouts.retrieval_ms / 1000.0):
             if strategy == "single":
-                if cfg.retrieval.sources:
-                    s0 = cfg.retrieval.sources[0]
-                    src = SourceSpec(name=s0.name, kind=s0.kind, weight=s0.weight, params=s0.params)
-                else:
-                    src = SourceSpec(name="vec", kind="vector", weight=1.0, params={})
-
+                src = sources[0]
                 if src.kind != "vector":
                     raise NotImplementedError("Only vector source is implemented in baseline")
-
-                if src.kind == "vector":
-                    store = backends.vector_for(_backend_ref(src.params))
-                    candidates = await store.search(vec, top_k=top_k, params=_search_params(src.params))
-                elif src.kind == "keyword":
-                    candidates = await backends.keyword.search(query_text, top_k=top_k)
-                else:
-                    raise NotImplementedError("Only 'vector' or 'keyword' source is implemented yet")
-
+                with timings.measure("sources"):
+                    candidates = await query_source(0, src)
                 return [_to_retrieved(c, src.name) for c in candidates]
 
             if strategy == "fanout_merge":
-                sources: list[SourceSpec] = [
-                    SourceSpec(name=s.name, kind=s.kind, weight=s.weight, params=s.params)
-                    for s in cfg.retrieval.sources
-                ]
-
-                async def _query_source(s: SourceSpec):
-                    if s.kind == "vector":
-                        store = backends.vector_for(_backend_ref(s.params))
-                        return await store.search(vec, top_k=top_k, params=_search_params(s.params))
-                    elif s.kind == "keyword":
-                        return await backends.keyword.search(query_text, top_k=top_k)
-                    else:
-                        raise NotImplementedError("Only 'vector' or 'keyword' sources are implemented yet")
-
-                tasks = [(s.name, (lambda s=s: _query_source(s))) for s in sources]
-
+                tasks = [(s.name, (lambda i=i, s=s: query_source(i, s))) for i, s in enumerate(sources)]
                 parallel = bool(cfg.retrieval.async_enabled)
-                res_map = await run_sources(tasks, parallel=parallel)
+                with timings.measure("sources"):
+                    res_map = await run_sources(tasks, parallel=parallel)
 
-                per_source_ranked: dict[str, list[RetrievedItem]] = {}
-                weights: dict[str, float] = {}
-
-                for s in sources:
-                    weights[s.name] = s.weight
-                    per_source_ranked[s.name] = [_to_retrieved(c, s.name) for c in res_map.get(s.name, [])]
-                if cfg.retrieval.merge.method == "rrf":
-                    merged = rrf_merge(
-                        per_source_ranked=per_source_ranked,
-                        weights=weights,
-                        rrf_k=cfg.retrieval.merge.rrf_k,
-                        top_k=top_k,
-                        deduplicate=cfg.retrieval.merge.deduplicate,
-                    )
-                elif cfg.retrieval.merge.method == "interleave":
-                    merged = interleave_merge(per_source_ranked, weights, top_k,
-                                              deduplicate=cfg.retrieval.merge.deduplicate)
-                elif cfg.retrieval.merge.method == "weighted_sum":
-                    merged = weighted_sum_merge(per_source_ranked, weights, top_k,
-                                                deduplicate=cfg.retrieval.merge.deduplicate)
-                else:
-                    raise NotImplementedError("Only 'rrf' or 'interleave' merge methods are implemented yet")
+                with timings.measure("merge"):
+                    per_source_ranked: dict[str, list[RetrievedItem]] = {}
+                    weights: dict[str, float] = {}
+                    for s in sources:
+                        weights[s.name] = s.weight
+                        per_source_ranked[s.name] = [_to_retrieved(c, s.name) for c in res_map.get(s.name, [])]
+                    if cfg.retrieval.merge.method == "rrf":
+                        merged = rrf_merge(
+                            per_source_ranked=per_source_ranked,
+                            weights=weights,
+                            rrf_k=cfg.retrieval.merge.rrf_k,
+                            top_k=top_k,
+                            deduplicate=cfg.retrieval.merge.deduplicate,
+                        )
+                    elif cfg.retrieval.merge.method == "interleave":
+                        merged = interleave_merge(per_source_ranked, weights, top_k,
+                                                  deduplicate=cfg.retrieval.merge.deduplicate)
+                    elif cfg.retrieval.merge.method == "weighted_sum":
+                        merged = weighted_sum_merge(per_source_ranked, weights, top_k,
+                                                    deduplicate=cfg.retrieval.merge.deduplicate)
+                    else:
+                        raise NotImplementedError("Only 'rrf', 'interleave' or 'weighted_sum' merge methods are implemented")
                 return merged
 
             raise NotImplementedError(f"retrieval.strategy='{strategy}' is not implemented")
-    except TimeoutError as e:
+    except (TimeoutError, SourceNetworkTimeout) as e:
         raise StageTimeout("retrieval") from e
+    except ExceptionGroup as e:
+        # TaskGroup отменил соседей. Только чистая группа сетевых таймаутов — исход
+        # запроса; смешанная группа остаётся ошибкой стенда и останавливает прогон.
+        _, other = e.split(SourceNetworkTimeout)
+        if other is None:
+            raise StageTimeout("retrieval") from e
+        raise
 
 
 async def retrieve_ids(cfg: ScenarioConfig, backends: BackendRegistry, query_text: str, vec: list[float]) -> list[str]:

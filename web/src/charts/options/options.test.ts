@@ -2,7 +2,9 @@ import type { CustomSeriesOption } from "echarts";
 import nfcorpus from "../../test/fixtures/summary-nfcorpus.json";
 import s0old from "../../test/fixtures/summary-s0-old.json";
 import { qualityByMetric, stageRow } from "../../analysis/series";
-import type { Summary } from "../../analysis/summary";
+import { latencyGrid, type Summary } from "../../analysis/summary";
+import { stageRowsByRun } from "../../analysis/compare";
+import type { S } from "../../api/client";
 import { METRIC_SLOT } from "../palette";
 import { LIGHT, lightTheme } from "../theme";
 import { qualityByKOption } from "./qualityByK";
@@ -48,6 +50,22 @@ describe("качество по k", () => {
 });
 
 describe("полоса стадий", () => {
+  it.each([true, false])("merge остаётся в таблице, но не складывается с retrieve (retrieve: %s)", (hasRetrieve) => {
+    const summary: Summary = {
+      repeats: [{ lat_total_p50: 43, lat_merge_p50: 3, ...(hasRetrieve ? { lat_retrieve_p50: 43 } : {}) }],
+      aggregate: {},
+    };
+    const grid = latencyGrid(summary);
+    expect(grid.get("merge", 50)?.mean).toBe(3);
+    const overview = { stages: grid.stages, rows: [stageRow(summary, "", 50)], percentile: 50 };
+    const compare = { ...stageRowsByRun([{ id: "a", summary }, { id: "b", summary }] as S["CompareRun"][], 50, ["a", "b"]), percentile: 50 };
+    for (const data of [overview, compare]) {
+      const bars = seriesOf(stageBarOption(data, theme)).filter((s) => s.type === "bar");
+      expect(bars.map((s) => s.name)).toEqual(hasRetrieve ? ["retrieve"] : []);
+      if (hasRetrieve) expect(bars[0]!.data).toEqual(data.rows.map(() => 43));
+    }
+  });
+
   it("сегменты стадий в порядке конвейера и отметка total", () => {
     const row = stageRow(one, "", 50);
     const o = stageBarOption({ stages: ["embed", "retrieve"], rows: [row], percentile: 50 }, theme);

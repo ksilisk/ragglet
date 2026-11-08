@@ -36,8 +36,10 @@ Suggested / partially implemented modular split:
   - `KeywordBm25Store` (in-memory BM25) for keyword search (built from exported Qdrant payloads)
   - (sync store exists historically but async is used for correct timeouts/fanout)
 - `src/ragglet/retrieval/`
-  - `fanout_rrf.py`: fanout runner (parallel/sequential) + merge helpers (RRF) + deduplicate
+  - `merge.py`: fanout runner (parallel/sequential) + merge helpers + deduplicate
   - `engine.py`: `retrieve_ids(...)` implements strategies `single` and `fanout_merge` for mixed source kinds
+  - `sources.py`: active sources in snapshot order; single selects the first or implicit vec
+  - `timing.py`: query-owned source, sources-wall and merge timers; preserves completed branches on cancellation
 - `src/ragglet/cache/`
   - embedding cache: Redis (`RedisEmbeddingCache`)
   - retrieval cache: in-memory LRU (`LRURetrievalCache`)
@@ -269,6 +271,8 @@ What is implemented today (core)
 * document-level nDCG@k / Recall@k / R_cap@k / Hit@k / MRR@k, optional chunk-level MRR@k / Precision@k
 * latency step times (lat_embed_ms, lat_retrieve_ms, lat_rerank_ms, lat_context_ms, lat_generation_ms, lat_total_ms)
 * configurable latency percentiles from YAML for emitted latency steps (embed/retrieve/total)
+* `sources` and `merge` detail retrieval: per-source latency, source wall time, conversion/fusion/dedup timing; merge is included in retrieve
+* HTTP search timeouts have separate per-source durations and counts, produce a timeout query row and let the run continue; other source errors remain fatal
 * per repeat: wall_ms, throughput_qps, ok/timeout/error counts and rates; rules in `docs/metrics.md`
 
 ⸻
@@ -308,5 +312,4 @@ Notes from recent debugging
 Desired next tasks (high priority)
 
 * Implement merge.method=interleave and merge.method=weighted_sum with normalization.
-* Add a separate merge latency timer if merge-level percentiles are needed.
 * Implement storage.mode=sharded using fanout across shard backends + merge.

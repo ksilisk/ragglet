@@ -90,8 +90,14 @@ function PercentileCard({ summary, pick, rows, name }: { summary: Summary; pick:
   const grid = latencyGrid(summary);
   const many = repeatCount(summary) > 1;
   if (!grid.hasTotal) return <Card title={t("Перцентили по стадиям")}><Empty>{t("В summary нет перцентилей задержек.")}</Empty></Card>;
-  const count = (stage: (typeof grid.stages)[number] | "total") =>
-    rows ? picked(rows, pick).reduce((acc, rep) => acc + stageCount(rows.rows.get(rep) ?? [], stage), 0) : null;
+  const count = (stage: (typeof grid.stages)[number] | "total") => {
+    if (rows) return picked(rows, pick).reduce((acc, rep) => acc + stageCount(rows.rows.get(rep) ?? [], stage), 0);
+    // Новые summary сохраняют число замеров merge и при save_per_query: false.
+    if (stage !== "merge") return null;
+    const repeats = pick === "all" ? summary.repeats : [summary.repeats[pick]];
+    const counts = repeats.map((row) => num(row, "merge_completed_count"));
+    return counts.length && counts.every((n) => n !== null) ? counts.reduce<number>((a, n) => a + (n ?? 0), 0) : null;
+  };
   return (
     <Card title={t("Перцентили по стадиям, мс")} aside={<CsvButton onClick={() => save(fileName(name, "latency-percentiles"), percentilesTable(summary))} />}>
       <table className={`${k.tbl} ${k.compact}`} aria-label={t("Перцентили по стадиям")}>
@@ -111,7 +117,7 @@ function PercentileCard({ summary, pick, rows, name }: { summary: Summary; pick:
         <tbody>
           {[...grid.stages, "total" as const].map((stage) => (
             <tr key={stage}>
-              <td>{stage === "total" ? <b>total</b> : stage}</td>
+              <td>{stage === "total" ? <b>total</b> : stage}{stage === "merge" && <span className="muted small"> · {t("входит в retrieve")}</span>}</td>
               {grid.percentiles.map((p) => {
                 const s = grid.get(stage, p);
                 const value = pick === "all" ? (s?.mean ?? null) : (s?.perRepeat[pick] ?? null);

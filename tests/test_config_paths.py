@@ -49,6 +49,10 @@ CASES = {
     "scenario.RetrievalConfig._single_keyword_not_supported": [
         (scenario.ScenarioConfig, {"retrieval": {"sources": [{"name": "k", "kind": "keyword"}]}}, "retrieval.sources"),
     ],
+    "scenario.RetrievalConfig._unique_source_names": [
+        (scenario.ScenarioConfig, {"retrieval": {"sources": [{"name": "v"}, {"name": "v"}]}},
+         "retrieval.sources[1].name"),
+    ],
     "scenario.StorageConfig._validate_storage_shape": [
         (scenario.ScenarioConfig, {"storage": {**SCENARIO["storage"], "mode": "sharded"}}, "storage.backends"),
     ],

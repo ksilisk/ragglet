@@ -483,7 +483,7 @@ scenario:
               type: "string"
               required: true
               status: implemented
-              docs: "Source name used in merge maps and cache signatures."
+              docs: "Unique source name used in merge maps and cache signatures. Timing columns use the source's zero-based index in the snapshot. single uses only the first source (implicit vec at index 0 if the list is empty)."
             kind:
               type: "enum"
               default: "vector"
@@ -752,7 +752,7 @@ scenario:
             - "retrieve"
             - "total"
           status: implemented
-          docs: "Latency steps to summarize. Runtime currently emits lat_embed_ms, lat_retrieve_ms, lat_rerank_ms, lat_context_ms, lat_generation_ms, and lat_total_ms; merge is reserved until a separate merge timer exists. total covers every query including timeouts and errors; a step covers only the queries where it completed, its cell is empty otherwise. See docs/metrics.md."
+          docs: "Latency steps to summarize: embed, retrieve, sources, merge, rerank, context, generation, total. sources adds the overall source wall time, each lat_source_<i>_ms and separate network-timeout percentiles. merge covers conversion, fusion, deduplication and top_k, and is already included in retrieve. total covers every query; successful step percentiles exclude incomplete calls. Source network-timeout counts are always emitted. Raw timing columns are written regardless of selected steps. See docs/metrics.md."
           caveat: "A step disabled in the scenario (for example rerank with rerank.enabled=false) has no values and gives null percentiles."
         percentiles:
           type: "list[integer]"

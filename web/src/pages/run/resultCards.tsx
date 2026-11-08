@@ -121,7 +121,7 @@ export function StageCard({ summary, facts, name }: { summary: Summary; facts: S
         <tbody>
           {[...grid.stages, "total" as const].map((stage) => (
             <tr key={stage}>
-              <td>{stage === "total" ? <b>total</b> : stage}</td>
+              <td>{stage === "total" ? <b>total</b> : stage}{stage === "merge" && <span className="muted small"> · {t("входит в retrieve")}</span>}</td>
               {grid.percentiles.map((x) => {
                 const v = fmtMs(grid.get(stage, x)?.mean ?? null);
                 return (
