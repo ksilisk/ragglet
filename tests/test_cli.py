@@ -459,7 +459,7 @@ def test_start_status_stop(stub, monkeypatch, capsys):
     assert cli.main(["stop"]) == 0
     assert "Stopped the server" in capsys.readouterr().out
     assert not cli.alive(pid) and cli.read_state() == {}
-    assert cli.main(["status"]) == 3
+    assert cli.main(["status", "--api", f"http://127.0.0.1:{port}"]) == 3
 
 
 @pytest.mark.parametrize("setup", ["standard", "external", "s5"])
