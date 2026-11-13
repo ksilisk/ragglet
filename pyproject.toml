@@ -38,6 +38,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+docker-cpu = ["torch==2.10.0; sys_platform == 'linux'"]
 dev = [
   "ruff>=0.6.9",
   "pytest>=8.3.2",
@@ -45,6 +46,22 @@ dev = [
   "mypy>=1.11.2",
   "types-PyYAML>=6.0.12.20240808",
 ]
+
+# The image selects CPU wheels. A native installation uses the default PyPI build.
+[dependency-groups]
+native-torch = ["torch; sys_platform == 'linux'"]
+
+[tool.uv]
+default-groups = ["native-torch"]
+conflicts = [[{ group = "native-torch" }, { extra = "docker-cpu" }]]
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", extra = "docker-cpu", marker = "sys_platform == 'linux'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [build-system]
 requires = ["setuptools>=70.0.0"]

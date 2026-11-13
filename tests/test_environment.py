@@ -23,7 +23,10 @@ def test_git_commit_is_head_of_enclosing_repo(tmp_path):
 
 def test_git_commit_outside_repo_is_none(tmp_path, monkeypatch):
     monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path.parent))
+    monkeypatch.delenv("RAGGLET_COMMIT", raising=False)
     assert git_commit(tmp_path) is None
+    monkeypatch.setenv("RAGGLET_COMMIT", "image-revision")
+    assert git_commit(tmp_path) == "image-revision"
 
 
 def test_capture_env_has_every_fact_and_compute():
