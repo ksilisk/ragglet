@@ -462,6 +462,81 @@ def test_start_status_stop(stub, monkeypatch, capsys):
     assert cli.main(["status"]) == 3
 
 
+@pytest.mark.parametrize("external_services", [False, True])
+def test_docker_lifecycle(stub, monkeypatch, capsys, external_services):
+    """Compose is stubbed, the launcher still owns readiness, task protection and service selection."""
+    running = False
+    tasks = []
+    commands = []
+    opened = []
+    port = 8123
+    url = f"http://127.0.0.1:{port}"
+    stand = {"qdrant": [{"url": "http://localhost:6333", "available": True}],
+             "redis": None, "compute": {"device": "cpu"}}
+    real_run = cli.subprocess.run
+
+    def compose(command, **kwargs):
+        nonlocal running
+        if command[0] != "docker":
+            return real_run(command, **kwargs)
+        commands.append(command)
+        output = ""
+        if "config" in command:
+            output = '{"name": "saved-project"}'
+        elif "up" in command:
+            assert kwargs["env"]["RAGGLET_COMMIT"] != "stale"
+            assert len(kwargs["env"]["RAGGLET_COMMIT"]) == 40
+            assert kwargs["env"]["RAGGLET_PORT"] == str(port)
+            assert ("--no-deps" in command) == external_services
+            if cli.sys.platform.startswith("linux"):
+                assert kwargs["env"]["RAGGLET_UID"] == str(cli.os.getuid())
+                assert kwargs["env"]["RAGGLET_GID"] == str(cli.os.getgid())
+            running = True
+        elif "ps" in command:
+            output = "container-id" if running else ""
+        elif "stop" in command:
+            running = False
+        return cli.subprocess.CompletedProcess(command, 0, stdout=output)
+
+    monkeypatch.setenv("RAGGLET_COMMIT", "stale")
+    monkeypatch.setattr(cli.shutil, "which", lambda name: name)
+    monkeypatch.setattr(cli.subprocess, "run", compose)
+    monkeypatch.setattr(cli, "responds", lambda api: stand if running and api.base == url else None)
+    monkeypatch.setattr(cli.Api, "get", lambda self, path: tasks)
+    monkeypatch.setattr(cli.webbrowser, "open", opened.append)
+    args = ["start", "--docker", "--port", str(port), "--open"]
+    if external_services:
+        args += ["--no-services"]
+    assert cli.main(args) == 0
+    assert cli.read_state()["project"] == "saved-project"
+    assert cli.main(args) == 0
+    assert sum("up" in cmd for cmd in commands) == 1
+    assert opened == [url, url]
+    assert cli.main(["status"]) == 0
+    assert f"{url}, Docker" in capsys.readouterr().out
+
+    tasks.append({"kind": "run", "id": "active-run", "state": "running"})
+    assert cli.main(["stop", "--services"]) == 1  # non-interactive, protect both server and services
+    assert "active-run" in capsys.readouterr().err and running
+    tasks.clear()
+    assert cli.main(["stop"] + (["--services"] if external_services else [])) == 0
+    assert commands[-1][-2:] == ["stop", "ragglet"]
+    if not external_services:
+        monkeypatch.setenv("COMPOSE_PROJECT_NAME", "another-project")
+        assert cli.main(["stop", "--services"]) == 0
+        assert "saved-project" in commands[-1]
+        assert commands[-1][-3:] == ["stop", "qdrant", "redis"]
+    assert cli.read_state() == {}
+
+
+def test_docker_does_not_adopt_existing_server(stub, monkeypatch, capsys):
+    monkeypatch.setattr(cli, "responds", lambda api: {"current": None})
+    monkeypatch.setattr(cli.shutil, "which", lambda name: name)
+    assert cli.main(["start", "--docker"]) == 1
+    assert "different Ragglet server" in capsys.readouterr().err
+    assert cli.read_state() == {}
+
+
 def test_start_reports_a_server_that_died(stub, monkeypatch, capsys, tmp_path):
     crash = tmp_path / "crash.py"
     crash.write_text("import sys; print('OSError: [Errno 48] Address already in use'); sys.exit(1)\n")
