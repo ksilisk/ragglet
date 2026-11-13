@@ -46,22 +46,28 @@ Ground truth (`qrels`) ссылается на **id документа** (`corpu
 
 ## Как запустить
 
-Нужны:
-
-- Python 3.9+ — подойдёт системный `python3`, клиенту больше ничего не нужно;
-- Docker с Docker Compose — для Qdrant и Redis;
-- [uv](https://docs.astral.sh/uv/getting-started/installation/) — им `start` один раз готовит
-  окружение сервера по `uv.lock` (без uv нужен Python 3.12+, но версии зависимостей тогда не
-  зафиксированы).
+Для первого прогона нужны Git, Python 3.9+ для команды `ragglet` и работающий Docker с
+Compose. На Linux нужны Docker Engine 25+ и Compose 2.20.2+. На Mac нужен Docker Desktop 4.34+ с включённым
+**Settings → Resources → Network → Enable host networking**. После изменения нажмите
+**Apply & restart**. [Настройка Docker Desktop](https://docs.docker.com/engine/network/drivers/host/#docker-desktop).
 
 ```bash
 git clone https://github.com/ksilisk/ragglet.git && cd ragglet
-python3 ragglet start        # первый раз сам создаст окружение и поднимет Qdrant/Redis
-# UI: http://127.0.0.1:8000
-python3 ragglet build demo
-python3 ragglet run baseline_qdrant
-python3 ragglet stop
+./ragglet start --docker --open
 ```
+
+Лаунчер соберёт образ сервера с веб-интерфейсом, поднимет один Qdrant и Redis и откроет
+UI по адресу `http://127.0.0.1:8000`. Первая сборка образа и первая загрузка модели требуют
+интернета. Демо-датасет уже в репозитории, а для `baseline_qdrant` ключ OpenAI не требуется.
+
+1. На пустом стенде нажмите **Собрать demo**, подтвердите сборку и дождитесь результата.
+2. На странице готовой сборки нажмите **Открыть baseline_qdrant**, затем **Запустить**.
+3. Откроется страница прогона. После завершения во вкладке **Обзор** появятся метрики.
+   Файлы результата лежат на хосте в `results/runs/<id>/`.
+
+Те же действия из терминала: `./ragglet build demo`, затем `./ragglet run baseline_qdrant`.
+Для остановки всего локального стенда выполните `./ragglet stop --services`. Индекс,
+результаты и кэш модели сохранятся. Команда `./ragglet stop` останавливает только сервер.
 
 `ragglet` в корне репозитория — клиент стенда: один файл на стандартной библиотеке Python, без
 установки и `uv run`. Всё, что трогает стенд, он делает через REST API сервера (раздел
@@ -73,7 +79,11 @@ python3 ragglet stop
 
 ### 1. Стенд
 
-`python3 ragglet start`:
+**Нативный запуск.** Для работы с ускорителем хоста (например, MPS на Mac) используйте
+`./ragglet start --open`. Для этого режима нужны [uv](https://docs.astral.sh/uv/getting-started/installation/)
+для окружения по `uv.lock` и Node.js 22+ для UI. Если uv отсутствует, лаунчер может
+создать окружение через Python 3.12+, при этом версии зависимостей не фиксируются.
+Команда `python3 ragglet start`:
 
 1. если Qdrant (`http://localhost:6333`) или Redis (`redis://localhost:6379/0`) не отвечают,
    поднимает их `docker compose -f docker/docker-compose.yaml --profile qdrant up -d qdrant redis`
@@ -99,6 +109,30 @@ python3 ragglet stop --services   # и Qdrant с Redis
 
 Остальные команды ходят на сервер, который поднял `start`; другой адрес — `--api URL` или
 `RAGGLET_API_URL`. Если сервер не запущен, команда так и говорит и выходит с кодом 3.
+
+**Данные Docker-стенда.** Сервер изменяет файлы в `configs/` и `results/` на хосте.
+Свои локальные датасеты положите в `datasets/`: контейнер читает этот каталог. Индексы
+Qdrant, состояние Redis и кэш загруженных моделей и датасетов Hugging Face лежат в томах
+Docker. При перезапуске и обновлении образа они сохраняются. На Linux лаунчер запускает
+сервер с UID и GID текущего пользователя, чтобы он мог писать в каталоги своего checkout.
+Контейнерный режим использует CPU. При сравнении задержек учитывайте устройство и среду
+запуска. Текущий коммит и устройство записываются в манифест прогона.
+
+**Свои сервисы.** Чтобы работать с уже запущенными Qdrant и Redis, запустите сервер
+с `--no-services` и укажите адреса в сценарии и профиле индекса. Для отображения этих
+сервисов в UI задайте `RAGGLET_QDRANT_ENDPOINTS` и `RAGGLET_REDIS_URL` перед стартом.
+
+**Пример S5 с двумя Qdrant** требует Compose 2.24.4+ для объединения файлов конфигурации. В этом примере профиль `demo_sharded` строит индекс
+на двух экземплярах, а сценарий `s5_distributed_like` опрашивает оба. Обычный стенд
+и пример используют один порт 6333. Сначала остановите обычный стенд командой
+`./ragglet stop --services`. Затем из корня репозитория выполните:
+
+```bash
+./docker/start-s5.sh --open
+./ragglet build demo_sharded
+./ragglet run s5_distributed_like
+./ragglet stop --services
+```
 
 ### 2. Собрать индекс
 
@@ -490,7 +524,10 @@ docker compose -f docker/docker-compose.yaml --profile qdrant down -v
 
 ## Частые проблемы
 
-Если команда пишет `cannot reach the ragglet server` (код 3) — сервер не запущен: `python3 ragglet start`. Если сервер не стартует, причина — в `results/server.log` (например, занят порт: `start --port 8100`), а если не готовится окружение — в `results/env.log`. Без Docker `start` печатает команду для Qdrant и Redis: запустите их сами или поставьте Docker. Без uv и Python 3.12+ окружение сервера не собрать.
+Если команда пишет `cannot reach the ragglet server` (код 3), запустите сервер в нужном
+режиме. Для Docker проверьте вывод `./ragglet start --docker` и лог сервера через
+`docker compose -f docker/docker-compose.yaml logs ragglet`. При нативном запуске лог
+сервера лежит в `results/server.log`, а лог подготовки окружения — в `results/env.log`.
 
 Если `run` пишет `Index is not compatible with scenario` — индекс собран из другого корпуса (например, после правки `corpus.jsonl`), другой моделью, в другом storage layout или сборка не завершилась. Пересоберите индекс: `python3 ragglet build <профиль>`.
 
@@ -504,7 +541,8 @@ docker compose -f docker/docker-compose.yaml --profile qdrant down -v
 
 Если fanout-сценарий падает на кэше, проверьте, что Redis запущен и доступен по endpoint из scenario.
 
-Если `docker compose --profile app` не собирается, это ожидаемо для текущего состояния: app container profile зарезервирован, а рабочий путь запуска сейчас — `python3 ragglet start` (сервер локально, Qdrant/Redis из compose).
+Если контейнерный сервер на Mac не отвечает на `127.0.0.1:8000` или не видит
+Qdrant на `localhost:6333`, проверьте настройку **Enable host networking** в Docker Desktop.
 
 ## Научная ценность
 

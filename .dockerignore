@@ -1,0 +1,11 @@
+*
+!pyproject.toml
+!uv.lock
+!README.md
+!src/
+!web/
+web/node_modules/
+web/dist/
+**/__pycache__/
+**/*.egg-info/
+**/.env*

@@ -12,13 +12,13 @@ PACKAGE_DIR = Path(__file__).resolve().parents[1]
 
 
 def git_commit(path: Path = PACKAGE_DIR) -> str | None:
-    """HEAD репозитория, из которого запущен ragglet; None вне git-checkout."""
+    """HEAD рабочего дерева или коммит сборки образа без .git."""
     try:
         result = subprocess.run(
             ["git", "rev-parse", "HEAD"], cwd=path, capture_output=True, text=True, check=True
         )
     except (OSError, subprocess.CalledProcessError):
-        return None
+        return os.environ.get("RAGGLET_COMMIT") or None
     return result.stdout.strip()
 
 
