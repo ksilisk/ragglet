@@ -1,0 +1,13 @@
+# Overlay for start-s5.sh. The two independent Qdrant instances use separate volumes.
+services:
+  ragglet:
+    environment:
+      RAGGLET_QDRANT_ENDPOINTS: http://localhost:6333,http://localhost:6334
+    depends_on: !override
+      qdrant-shard-0: {condition: service_healthy}
+      qdrant-shard-1: {condition: service_healthy}
+      redis: {condition: service_healthy}
+  qdrant-shard-0:
+    profiles: [app]
+  qdrant-shard-1:
+    profiles: [app]

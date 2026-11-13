@@ -122,7 +122,7 @@ Docker. При перезапуске и обновлении образа он�
 с `--no-services` и укажите адреса в сценарии и профиле индекса. Для отображения этих
 сервисов в UI задайте `RAGGLET_QDRANT_ENDPOINTS` и `RAGGLET_REDIS_URL` перед стартом.
 
-**Пример S5 с двумя Qdrant.** В этой конфигурации профиль `demo_sharded` строит индекс
+**Пример S5 с двумя Qdrant** требует Compose 2.24.4+ для объединения файлов конфигурации. В этом примере профиль `demo_sharded` строит индекс
 на двух экземплярах, а сценарий `s5_distributed_like` опрашивает оба. Обычный стенд
 и пример используют один порт 6333. Сначала остановите обычный стенд командой
 `./ragglet stop --services`. Затем из корня репозитория выполните:
@@ -131,8 +131,7 @@ Docker. При перезапуске и обновлении образа он�
 ./docker/start-s5.sh --open
 ./ragglet build demo_sharded
 ./ragglet run s5_distributed_like
-./ragglet stop
-docker compose -f docker/docker-compose.yaml --profile qdrant-multi stop
+./ragglet stop --services
 ```
 
 ### 2. Собрать индекс

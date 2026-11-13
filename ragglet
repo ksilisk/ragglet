@@ -167,7 +167,11 @@ def api_url(args: argparse.Namespace) -> str:
 
 def read_state() -> dict[str, Any]:
     try:
-        return json.loads((RESULTS / "server.json").read_text(encoding="utf-8"))
+        state = json.loads((RESULTS / "server.json").read_text(encoding="utf-8"))
+        if state.get("mode") == "docker" and "files" not in state:
+            state["files"] = ["docker/docker-compose.yaml"]
+            state["services"] = ["qdrant", "redis"] if state["services"] else []
+        return state
     except (OSError, ValueError):
         return {}
 
@@ -857,12 +861,23 @@ def docker_env(port: int) -> dict[str, str]:
     return env
 
 
-def docker_project_command(project: str) -> list[str]:
-    return [*COMPOSE, "--project-name", project, "--profile", "app"]
+def docker_files() -> list[str]:
+    value = os.environ.get("COMPOSE_FILE", "docker/docker-compose.yaml")
+    return value.split(os.environ.get("COMPOSE_PATH_SEPARATOR") or os.pathsep)
 
 
-def docker_running(project: str) -> bool:
-    done = subprocess.run([*docker_project_command(project), "ps", "--status", "running", "-q", "ragglet"],
+def docker_command(files: list[str], project: str | None = None) -> list[str]:
+    command = ["docker", "compose"]
+    for path in files:
+        command.extend(["-f", path])
+    if project:
+        command.extend(["--project-name", project])
+    return [*command, "--profile", "app"]
+
+
+def docker_running(state: dict[str, Any]) -> bool:
+    command = docker_command(state["files"], state["project"])
+    done = subprocess.run([*command, "ps", "--status", "running", "-q", "ragglet"],
                           cwd=ROOT, stdout=subprocess.PIPE, text=True)
     if done.returncode:
         raise Exit(1)
@@ -871,23 +886,23 @@ def docker_running(project: str) -> bool:
 
 def start_docker(args: argparse.Namespace, url: str) -> int:
     env = docker_env(args.port)
-    # Compose resolves the project name from the shell, .env or directory. Remember the
-    # resolved name so 'stop' still controls the same project from another terminal.
-    done = subprocess.run([*COMPOSE, "--profile", "app", "config", "--format", "json"], cwd=ROOT,
+    files = docker_files()
+    # Remember the actual project and dependencies so stop works from a fresh shell.
+    done = subprocess.run([*docker_command(files), "config", "--format", "json"], cwd=ROOT,
                           env=env, stdout=subprocess.PIPE, text=True)
     if done.returncode:
         return 1
-    project = json.loads(done.stdout)["name"]
-    command = docker_project_command(project)
+    config = json.loads(done.stdout)
+    project = config["name"]
+    command = docker_command(files, project)
+    services = [] if args.no_services else list(config["services"]["ragglet"].get("depends_on", {}))
     # Record ownership before 'up': a failed build or Ctrl-C can leave running services.
-    write_state({"mode": "docker", "project": project, "url": url, "services": not args.no_services})
+    write_state({"mode": "docker", "project": project, "files": files, "url": url, "services": services})
     options = ["--no-deps"] if args.no_services else []
     failed = subprocess.run([*command, "up", "-d", "--build", "--wait", *options, "ragglet"],
                             cwd=ROOT, env=env, stdout=sys.stderr).returncode
     if failed:
         err(f"Inspect the stand: {shlex.join(command)} logs --tail 50")
-        if sys.platform == "darwin":
-            err(HOST_NETWORK_HINT)
         return 1
     stand = responds(Api(url))
     if stand is None:
@@ -909,10 +924,13 @@ def cmd_start(args: argparse.Namespace) -> int:
             err("Install Docker with Docker Compose to use --docker.")
             return 1
     state = read_state()
+    if args.docker and state.get("mode") == "docker" and state["files"] != docker_files():
+        err(f"Another Docker setup is active for this checkout. Run {CMD} stop --services before switching.")
+        return 1
     for known in dict.fromkeys([url, state.get("url")]):
         if known and (stand := responds(Api(known))) is not None:
             if args.docker and not (state.get("mode") == "docker" and state.get("url") == known
-                                    and docker_running(state["project"])):
+                                    and docker_running(state)):
                 err(f"A different Ragglet server already responds at {known}. Stop it before starting Docker.")
                 return 1
             return started(known, stand, args, already=True)
@@ -1017,16 +1035,15 @@ def stop_docker(state: dict[str, Any], services: bool) -> int:
     if shutil.which("docker") is None:
         err("Docker is required to stop the container.")
         return 1
-    project = state["project"]
-    if state.get("url") and docker_running(project) and not confirm_stop(state["url"]):
+    if state.get("url") and docker_running(state) and not confirm_stop(state["url"]):
         return 1
     targets = ["ragglet"] if state.get("url") else []
-    if services and state["services"]:
-        targets += ["qdrant", "redis"]
+    if services:
+        targets.extend(state["services"])
     if not targets:
         out("The server is not running")
         return 0
-    command = [*docker_project_command(project), "stop", *targets]
+    command = [*docker_command(state["files"], state["project"]), "stop", *targets]
     if subprocess.run(command, cwd=ROOT, stdout=sys.stderr).returncode:
         return 1
     out("Stopped " + ", ".join(targets))
@@ -1034,7 +1051,8 @@ def stop_docker(state: dict[str, Any], services: bool) -> int:
     if services or not state["services"]:
         (RESULTS / "server.json").unlink(missing_ok=True)
     else:
-        write_state({"mode": "docker", "project": project, "services": True})
+        state.pop("url", None)
+        write_state(state)
     return 0
 
 

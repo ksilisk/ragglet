@@ -462,9 +462,15 @@ def test_start_status_stop(stub, monkeypatch, capsys):
     assert cli.main(["status"]) == 3
 
 
-@pytest.mark.parametrize("external_services", [False, True])
-def test_docker_lifecycle(stub, monkeypatch, capsys, external_services):
+@pytest.mark.parametrize("setup", ["standard", "external", "s5"])
+def test_docker_lifecycle(stub, monkeypatch, capsys, setup):
     """Compose is stubbed, the launcher still owns readiness, task protection and service selection."""
+    external_services = setup == "external"
+    dependencies = ["qdrant-shard-0", "qdrant-shard-1", "redis"] if setup == "s5" else ["qdrant", "redis"]
+    s5_files = cli.os.pathsep.join(["docker/docker-compose.yaml", "docker/compose.s5.yaml"])
+    monkeypatch.delenv("COMPOSE_FILE", raising=False)
+    if setup == "s5":
+        monkeypatch.setenv("COMPOSE_FILE", s5_files)
     running = False
     tasks = []
     commands = []
@@ -482,7 +488,8 @@ def test_docker_lifecycle(stub, monkeypatch, capsys, external_services):
         commands.append(command)
         output = ""
         if "config" in command:
-            output = '{"name": "saved-project"}'
+            output = json.dumps({"name": "saved-project",
+                                 "services": {"ragglet": {"depends_on": dict.fromkeys(dependencies, {})}}})
         elif "up" in command:
             assert kwargs["env"]["RAGGLET_COMMIT"] != "stale"
             assert len(kwargs["env"]["RAGGLET_COMMIT"]) == 40
@@ -514,6 +521,13 @@ def test_docker_lifecycle(stub, monkeypatch, capsys, external_services):
     assert opened == [url, url]
     assert cli.main(["status"]) == 0
     assert f"{url}, Docker" in capsys.readouterr().out
+    if setup == "standard":
+        with monkeypatch.context() as different:
+            different.setenv("COMPOSE_FILE", s5_files)
+            assert cli.main(args) == 1
+            assert "stop --services" in capsys.readouterr().err
+        assert sum("up" in cmd for cmd in commands) == 1
+    monkeypatch.delenv("COMPOSE_FILE", raising=False)  # stop always uses the recorded setup
 
     tasks.append({"kind": "run", "id": "active-run", "state": "running"})
     assert cli.main(["stop", "--services"]) == 1  # non-interactive, protect both server and services
@@ -525,7 +539,8 @@ def test_docker_lifecycle(stub, monkeypatch, capsys, external_services):
         monkeypatch.setenv("COMPOSE_PROJECT_NAME", "another-project")
         assert cli.main(["stop", "--services"]) == 0
         assert "saved-project" in commands[-1]
-        assert commands[-1][-3:] == ["stop", "qdrant", "redis"]
+        assert commands[-1][commands[-1].index("stop") + 1:] == dependencies
+        assert ("docker/compose.s5.yaml" in commands[-1]) == (setup == "s5")
     assert cli.read_state() == {}
 
 

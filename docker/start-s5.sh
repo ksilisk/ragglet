@@ -2,6 +2,5 @@
 # Two independent vector sources for demo_sharded / s5_distributed_like.
 set -eu
 cd "$(dirname "$0")/.."
-docker compose -f docker/docker-compose.yaml --profile qdrant-multi up -d --wait
-export RAGGLET_QDRANT_ENDPOINTS=http://localhost:6333,http://localhost:6334
-exec ./ragglet start --docker --no-services "$@"
+export COMPOSE_FILE="${COMPOSE_FILE:-docker/docker-compose.yaml}${COMPOSE_PATH_SEPARATOR:-:}docker/compose.s5.yaml"
+exec ./ragglet start --docker "$@"
