@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 import type { S } from "../../api/client";
-import { useBuild, useBuilds, useCancelTask, useRun, useRuns, useStand, useTasks } from "../../api/queries";
+import { useBuild, useBuilds, useCancelTask, useProfiles, useRun, useRuns, useScenarios, useStand, useTasks } from "../../api/queries";
 import { useT } from "../../i18n/i18n";
 import { fmtBytes, fmtDataset, fmtMetric, fmtMs, fmtNumber, fmtQps, fmtTime, fmtWhen } from "../../lib/format";
 import { Button, LinkButton } from "../../ui/Button";
@@ -19,12 +19,14 @@ export default function StandPage() {
   const tasks = useTasks();
   const current = tasks.data?.find((task) => task.state === "running") ?? null;
   const queue = (tasks.data ?? []).filter((task) => task.state === "queued");
+  const qdrant = useStand().data?.qdrant;
+  const empty = tasks.data?.length === 0 && qdrant?.length === 1 && qdrant[0]?.available === true && qdrant[0].collections === 0;
 
   return (
     <Page gap={20}>
       <PageHead
         title={t("Стенд")}
-        actions={
+        actions={!empty &&
           <>
             <LinkButton to="/indexes?tab=profiles">{t("Собрать индекс")}</LinkButton>
             <LinkButton to="/scenarios" variant="primary">
@@ -35,7 +37,7 @@ export default function StandPage() {
       />
       {tasks.error && <ErrorBox error={tasks.error} />}
       <div className={s.split}>
-        {current ? <NowCard task={current} /> : <IdleCard loading={tasks.isPending} />}
+        {current ? <NowCard task={current} /> : <IdleCard loading={tasks.isPending} empty={empty} />}
         <QueueCard queue={queue} />
       </div>
       <Services />
@@ -47,7 +49,7 @@ export default function StandPage() {
   );
 }
 
-function IdleCard({ loading }: { loading: boolean }) {
+function IdleCard({ loading, empty }: { loading: boolean; empty: boolean }) {
   const t = useT();
   return (
     <Card title={t("Сейчас")}>
@@ -55,13 +57,30 @@ function IdleCard({ loading }: { loading: boolean }) {
         <Dot tone={loading ? "idle" : "ok"} />
         {loading ? "…" : t("Стенд свободен")}
       </div>
-      <Actions>
-        <LinkButton to="/scenarios" variant="primary">
-          {t("Запустить сценарий")}
-        </LinkButton>
-        <LinkButton to="/indexes?tab=profiles">{t("Собрать индекс")}</LinkButton>
-      </Actions>
+      {empty ? <FirstIndex /> : (
+        <Actions>
+          <LinkButton to="/scenarios" variant="primary">{t("Запустить сценарий")}</LinkButton>
+          <LinkButton to="/indexes?tab=profiles">{t("Собрать индекс")}</LinkButton>
+        </Actions>
+      )}
     </Card>
+  );
+}
+
+function FirstIndex() {
+  const t = useT();
+  const demo = useProfiles().data?.find((profile) => profile.id === "demo" && profile.valid);
+  const baseline = useScenarios().data?.find((scenario) => scenario.id === "baseline_qdrant" && scenario.valid);
+  if (!demo || !baseline) {
+    return <LinkButton to="/indexes?tab=profiles">{t("Собрать индекс")}</LinkButton>;
+  }
+  return (
+    <>
+      <span>{t("Для первого прогона соберите индекс demo, затем откройте сценарий baseline_qdrant.")}</span>
+      <Actions>
+        <LinkButton to="/indexes/profiles/demo?build=1" variant="primary">{t("Собрать demo")}</LinkButton>
+      </Actions>
+    </>
   );
 }
 

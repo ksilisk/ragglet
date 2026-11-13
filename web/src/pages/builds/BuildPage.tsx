@@ -1,14 +1,14 @@
 import type { ReactNode } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { ApiProblem, type S } from "../../api/client";
-import { useBuild, useBuildProfileYaml, useCancelTask, useTasks } from "../../api/queries";
+import { useBuild, useBuildProfileYaml, useCancelTask, useScenarios, useTasks } from "../../api/queries";
 import { YamlEditor } from "../../editor/YamlEditor";
 import { useT } from "../../i18n/i18n";
 import { fmtDataset, fmtDuration, fmtNumber, fmtTime, fmtWhen } from "../../lib/format";
 import { compactNames } from "../../lib/names";
 import { PHASE_HINT } from "../../lib/task";
 import { useNow } from "../../lib/useNow";
-import { Button } from "../../ui/Button";
+import { Button, LinkButton } from "../../ui/Button";
 import { Chip } from "../../ui/Chip";
 import { useConfirm } from "../../ui/Dialog";
 import k from "../../ui/kit.module.css";
@@ -112,6 +112,7 @@ function BuildView({ build }: { build: S["BuildStatus"] }) {
         </div>
         <div className={k.actions}>
           {profileRoute && <Button onClick={() => navigate(profileRoute)}>{t("Открыть профиль")}</Button>}
+          {build.profile_id === "demo" && build.state === "completed" && <DemoScenarioLink targets={build.targets} />}
           {profileRoute && !active && <Button onClick={() => navigate(`${profileRoute}?build=1`)}>{t("Пересобрать")}</Button>}
           {active && (
             <Button variant="danger" onClick={() => void onCancel()} disabled={cancel.isPending}>
@@ -191,6 +192,17 @@ function BuildView({ build }: { build: S["BuildStatus"] }) {
       {tab === "profile" && <BuildProfile build={build} />}
     </Page>
   );
+}
+
+function DemoScenarioLink({ targets }: { targets: S["CollectionRef"][] }) {
+  const t = useT();
+  const baseline = useScenarios().data?.find((scenario) => scenario.id === "baseline_qdrant" && scenario.valid);
+  if (!baseline?.collections.length) return null;
+  const usesBuiltIndex = baseline.collections.every((ref) =>
+    targets.some((target) => target.endpoint === ref.endpoint && target.collection === ref.collection)
+  );
+  if (!usesBuiltIndex) return null;
+  return <LinkButton to={LIBRARY.scenario.route(baseline.id)} variant="primary">{t("Открыть baseline_qdrant")}</LinkButton>;
 }
 
 function BuildResult({ build }: { build: S["BuildStatus"] }) {

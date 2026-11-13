@@ -4,6 +4,7 @@
 Ragglet — клиент стенда: один файл, только стандартная библиотека, Python 3.9+.
 
     python3 ragglet start      # первый раз сам готовит окружение и поднимает Qdrant/Redis
+    python3 ragglet start --docker --open  # готовый локальный стенд с UI
     python3 ragglet run configs/scenarios/baseline_qdrant.yaml
     python3 ragglet stop
 
@@ -37,7 +38,9 @@ from typing import Any, Callable
 ROOT = Path(__file__).resolve().parent
 CMD = ("py " if os.name == "nt" else "python3 ") + Path(__file__).name  # как запускать: для подсказок
 RESULTS = ROOT / "results"  # server.json (pid и адрес сервера, которого поднял start), server.log, env.log
-COMPOSE = ["docker", "compose", "-f", "docker/docker-compose.yaml", "--profile", "qdrant"]
+COMPOSE = ["docker", "compose", "-f", "docker/docker-compose.yaml"]
+HOST_NETWORK_HINT = ("Docker Desktop 4.34+ requires Settings > Resources > Network > "
+                     "Enable host networking, then Apply & restart.")
 DEFAULT_API = "http://127.0.0.1:8000"
 TERMINAL = ("completed", "failed", "cancelled")
 POLL_S = 1.0
@@ -164,7 +167,11 @@ def api_url(args: argparse.Namespace) -> str:
 
 def read_state() -> dict[str, Any]:
     try:
-        return json.loads((RESULTS / "server.json").read_text(encoding="utf-8"))
+        state = json.loads((RESULTS / "server.json").read_text(encoding="utf-8"))
+        if state.get("mode") == "docker" and "files" not in state:
+            state["files"] = ["docker/docker-compose.yaml"]
+            state["services"] = ["qdrant", "redis"] if state["services"] else []
+        return state
     except (OSError, ValueError):
         return {}
 
@@ -684,7 +691,7 @@ def ensure_services() -> None:
     if not startable:
         return
     names = " and ".join(f"{name} ({url})" for name, url, svc in down if svc)
-    command = COMPOSE + ["up", "-d"] + startable
+    command = COMPOSE + ["--profile", "qdrant", "up", "-d"] + startable
     if shutil.which("docker") is None:
         err(f"{names} {'is' if len(startable) == 1 else 'are'} down and Docker is not installed. Start them:")
         err("  " + " ".join(command))
@@ -832,13 +839,103 @@ def prepare_ui() -> None:
         err(tail(log))
 
 
+def write_state(state: dict[str, Any]) -> None:
+    RESULTS.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile("w", dir=RESULTS, delete=False, encoding="utf-8") as f:
+        json.dump(state, f)
+    os.replace(f.name, RESULTS / "server.json")
+
+
+def docker_env(port: int) -> dict[str, str]:
+    env = dict(os.environ, RAGGLET_PORT=str(port))
+    commit = ""
+    if shutil.which("git"):
+        done = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True)
+        if done.returncode == 0:
+            commit = done.stdout.strip()
+    if not commit:
+        err("Warning: cannot determine the checkout's Git commit for the image manifest.")
+    env["RAGGLET_COMMIT"] = commit
+    if sys.platform.startswith("linux"):
+        env.update(RAGGLET_UID=str(os.getuid()), RAGGLET_GID=str(os.getgid()))
+    return env
+
+
+def docker_files() -> list[str]:
+    value = os.environ.get("COMPOSE_FILE", "docker/docker-compose.yaml")
+    return value.split(os.environ.get("COMPOSE_PATH_SEPARATOR") or os.pathsep)
+
+
+def docker_command(files: list[str], project: str | None = None) -> list[str]:
+    command = ["docker", "compose"]
+    for path in files:
+        command.extend(["-f", path])
+    if project:
+        command.extend(["--project-name", project])
+    return [*command, "--profile", "app"]
+
+
+def docker_running(state: dict[str, Any]) -> bool:
+    command = docker_command(state["files"], state["project"])
+    done = subprocess.run([*command, "ps", "--status", "running", "-q", "ragglet"],
+                          cwd=ROOT, stdout=subprocess.PIPE, text=True)
+    if done.returncode:
+        raise Exit(1)
+    return bool(done.stdout.strip())
+
+
+def start_docker(args: argparse.Namespace, url: str) -> int:
+    env = docker_env(args.port)
+    files = docker_files()
+    # Remember the actual project and dependencies so stop works from a fresh shell.
+    done = subprocess.run([*docker_command(files), "config", "--format", "json"], cwd=ROOT,
+                          env=env, stdout=subprocess.PIPE, text=True)
+    if done.returncode:
+        return 1
+    config = json.loads(done.stdout)
+    project = config["name"]
+    command = docker_command(files, project)
+    services = [] if args.no_services else list(config["services"]["ragglet"].get("depends_on", {}))
+    # Record ownership before 'up': a failed build or Ctrl-C can leave running services.
+    write_state({"mode": "docker", "project": project, "files": files, "url": url, "services": services})
+    options = ["--no-deps"] if args.no_services else []
+    failed = subprocess.run([*command, "up", "-d", "--build", "--wait", *options, "ragglet"],
+                            cwd=ROOT, env=env, stdout=sys.stderr).returncode
+    if failed:
+        err(f"Inspect the stand: {shlex.join(command)} logs --tail 50")
+        return 1
+    stand = responds(Api(url))
+    if stand is None:
+        err(f"The container started, but the API is unreachable at {url}.")
+        if sys.platform == "darwin":
+            err(HOST_NETWORK_HINT)
+        return 1
+    return started(url, stand, args, already=False)
+
+
 def cmd_start(args: argparse.Namespace) -> int:
     host = "127.0.0.1" if args.host in ("0.0.0.0", "::", "") else args.host
     url = f"http://{host}:{args.port}"
+    if args.docker:
+        if args.host not in ("127.0.0.1", "localhost") or args.foreground or args.no_ui:
+            err("--docker runs the local UI in the background; --host, --foreground and --no-ui are for native start.")
+            return 2
+        if shutil.which("docker") is None:
+            err("Install Docker with Docker Compose to use --docker.")
+            return 1
     state = read_state()
+    if args.docker and state.get("mode") == "docker" and state["files"] != docker_files():
+        err(f"Another Docker setup is active for this checkout. Run {CMD} stop --services before switching.")
+        return 1
     for known in dict.fromkeys([url, state.get("url")]):
         if known and (stand := responds(Api(known))) is not None:
+            if args.docker and not (state.get("mode") == "docker" and state.get("url") == known
+                                    and docker_running(state)):
+                err(f"A different Ragglet server already responds at {known}. Stop it before starting Docker.")
+                return 1
             return started(known, stand, args, already=True)
+    if args.docker:
+        return start_docker(args, url)
     if os.name == "nt":
         err("The server runs on macOS and Linux; on Windows use Docker or WSL.")
         return 1
@@ -860,9 +957,8 @@ def cmd_start(args: argparse.Namespace) -> int:
     with log.open("ab") as sink:
         process = subprocess.Popen(command, cwd=ROOT, env=server_env(), stdin=subprocess.DEVNULL, stdout=sink,
                                    stderr=subprocess.STDOUT, start_new_session=True)
-    (RESULTS / "server.json").write_text(json.dumps({
-        "pid": process.pid, "url": url, "started_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-    }), encoding="utf-8")
+    write_state({"pid": process.pid, "url": url, "services": not args.no_services,
+                 "started_at": datetime.now(timezone.utc).isoformat(timespec="seconds")})
     deadline = time.monotonic() + 120  # импорт FastAPI и ядра, скан реестра
     while (stand := responds(Api(url))) is None:
         if process.poll() is not None or time.monotonic() > deadline:
@@ -877,6 +973,13 @@ def cmd_start(args: argparse.Namespace) -> int:
 
 
 def started(url: str, stand: dict[str, Any], args: argparse.Namespace, *, already: bool) -> int:
+    if args.docker and read_state().get("services"):
+        for svc in [*(stand.get("qdrant") or []), stand.get("redis")]:
+            if svc and not svc["available"]:
+                err("The container cannot reach " + service_line(svc))
+                if sys.platform == "darwin":
+                    err(HOST_NETWORK_HINT)
+                return 1
     if args.json:
         emit_json(stand)
     else:
@@ -917,26 +1020,56 @@ def confirm(question: str) -> bool:
     return input(f"{question} [y/N] ").strip().lower() in ("y", "yes")
 
 
+def confirm_stop(url: str) -> bool:
+    try:
+        active = Api(url).get("/v1/tasks")
+    except Unreachable:
+        return True  # allow stopping a server whose API no longer responds
+    if not active:
+        return True
+    names = ", ".join(f"{t['kind']} {t['id']} ({t['state']})" for t in active)
+    return confirm(f"Active tasks: {names}. Stopping the server fails them. Stop anyway?")
+
+
+def stop_docker(state: dict[str, Any], services: bool) -> int:
+    if shutil.which("docker") is None:
+        err("Docker is required to stop the container.")
+        return 1
+    if state.get("url") and docker_running(state) and not confirm_stop(state["url"]):
+        return 1
+    targets = ["ragglet"] if state.get("url") else []
+    if services:
+        targets.extend(state["services"])
+    if not targets:
+        out("The server is not running")
+        return 0
+    command = [*docker_command(state["files"], state["project"]), "stop", *targets]
+    if subprocess.run(command, cwd=ROOT, stdout=sys.stderr).returncode:
+        return 1
+    out("Stopped " + ", ".join(targets))
+    # Keep the project identity so a later 'stop --services' can finish the job.
+    if services or not state["services"]:
+        (RESULTS / "server.json").unlink(missing_ok=True)
+    else:
+        state.pop("url", None)
+        write_state(state)
+    return 0
+
+
 def cmd_stop(args: argparse.Namespace) -> int:
     state = read_state()
+    if state.get("mode") == "docker":
+        return stop_docker(state, args.services)
     pid, url = state.get("pid"), state.get("url") or api_url(args)
-    code = 0
     if not pid or not alive(pid):
         (RESULTS / "server.json").unlink(missing_ok=True)
         if responds(Api(url)) is not None:
             err(f"The server at {url} was not started by `{CMD} start`; stop it where it runs.")
-            code = 1
-        else:
-            out("The server is not running")
+            return 1
+        out("The server is not running")
     else:
-        try:
-            active = Api(url).get("/v1/tasks")
-        except Unreachable:
-            active = []
-        if active:
-            names = ", ".join(f"{t['kind']} {t['id']} ({t['state']})" for t in active)
-            if not confirm(f"Active tasks: {names}. Stopping the server fails them. Stop anyway?"):
-                return 1
+        if not confirm_stop(url):
+            return 1
         os.kill(pid, signal.SIGTERM)
         deadline = time.monotonic() + 15  # cancel_grace_s сервера и запас
         while alive(pid):
@@ -946,14 +1079,14 @@ def cmd_stop(args: argparse.Namespace) -> int:
             time.sleep(0.2)
         (RESULTS / "server.json").unlink(missing_ok=True)
         out("Stopped the server")
-    if args.services:
+    if args.services and state.get("services", True):
         if shutil.which("docker") is None:
             err("Docker is not installed: nothing to stop")
             return 1
-        if subprocess.run(COMPOSE + ["stop", "qdrant", "redis"], cwd=ROOT).returncode:
+        if subprocess.run(COMPOSE + ["--profile", "qdrant", "stop", "qdrant", "redis"], cwd=ROOT).returncode:
             return 1
         out("Stopped Qdrant and Redis")
-    return code
+    return 0
 
 
 def cmd_status(args: argparse.Namespace) -> int:
@@ -977,6 +1110,8 @@ def cmd_status(args: argparse.Namespace) -> int:
 def echo_stand(url: str, stand: dict[str, Any]) -> None:
     state = read_state()
     line = f"server: {url}"
+    if state.get("url") == url and state.get("mode") == "docker":
+        line += ", Docker"
     if state.get("url") == url and state.get("pid"):
         since = parse_time(state.get("started_at"))
         up = (datetime.now(timezone.utc) - since).total_seconds() if since else None
@@ -1389,6 +1524,7 @@ def build_parser() -> argparse.ArgumentParser:
     command("queue", cmd_queue, "the running task and the queue")
 
     start = command("start", cmd_start, "start the stand: services, environment, server; prints the UI address")
+    start.add_argument("--docker", action="store_true", help="build and run the stand in Docker Compose")
     start.add_argument("--port", type=int, default=8000)
     start.add_argument("--host", default="127.0.0.1", help="bind address; 0.0.0.0 opens the server to the network")
     start.add_argument("--open", action="store_true", help="open the UI in the browser")
