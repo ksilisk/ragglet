@@ -91,6 +91,9 @@ export const en: Record<string, string> = {
 
   // стенд, сценарии
   "Собрать индекс": "Build index",
+  "Для первого прогона соберите индекс demo, затем откройте сценарий baseline_qdrant.": "For your first run, build the demo index, then open the baseline_qdrant scenario.",
+  "Собрать demo": "Build demo",
+  "Открыть baseline_qdrant": "Open baseline_qdrant",
   "Запустить сценарий": "Run scenario",
   "Сейчас": "Now",
   "Отменить прогон {name}?": "Cancel run {name}?",
