@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 import anyio
@@ -9,34 +10,89 @@ import anyio
 
 @dataclass(frozen=True)
 class RetrievedItem:
-    # внутренний id (UUID point id в Qdrant и т.п.)
     point_id: str
-    # id чанка: по нему делаем retrieval-dedup
     chunk_id: str
-    # id документа (BEIR corpus _id): по нему считаются doc-level метрики
     doc_id: str
     score_raw: float
     source: str
     payload: dict[str, Any] | None
+    score_fused: float | None = None
+
+    @property
+    def ranking_score(self) -> float:
+        """Interleave/single retain raw scores; a fused zero is a valid score."""
+        return self.score_raw if self.score_fused is None else self.score_fused
 
 
 @dataclass(frozen=True)
 class SourceSpec:
     name: str
-    kind: str           # "vector" | "keyword" | "hybrid"
+    kind: str
     weight: float
     params: dict[str, Any]
+
+
+def validate_item(item: RetrievedItem) -> None:
+    if not item.chunk_id.strip() or not item.doc_id.strip():
+        raise ValueError("retrieval candidates must have nonempty chunk_id and doc_id")
+    if not math.isfinite(item.score_raw):
+        raise ValueError(f"non-finite score from source {item.source!r}")
 
 
 def deduplicate_by_chunk_id(items: Iterable[RetrievedItem]) -> list[RetrievedItem]:
     seen: set[str] = set()
     out: list[RetrievedItem] = []
-    for it in items:
-        if it.chunk_id in seen:
-            continue
-        seen.add(it.chunk_id)
-        out.append(it)
+    for item in items:
+        if item.chunk_id not in seen:
+            seen.add(item.chunk_id)
+            out.append(item)
     return out
+
+
+def _prepare(
+    ranked: dict[str, list[RetrievedItem]], weights: dict[str, float], top_k: int,
+) -> tuple[dict[str, list[RetrievedItem]], dict[str, float]]:
+    """Dict order is the configured source order, not completion order."""
+    if top_k < 1:
+        raise ValueError("top_k must be >= 1")
+    active: dict[str, list[RetrievedItem]] = {}
+    positive: dict[str, float] = {}
+    docs: dict[str, str] = {}
+    for source, items in ranked.items():
+        weight = float(weights.get(source, 1.0))
+        if not math.isfinite(weight) or weight < 0:
+            raise ValueError("source weights must be finite and >= 0")
+        for item in items:
+            validate_item(item)
+            if docs.setdefault(item.chunk_id, item.doc_id) != item.doc_id:
+                raise ValueError(f"conflicting doc_id for chunk {item.chunk_id!r}")
+        if weight > 0:
+            active[source] = deduplicate_by_chunk_id(items)
+            positive[source] = weight
+    if ranked and not positive:
+        raise ValueError("at least one source weight must be positive")
+    return active, positive
+
+
+def _fused_items(
+    ranked: dict[str, list[RetrievedItem]], contributions: dict[str, list[float]], top_k: int,
+) -> list[RetrievedItem]:
+    representatives: dict[str, RetrievedItem] = {}
+    ties: dict[str, tuple[int, int, str]] = {}
+    for index, items in enumerate(ranked.values()):
+        for rank, item in enumerate(items, 1):
+            tie = (rank, index, item.chunk_id)
+            if item.chunk_id not in ties or tie < ties[item.chunk_id]:
+                ties[item.chunk_id] = tie
+                representatives[item.chunk_id] = item
+    try:
+        scores = {cid: math.fsum(parts) for cid, parts in contributions.items()}
+    except OverflowError as exc:
+        raise ValueError("merge score overflow") from exc
+    if any(not math.isfinite(score) for score in scores.values()):
+        raise ValueError("merge score overflow")
+    ordered = sorted(scores, key=lambda cid: (-scores[cid], ties[cid]))
+    return [replace(representatives[cid], score_fused=scores[cid]) for cid in ordered[:top_k]]
 
 
 def rrf_merge(
@@ -46,43 +102,23 @@ def rrf_merge(
     top_k: int,
     deduplicate: bool,
 ) -> list[RetrievedItem]:
+    """sum(weight / (rrf_k + rank)); fusion always aggregates by chunk_id.
+
+    deduplicate is retained for configuration compatibility; only interleave can
+    return the same chunk from different sources. Local duplicates never vote twice.
     """
-    Reciprocal Rank Fusion:
-      score(doc) = sum_s w_s * 1/(rrf_k + rank_s(doc))
-    где rank начинается с 1.
-    """
-    fused_score: dict[str, float] = {}
-    best_item: dict[str, RetrievedItem] = {}
+    if rrf_k < 1:
+        raise ValueError("rrf_k must be >= 1")
+    ranked, weights = _prepare(per_source_ranked, weights, top_k)
+    contributions: dict[str, list[float]] = {}
+    for source, items in ranked.items():
+        for rank, item in enumerate(items, 1):
+            contributions.setdefault(item.chunk_id, []).append(weights[source] / (rrf_k + rank))
+    return _fused_items(ranked, contributions, top_k)
 
-    for source_name, items in per_source_ranked.items():
-        w = float(weights.get(source_name, 1.0))
-        for rank, it in enumerate(items, start=1):
-            key = it.chunk_id
-            fused_score[key] = fused_score.get(key, 0.0) + w * (1.0 / (rrf_k + rank))
-            # сохраняем один representative item (payload пригодится потом)
-            if key not in best_item:
-                best_item[key] = it
 
-    # сортируем по fused_score desc
-    ordered = sorted(best_item.keys(), key=lambda k: fused_score.get(k, 0.0), reverse=True)
-    merged = [best_item[k] for k in ordered]
-
-    if deduplicate:
-        merged = deduplicate_by_chunk_id(merged)
-
-    return merged[:top_k]
-
-async def run_sources(
-    tasks: list[tuple[str, Any]],
-    parallel: bool,
-) -> dict[str, Any]:
-    """
-    tasks: список (name, awaitable_fn)
-    parallel=True  -> запускаем конкурентно
-    parallel=False -> выполняем по очереди
-    """
+async def run_sources(tasks: list[tuple[str, Any]], parallel: bool) -> dict[str, Any]:
     results: dict[str, Any] = {}
-
     if parallel:
         async def _run_one(name: str, fn):
             results[name] = await fn()
@@ -91,11 +127,10 @@ async def run_sources(
             for name, fn in tasks:
                 tg.start_soon(_run_one, name, fn)
         return results
-
-    # sequential
     for name, fn in tasks:
         results[name] = await fn()
     return results
+
 
 def interleave_merge(
     per_source_ranked: dict[str, list[RetrievedItem]],
@@ -104,107 +139,66 @@ def interleave_merge(
     deduplicate: bool = True,
     weighted: bool = False,
 ) -> list[RetrievedItem]:
-    """
-    weighted=False: round-robin 1 item per source
-    weighted=True: "weighted round robin" — источники с большим weight чаще дают элементы
-    """
-    src_names = [s for s in per_source_ranked.keys()]
-    if not src_names:
-        return []
-
-    # для weighted RR сделаем простую схему: квоты пропорционально весам
-    # (не идеальная, но работает). Можно заменить на smooth WRR позже.
-    if weighted:
-        total = sum(max(0.0, weights.get(s, 1.0)) for s in src_names) or 1.0
-        quotas = {s: max(1, int(round(top_k * (weights.get(s, 1.0) / total)))) for s in src_names}
-    else:
-        quotas = {s: top_k for s in src_names}
-
-    idx = {s: 0 for s in src_names}
+    """Round-robin or smooth weighted round-robin, without fixed output quotas."""
+    ranked, weights = _prepare(per_source_ranked, weights, top_k)
+    # Scale weights to avoid overflowing the scheduler; this does not affect ratios.
+    scale = max(weights.values(), default=1.0)
+    weights = {s: w / scale if weighted else 1.0 for s, w in weights.items()}
+    current = {s: 0.0 for s in ranked}
+    positions = {s: 0 for s in ranked}
     used: set[str] = set()
     out: list[RetrievedItem] = []
-
-    # цикл пока можем добавлять
-    progressed = True
-    while len(out) < top_k and progressed:
-        progressed = False
-        for s in src_names:
-            if len(out) >= top_k:
-                break
-            if quotas[s] <= 0:
-                continue
-
-            lst = per_source_ranked.get(s, [])
-            while idx[s] < len(lst):
-                item = lst[idx[s]]
-                idx[s] += 1
-                progressed = True
-
-                key = item.chunk_id
-                if deduplicate and key in used:
-                    continue
-
-                out.append(item)
-                used.add(key)
-                quotas[s] -= 1
-                break
-
+    order = {s: i for i, s in enumerate(ranked)}
+    cursor = 0
+    while len(out) < top_k:
+        available = []
+        for source, items in ranked.items():
+            while positions[source] < len(items) and deduplicate and items[positions[source]].chunk_id in used:
+                positions[source] += 1
+            if positions[source] < len(items):
+                available.append(source)
+        if not available:
+            break
+        if weighted:
+            for source in available:
+                current[source] += weights[source]
+            source = max(available, key=lambda s: current[s])
+            current[source] -= math.fsum(weights[s] for s in available)
+        else:
+            source = next((s for s in available if order[s] >= cursor), available[0])
+            cursor = (order[source] + 1) % len(ranked)
+        item = ranked[source][positions[source]]
+        positions[source] += 1
+        used.add(item.chunk_id)
+        out.append(replace(item, score_fused=None))
     return out
+
 
 def weighted_sum_merge(
     per_source_ranked: dict[str, list[RetrievedItem]],
     weights: dict[str, float],
     top_k: int,
     deduplicate: bool = True,
-    normalize: str = "minmax",  # "minmax" | "zscore" (позже) | "none"
+    normalize: str = "minmax",
     eps: float = 1e-9,
 ) -> list[RetrievedItem]:
-    # накопим по chunk_id
-    agg_score: dict[str, float] = {}
-    best_item: dict[str, RetrievedItem] = {}  # чтобы payload/source/etc сохранить
-
-    for src, items in per_source_ranked.items():
+    """Sum scores after per-source normalization; always aggregate by chunk_id."""
+    if normalize not in ("minmax", "none"):
+        raise ValueError(f"unsupported normalization: {normalize!r}")
+    if not math.isfinite(eps) or eps < 0:
+        raise ValueError("eps must be finite and >= 0")
+    ranked, weights = _prepare(per_source_ranked, weights, top_k)
+    contributions: dict[str, list[float]] = {}
+    for source, items in ranked.items():
         if not items:
             continue
-        w = float(weights.get(src, 1.0))
-
-        scores = [float(it.score_raw) for it in items]
+        scores = [item.score_raw for item in items]
         if normalize == "minmax":
-            mn, mx = min(scores), max(scores)
-            denom = (mx - mn) + eps
-            def norm(x: float, mn: float = mn, denom: float = denom) -> float:  # значения этой итерации
-                return (x - mn) / denom
-        elif normalize == "none":
-            def norm(x: float) -> float:
-                return x
-        else:
-            raise NotImplementedError(f"normalize='{normalize}' not implemented")
-
-        for it in items:
-            key = it.chunk_id
-            sc = w * norm(float(it.score_raw))
-            agg_score[key] = agg_score.get(key, 0.0) + sc
-            # сохраним "лучший" item как репрезентативный (например с max raw score)
-            if key not in best_item or float(it.score_raw) > float(best_item[key].score_raw):
-                best_item[key] = it
-
-    merged = []
-    for ext_id, sc in agg_score.items():
-        it = best_item[ext_id]
-        # можно положить итоговый score в score_raw (или добавить score_fused отдельным полем)
-        merged.append(RetrievedItem(
-            point_id=it.point_id,
-            chunk_id=it.chunk_id,
-            doc_id=it.doc_id,
-            score_raw=float(sc),          # fused score
-            source=it.source,             # можно поставить "fused"
-            payload=it.payload,
-        ))
-
-    merged.sort(key=lambda x: x.score_raw, reverse=True)
-
-    if deduplicate:
-        # тут дубликатов уже нет (ключ ext_id), но оставим на будущее
-        pass
-
-    return merged[:top_k]
+            low, high = min(scores), max(scores)
+            span = high - low
+            if not math.isfinite(span):
+                raise ValueError("normalization range overflow")
+            scores = [(score - low) / span for score in scores] if span > eps else [0.0] * len(items)
+        for item, score in zip(items, scores, strict=True):
+            contributions.setdefault(item.chunk_id, []).append(weights[source] * score)
+    return _fused_items(ranked, contributions, top_k)

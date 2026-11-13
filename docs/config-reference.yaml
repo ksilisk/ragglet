@@ -500,7 +500,7 @@ scenario:
               type: "float"
               default: 1.0
               status: implemented
-              docs: "Source weight used by rrf and weighted_sum. Interleave currently ignores weights unless called with weighted=true, which config cannot set."
+              docs: "Finite nonnegative weight used by rrf, weighted_sum and weighted interleave. Zero excludes the source from merging, not from retrieval calls; fanout requires a positive weight."
             params:
               type: "map"
               default: {}
@@ -538,19 +538,30 @@ scenario:
               docs: "Merge method for fanout_merge."
               runtime_behavior:
                 rrf: "Implemented with rrf_k and weights."
-                weighted_sum: "Implemented with hardcoded minmax normalization per source."
-                interleave: "Implemented as simple round-robin; configured weights are ignored."
+                weighted_sum: "Implemented with configurable minmax or none normalization per source; requires Cosine/Dot vector scores."
+                interleave: "Round-robin by default; interleave_weighted enables smooth weighted round-robin. Zero-weight sources never contribute."
             rrf_k:
               type: "integer"
               default: 60
               status: implemented
-              docs: "RRF rank constant. Only used when method=rrf."
+              docs: "RRF rank constant, >= 1. Only used when method=rrf."
             deduplicate:
               type: "boolean"
               default: true
               status: partial
-              docs: "Deduplicate by chunk_id where applicable."
-              caveat: "weighted_sum already aggregates by chunk_id; deduplicate flag has no practical effect there."
+              docs: "Controls cross-source chunk_id duplicates in interleave. Local duplicates are always removed before merge."
+              caveat: "RRF and weighted_sum always aggregate by chunk_id. false is accepted for compatibility with a preflight warning."
+            normalize:
+              type: "enum"
+              default: "minmax"
+              allowed_values: ["minmax", "none"]
+              status: implemented
+              docs: "weighted_sum normalization within each deduplicated source list. minmax gives zero to ranges <= 1e-9, including singleton lists; none retains raw scores."
+            interleave_weighted:
+              type: "boolean"
+              default: false
+              status: implemented
+              docs: "Enable smooth weighted round-robin for interleave, using sources[].weight; exhausted sources release their share."
     rerank:
       type: "object"
       status: implemented
@@ -616,7 +627,7 @@ scenario:
           type: "float"
           default: 0.0
           status: implemented
-          docs: "Minimum raw score for threshold policy or normalized score for adaptive policy."
+          docs: "Minimum ranking score (fused when available, otherwise raw) for threshold, or its per-list normalized value for adaptive. Recalibrate thresholds after changing merge; interleave retains source raw scores."
         include_metadata:
           type: "boolean"
           default: true
@@ -846,14 +857,14 @@ runtime_support_matrix:
         - "rrf_k"
         - "deduplicate"
     weighted_sum:
-      status: partial
+      status: implemented
       uses_weights: true
-      normalization: "hardcoded minmax"
-      note: "No scenario field exists to choose normalization."
+      normalization: "configurable minmax | none"
+      note: "Aggregates by chunk_id, preserves score_raw and returns score_fused."
     interleave:
-      status: partial
-      uses_weights: false
-      note: "Code supports a weighted argument internally, but scenario config cannot enable it."
+      status: implemented
+      uses_weights: true
+      note: "Positive weight ratios apply when interleave_weighted=true; zero weights are always excluded. No fused score is synthesized."
   stages:
     retrieval: implemented
     rerank: implemented

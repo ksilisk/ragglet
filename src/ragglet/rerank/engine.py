@@ -27,7 +27,7 @@ async def rerank_items(
     items: list[RetrievedItem],
 ) -> list[RerankedItem]:
     if not cfg.rerank.enabled:
-        return [RerankedItem(item=item, score=float(item.score_raw)) for item in items]
+        return [RerankedItem(item=item, score=float(item.ranking_score)) for item in items]
 
     try:
         with anyio.fail_after(cfg.timeouts.rerank_ms / 1000.0):

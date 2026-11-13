@@ -74,11 +74,7 @@ class CacheManager:
         return sig
 
     def _merge_sig(self) -> dict[str, Any]:
-        return {
-            "method": self.cfg.retrieval.merge.method,
-            "rrf_k": self.cfg.retrieval.merge.rrf_k,
-            "dedup": self.cfg.retrieval.merge.deduplicate,
-        }
+        return self.cfg.retrieval.merge.model_dump()
 
     def _retrieval_key(self, query: str) -> str:
         # без вектора: кэш можно проверить до эмбеддинга

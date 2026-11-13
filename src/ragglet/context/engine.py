@@ -53,7 +53,7 @@ def _to_context_candidates(
             score = entry.score
         else:
             item = entry
-            score = float(item.score_raw)
+            score = float(item.ranking_score)
 
         text = _text_for_item(item)
         out.append(

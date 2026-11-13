@@ -11,6 +11,7 @@ from ragglet.retrieval.merge import (
     interleave_merge,
     rrf_merge,
     run_sources,
+    validate_item,
     weighted_sum_merge,
 )
 from ragglet.retrieval.sources import active_sources
@@ -39,7 +40,7 @@ def _to_retrieved(candidate, source_name: str) -> RetrievedItem:
             "the index was built with an outdated payload contract, rebuild it with "
             "`ragglet index build`."
         )
-    return RetrievedItem(
+    item = RetrievedItem(
         point_id=str(candidate.id),
         chunk_id=str(chunk_id),
         doc_id=str(doc_id),
@@ -47,6 +48,8 @@ def _to_retrieved(candidate, source_name: str) -> RetrievedItem:
         source=source_name,
         payload=candidate.payload,
     )
+    validate_item(item)
+    return item
 
 
 async def retrieve_items(
@@ -108,10 +111,12 @@ async def retrieve_items(
                         )
                     elif cfg.retrieval.merge.method == "interleave":
                         merged = interleave_merge(per_source_ranked, weights, top_k,
-                                                  deduplicate=cfg.retrieval.merge.deduplicate)
+                                                  deduplicate=cfg.retrieval.merge.deduplicate,
+                                                  weighted=cfg.retrieval.merge.interleave_weighted)
                     elif cfg.retrieval.merge.method == "weighted_sum":
                         merged = weighted_sum_merge(per_source_ranked, weights, top_k,
-                                                    deduplicate=cfg.retrieval.merge.deduplicate)
+                                                    deduplicate=cfg.retrieval.merge.deduplicate,
+                                                    normalize=cfg.retrieval.merge.normalize)
                     else:
                         raise NotImplementedError("Only 'rrf', 'interleave' or 'weighted_sum' merge methods are implemented")
                 return merged

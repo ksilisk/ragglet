@@ -309,6 +309,8 @@ export const en: Record<string, string> = {
   "Сбросить к сохранённому?": "Revert to saved?",
   "Скопировать мой YAML": "Copy my YAML",
   "Слияние (merge)": "Merge",
+  "Учитывать веса источников": "Use source weights",
+  "RRF и weighted sum всегда объединяют одинаковые chunk_id.": "RRF and weighted sum always combine identical chunk_id values.",
   "Создать копию": "Create copy",
   "Сохранено {time}": "Saved {time}",
   "Сохранено {time} · черновик: не проходит схему": "Saved {time} · draft: fails the schema",

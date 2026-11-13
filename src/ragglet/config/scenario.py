@@ -132,7 +132,7 @@ class RetrievalSourceConfig(BaseModel):
 
     name: str
     kind: Literal["vector", "keyword"] = "vector"
-    weight: float = 1.0
+    weight: float = Field(1.0, ge=0, allow_inf_nan=False)
     params: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -140,8 +140,10 @@ class RetrievalMergeConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     method: Literal["rrf", "weighted_sum", "interleave"] = "rrf"
-    rrf_k: int = 60
+    rrf_k: int = Field(60, ge=1)
     deduplicate: bool = True
+    normalize: Literal["minmax", "none"] = "minmax"
+    interleave_weighted: bool = False
 
 
 class RetrievalConfig(BaseModel):
@@ -156,6 +158,12 @@ class RetrievalConfig(BaseModel):
     async_enabled: bool = Field(True, alias="async")
     sources: list[RetrievalSourceConfig] = Field(default_factory=list)
     merge: RetrievalMergeConfig = Field(default_factory=RetrievalMergeConfig)
+
+    @model_validator(mode="after")
+    def _fanout_weights(self) -> RetrievalConfig:
+        if self.strategy == "fanout_merge" and not any(s.weight > 0 for s in self.sources):
+            raise FieldError("sources", "fanout_merge requires at least one positive source weight")
+        return self
 
     @field_validator("sources")
     @classmethod

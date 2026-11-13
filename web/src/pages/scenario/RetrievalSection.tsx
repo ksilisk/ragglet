@@ -113,8 +113,14 @@ export function RetrievalSection() {
           <Grid cols={4}>
             <SelectField path="retrieval.merge.method" label="method" options={enumAt(meta.json_schema, ["retrieval", "merge", "method"])} />
             {method === "rrf" && <NumberField path="retrieval.merge.rrf_k" label="rrf_k" min={1} />}
-            <CheckField path="retrieval.merge.deduplicate" label={t("deduplicate — влияет только на interleave")} />
+            {method === "weighted_sum" && <SelectField path="retrieval.merge.normalize" label="normalize" options={enumAt(meta.json_schema, ["retrieval", "merge", "normalize"])} />}
+            {method === "interleave" && <>
+              <CheckField path="retrieval.merge.interleave_weighted" label={t("Учитывать веса источников")} />
+              <CheckField path="retrieval.merge.deduplicate" label={t("deduplicate — влияет только на interleave")} />
+            </>}
           </Grid>
+          {method !== "interleave" && <Note>{t("RRF и weighted sum всегда объединяют одинаковые chunk_id.")}</Note>}
+          {method !== "interleave" && <FieldMessages path="retrieval.merge.deduplicate" />}
         </div>
       )}
     </Section>

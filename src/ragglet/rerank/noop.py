@@ -16,4 +16,4 @@ class NoopReranker:
     ) -> list[RerankedItem]:
         del query
         limited = items[:input_top_k]
-        return [RerankedItem(item=item, score=float(item.score_raw)) for item in limited[:output_top_n]]
+        return [RerankedItem(item=item, score=float(item.ranking_score)) for item in limited[:output_top_n]]

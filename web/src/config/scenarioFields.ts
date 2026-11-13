@@ -32,6 +32,7 @@ const fields: Record<ScenarioSection, string[]> = {
     "retrieval.sources[].params", "retrieval.sources[].params.ef_search", "retrieval.sources[].params.backend_ref",
     "retrieval.sources[].params.k1", "retrieval.sources[].params.b",
     "retrieval.merge", "retrieval.merge.method", "retrieval.merge.rrf_k", "retrieval.merge.deduplicate",
+    "retrieval.merge.normalize", "retrieval.merge.interleave_weighted",
   ],
   rerank: ["rerank", "rerank.enabled", "rerank.provider", "rerank.model", "rerank.revision", "rerank.input_top_k", "rerank.output_top_n"],
   context: ["context", "context.enabled", "context.policy", "context.max_tokens", "context.threshold", "context.include_metadata"],

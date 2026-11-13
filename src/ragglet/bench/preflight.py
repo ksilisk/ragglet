@@ -195,6 +195,42 @@ INDEX_CHECKS: list[IndexCheck] = [
 ]
 
 
+def merge_warnings(cfg: ScenarioConfig) -> Iterator[Issue]:
+    if cfg.retrieval.strategy != "fanout_merge":
+        return
+    merge = cfg.retrieval.merge
+    if merge.method != "interleave" and not merge.deduplicate:
+        path = "retrieval.merge.deduplicate"
+        yield warning("retrieval.deduplicate_ignored", path,
+                      "RRF and weighted_sum always aggregate by chunk_id; deduplicate only affects interleave",
+                      path=path)
+    real_rerank = cfg.rerank.enabled and cfg.rerank.provider != "noop"
+    if merge.method == "interleave" and cfg.context.enabled and cfg.context.policy != "top_n" and not real_rerank:
+        path = "context.policy"
+        yield warning("retrieval.interleave_raw_scores", path,
+                      "Interleave has no fused score; threshold/adaptive context uses source raw scores, "
+                      "which may have incomparable scales. Use top_n or a real reranker.", path=path)
+
+
+def merge_score_direction(ctx: IndexContext) -> Iterator[Issue]:
+    cfg = ctx.cfg
+    if cfg.retrieval.strategy != "fanout_merge" or cfg.retrieval.merge.method != "weighted_sum":
+        return
+    for i, source in _used_sources(cfg):
+        if source.kind != "vector" or source.weight == 0:
+            continue
+        target_id = str(source.params.get("backend_ref", ctx.layout.primary.id))
+        info = ctx.collections.get(target_id)
+        if info is None:
+            continue  # missing/unreachable collections have their own diagnostics
+        distance = (info.params or {}).get("distance")
+        if distance not in ("Cosine", "Dot"):
+            path = f"retrieval.sources[{i}]"
+            yield error("retrieval.score_direction", path,
+                        f"weighted_sum requires higher-is-better scores (Cosine/Dot); got {distance!r}. "
+                        "Use RRF or interleave for distance scores.", path=path)
+
+
 @dataclass(frozen=True)
 class Preflight:
     dataset: EvalDataset
@@ -261,7 +297,7 @@ async def preflight(cfg: ScenarioConfig, stores: Mapping[str, Any]) -> Preflight
     ctx = IndexContext(cfg=cfg, layout=layout, dataset=dataset, collections=collections, metadata=metadata)
     index_warnings = raise_on_errors(
         f"Index is not compatible with scenario {cfg.name!r}",
-        (issue for check in INDEX_CHECKS for issue in check(ctx)),
+        (issue for check in [*INDEX_CHECKS, merge_score_direction] for issue in check(ctx)),
         hint=REBUILD_HINT,
     )
     primary = layout.primary.id
@@ -269,6 +305,6 @@ async def preflight(cfg: ScenarioConfig, stores: Mapping[str, Any]) -> Preflight
         dataset=dataset,
         index=metadata[primary],
         params=collections[primary].params,
-        warnings=[*dataset.warnings, *index_warnings],
+        warnings=[*dataset.warnings, *index_warnings, *merge_warnings(cfg)],
         collections={tid: info for tid, info in collections.items() if info is not None},
     )
