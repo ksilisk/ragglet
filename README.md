@@ -247,31 +247,6 @@ results/runs/<scenario_name>_<utc_timestamp>/
 а параллельные источники перекрываются: их длительности не складываются.
 Правила кэша, таймаутов и пропусков — в [описании метрик](docs/metrics.md#источники-и-слияние-retrieval).
 
-Для `retrieval.strategy: fanout_merge` доступны три метода слияния:
-
-| Настройки `retrieval.merge` | Поведение |
-|---|---|
-| `method: rrf`, `rrf_k: 60` | Складывает взвешенные вклады локальных рангов; default для несопоставимых шкал. |
-| `method: weighted_sum`, `normalize: minmax` | Нормализует scores внутри каждого источника и складывает их с весами. Константная выдача, включая singleton, получает 0. |
-| `method: weighted_sum`, `normalize: none` | Складывает исходные scores; подходит для исследования шардов с общей шкалой. |
-| `method: interleave`, `interleave_weighted: false` | Чередует источники в порядке конфигурации. `true` включает smooth weighted round-robin. |
-
-Веса задаются в `retrieval.sources[].weight`: конечные числа `>= 0`, хотя бы один
-положительный. Вес 0 исключает вклад в merge, но источник всё ещё запрашивается.
-Weighted sum требует scores «больше — лучше»; preflight отклоняет Euclid и неизвестную
-метрику векторного источника. RRF и interleave используют готовый порядок выдачи.
-
-Повтор чанка внутри источника удаляется до fusion. RRF/weighted sum всегда
-объединяют межисточниковые вклады по `chunk_id`; `deduplicate: false` для них
-сохраняется с предупреждением. У interleave этот флаг разрешает межисточниковые
-повторы. Разные чанки одного документа сохраняются, `top_k` считает чанки.
-
-Raw score сохраняется отдельно от fused score. Context и noop rerank используют
-fused, если он есть, иначе raw. После RRF пороги threshold/adaptive context нужно
-пересмотреть: теперь они применяются к RRF score. Interleave не создаёт общей оценки;
-пороговый context без настоящего reranker предупреждает о несопоставимых raw scores.
-Пример сравнения на публичном корпусе — [ragglet-25](docs/experiments/ragglet-25-merge.md).
-
 Quality-метрики двух прогонов сравнимы, если в `manifest.json` у них равны `dataset.corpus_sha256` и `dataset.eval_sha256`. Различия индекса (chunking, модель) — экспериментальный фактор и видны в секции `index`.
 
 `ragglet.bench.compare.compare_runs(a, b)` сравнивает два каталога прогонов (`compare_trees` — любое их число, его зовёт `GET /v1/runs/compare` и страница сравнения в UI) и относит каждое различие к одному из классов:
