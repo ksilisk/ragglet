@@ -149,8 +149,9 @@ async def test_context_and_noop_use_fused_zero_without_changing_real_rerank():
 
 
 @pytest.mark.parametrize("distance", ["Cosine", "Dot", "Euclid", None])
-async def test_preflight_checks_direction_only_for_score_fusion(distance):
-    cfg = _scenario(retrieval={"strategy": "fanout_merge", "sources": [{"name": "a"}],
+@pytest.mark.parametrize("params", [{}, {"backend_ref": None}])
+async def test_preflight_checks_direction_only_for_score_fusion(distance, params):
+    cfg = _scenario(retrieval={"strategy": "fanout_merge", "sources": [{"name": "a", "params": params}],
                               "merge": {"method": "weighted_sum"}})
     store = _Store(_meta())
     store.info = replace(store.info, params={**store.info.params, "distance": distance})

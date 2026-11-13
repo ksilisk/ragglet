@@ -219,7 +219,8 @@ def merge_score_direction(ctx: IndexContext) -> Iterator[Issue]:
     for i, source in _used_sources(cfg):
         if source.kind != "vector" or source.weight == 0:
             continue
-        target_id = str(source.params.get("backend_ref", ctx.layout.primary.id))
+        ref = source.params.get("backend_ref")
+        target_id = ctx.layout.primary.id if ref is None else str(ref)
         info = ctx.collections.get(target_id)
         if info is None:
             continue  # missing/unreachable collections have their own diagnostics
