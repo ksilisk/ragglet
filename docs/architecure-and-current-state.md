@@ -5,7 +5,7 @@
 ragglet is a Python benchmarking playground for Retrieval-Augmented Generation (RAG) retrieval architectures.
 Focus: quality–performance tradeoffs in distributed / multi-source retrieval:
 - retrieval strategies: `single`, `fanout_merge` (async or sequential)
-- merge algorithms: currently `rrf`, in progress: `weighted_sum`, `interleave`
+- merge algorithms: `rrf`, `weighted_sum` (minmax/none), `interleave` (round-robin/smooth weighted)
 - caching: embedding cache (Redis), retrieval cache (in-memory LRU)
 - timeouts: per-query `total_ms` + per-stage (retrieval/rerank/llm) using AnyIO cancel scopes
 - evaluation: document-level nDCG@k / Recall@k / R_cap@k / Hit@k / MRR@k (optional chunk-level MRR@k / Precision@k), latency percentiles, query outcomes (ok/timeout/error), repeat wall time and throughput; semantics in `docs/metrics.md`
@@ -100,13 +100,13 @@ Key sections:
     - `false` -> sequential execution
   - `sources`: list of sources:
     - `kind`: `vector` or `keyword` (hybrid = using both sources with merge)
-    - `weight`: used by merge (RRF currently)
+    - `weight`: nonnegative, used by RRF, weighted sum and weighted interleave; zero excludes a source from fusion
     - `params`: vendor-specific:
       - vector: Qdrant `ef_search` etc.
       - keyword: BM25 params `k1`, `b` used during BM25 index build
   - `merge`:
-    - `method`: currently `rrf`; planned: `weighted_sum`, `interleave`
-    - `rrf_k`, `deduplicate`
+    - `method`: `rrf`, `weighted_sum`, `interleave`
+    - `rrf_k`, `normalize`, `interleave_weighted`, `deduplicate` (cross-source repeats in interleave only)
 - `cache`:
   - `embedding`: Redis cache for query embeddings
   - `retrieval`: in-memory LRU cache for retrieval results, including retrieved ids and candidate payloads
@@ -213,7 +213,7 @@ What is implemented today (core)
 * single: one vector source (keyword single retrieval is rejected by schema as not implemented yet)
 * fanout_merge: multi-source, async or sequential based on retrieval.async
     * sources can be mixed vector + keyword => hybrid retrieval
-* merge: rrf with weights + deduplicate by external_id
+* merge: configurable fusion by chunk_id; local duplicates removed before scoring; raw and fused scores kept separately
 
 ✅ Keyword backend:
 
@@ -280,8 +280,8 @@ What is implemented today (core)
 Current limitations / TODO
 
 1. Merge methods:
-    * add weighted_sum (needs score normalization for vector+BM25)
-    * add interleave (round-robin + dedup)
+    * compare weighted_sum normalizations and source weights for vector+BM25
+    * compare round-robin and weighted interleave against RRF
     * keep RRF as default baseline
 2. Robust timeout handling:
     * ensure total_ms wraps embed+retrieval+rerank+context+generation
@@ -311,5 +311,5 @@ Notes from recent debugging
 
 Desired next tasks (high priority)
 
-* Implement merge.method=interleave and merge.method=weighted_sum with normalization.
+* Use configurable interleave/weighted_sum and the comparison in docs/experiments/ragglet-25-merge.md.
 * Implement storage.mode=sharded using fanout across shard backends + merge.

@@ -88,3 +88,33 @@ describe("редактор сценария", () => {
     expect(screen.getByText("не сохранено")).toBeInTheDocument();
   });
 });
+
+it("настройки merge видны для своего метода и попадают в YAML проверки", async () => {
+  const fanout = yaml.replace("  top_k: 50", `  top_k: 50
+  strategy: fanout_merge
+  sources:
+    - name: vector
+  merge:
+    method: weighted_sum`);
+  const { calls } = mockApi((req, url) => {
+    if (req.method === "GET" && url.pathname === "/v1/scenarios/nfcorpus_rerank") return json({ ...doc, yaml: fanout });
+    if (req.method === "POST" && url.pathname === "/v1/runs") return json(problem, 422);
+    return undefined;
+  });
+  renderRoutes([{ path: "/scenarios/:id", Component: ScenarioEditorPage }], "/scenarios/nfcorpus_rerank");
+  const normalization = await screen.findByLabelText("normalize");
+  expect(normalization).toHaveValue("minmax");
+  expect(screen.queryByLabelText("Учитывать веса источников")).toBeNull();
+  fireEvent.change(normalization, { target: { value: "none" } });
+  const method = document.getElementById("f-retrieval_merge_method-input")!;
+  fireEvent.change(method, { target: { value: "interleave" } });
+  expect(screen.queryByLabelText("normalize")).toBeNull();
+  fireEvent.click(screen.getByLabelText("Учитывать веса источников"));
+  fireEvent.click(screen.getByRole("button", { name: "Проверить" }));
+  await waitFor(() => expect(calls.some(c => c.method === "POST")).toBe(true));
+  const posted = calls.find(c => c.method === "POST")!.body as { scenario: string };
+  expect(posted.scenario).toContain("normalize: none");
+  expect(posted.scenario).toContain("interleave_weighted: true");
+  expect(posted.scenario).toContain("method: interleave");
+  expect(posted.scenario).toContain("# комментарий шаблона");
+});

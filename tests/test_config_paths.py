@@ -21,6 +21,10 @@ PROFILE = {
 
 # model-валидатор -> [(корневая модель, переопределения, ожидаемый путь поля)]
 CASES = {
+    "scenario.RetrievalConfig._fanout_weights": [
+        (scenario.ScenarioConfig, {"retrieval": {"strategy": "fanout_merge", "sources": [{"name": "v", "weight": 0}]}},
+         "retrieval.sources"),
+    ],
     "scenario.ScenarioConfig._generation_requires_context": [
         (scenario.ScenarioConfig, {"generation": {"enabled": True, "model": "m"}}, "generation.enabled"),
     ],
