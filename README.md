@@ -209,6 +209,12 @@ python3 ragglet run configs/scenarios/baseline_qdrant_fanout_two_vec.yaml
 
 Для fanout-сценария Redis должен быть доступен, потому что `cache.enabled: true` включает Redis embedding cache.
 
+Политика `retrieval.failure_policy` определяет поведение при отказе источника:
+`strict` (по умолчанию) требует ответы всех, `allow_partial` возвращает выдачу
+от успешно ответивших источников. Ожидаемый отказ завершает отдельный запрос,
+прогон продолжается. Частичные ответы отмечаются в UI, артефактах и summary;
+подробности — в [описании метрик](docs/metrics.md#исход-запроса).
+
 ### 4. Посмотреть результаты
 
 ```bash

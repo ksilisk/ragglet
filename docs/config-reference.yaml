@@ -258,8 +258,8 @@ scenario:
           type: "integer"
           default: 1500
           status: implemented
-          docs: "Timeout around retrieval stage."
-          caveat: "Qdrant requests are cancelled at the deadline. Local BM25 runs in a worker thread, one search at a time; the timeout fires after the current search returns."
+          docs: "Shared budget for waiting for retrieval sources. strict fails on expiry; allow_partial merges completed sources if at least one with positive weight succeeded. Merge is measured in retrieval latency and remains subject to total_ms."
+          caveat: "Qdrant requests are cancelled at the deadline. Local BM25 and synchronous merge are not interrupted midway; total_ms is checked before accepting the result."
         rerank_ms:
           type: "integer"
           default: 800
@@ -460,6 +460,12 @@ scenario:
             single: "Implemented for vector source only. Keyword single retrieval is rejected by schema as not implemented yet."
             fanout_merge: "Implemented for vector and keyword sources."
             cascade: "Accepted by schema but not implemented at runtime."
+        failure_policy:
+          type: "enum"
+          default: "strict"
+          allowed_values: ["strict", "allow_partial"]
+          status: implemented
+          docs: "strict requires all sources; allow_partial returns completed sources after a failure or deadline. Expected failures are network timeouts, connection errors and HTTP 502/503/504. No usable source means a query error/timeout; the run continues. Programming, data and other HTTP errors remain fatal. Partial results are not cached."
         top_k:
           type: "integer"
           default: 30

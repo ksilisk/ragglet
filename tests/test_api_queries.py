@@ -62,6 +62,22 @@ def test_rows_are_scalars_with_nan_as_null_and_rank(stand):
     assert (timeout["outcome"], timeout["timeout_stage"], timeout["lat_rerank_ms"]) == ("timeout", "rerank", None)
 
 
+@pytest.mark.parametrize("ext", ["csv", "parquet"])
+def test_partial_diagnostics_are_available_in_page_and_detail(stand, ext):
+    make_run_dir(stand.settings.artifacts_dir, formats=(ext,))
+    path = stand.settings.artifacts_dir / RUN_ID / f"per_query.repeat0.{ext}"
+    df = getattr(pd, f"read_{ext}")(path)
+    df["retrieval_status"] = ["partial", "complete", "failed"]
+    df["source_0_status"] = "ok"
+    df["source_1_status"] = ["unavailable", "ok", "timeout"]
+    getattr(df, f"to_{ext}")(path, index=False)
+    page = _page(stand, fields="qid,retrieval_status,source_1_status", outcome="ok")
+    assert page["items"][0] == {"qid": "q001", "retrieval_status": "partial", "source_1_status": "unavailable"}
+    detail = stand.client.get(f"/v1/runs/{RUN_ID}/queries/q001").json()
+    assert detail["row"]["source_0_status"] == "ok"
+    assert detail["row"]["retrieval_status"] == "partial"
+
+
 def test_filters_sort_and_pages(stand):
     make_run_dir(stand.settings.artifacts_dir)
 

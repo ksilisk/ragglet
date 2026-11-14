@@ -119,6 +119,10 @@ def summarize_repeat(cfg: ScenarioConfig, df: pd.DataFrame) -> dict[str, Any]:
         "timeout_stage_counts": stage_counts,
         "timeout_stage_rates": stage_rates,
     }
+    if "retrieval_status" in df:
+        partial = (df["retrieval_status"] == "partial") & (df["outcome"] == "ok")
+        s["partial_count"] = int(partial.sum())
+        s["partial_rate"] = s["partial_count"] / n if n else 0.0
     s.update(_quality_summary(cfg, df))
     return s
 

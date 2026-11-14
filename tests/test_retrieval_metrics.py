@@ -62,6 +62,7 @@ async def test_retrieval_hit_has_no_reused_timers_and_cold_miss_is_measured():
     df = await rows(cfg, items=items)
     new = [c for c in df.columns if c.startswith(("lat_source", "lat_merge"))]
     assert list(df.ret_cache) == ["miss", "hit"]
+    assert list(df.retrieval_status) == ["complete", "cache_hit"]
     assert df.iloc[0][["lat_source_0_ms", "lat_source_1_ms", "lat_merge_ms"]].notna().all()
     assert df.iloc[1][new].isna().all()
     assert df.iloc[1].lat_retrieve_ms >= 0
@@ -101,6 +102,8 @@ async def test_timeout_before_retrieval_and_after_retrieval():
 
     df = await rows(cfg, embedder=SimpleNamespace(embed_query=slow_embed))
     assert (df.timeout_stage == "total").all()
+    assert (df.retrieval_status == "not_run").all()
+    assert (df.source_0_status == "not_started").all()
     assert df[[c for c in df if c.startswith(("lat_source", "lat_merge"))]].isna().all().all()
     cfg.timeouts.total_ms = 5000
     cfg.context.enabled = True
@@ -109,6 +112,7 @@ async def test_timeout_before_retrieval_and_after_retrieval():
     generator = SimpleNamespace(generate=AsyncMock(side_effect=StageTimeout("generation")))
     df = await rows(cfg, generator=generator)
     assert (df.outcome == "timeout").all()
+    assert (df.retrieval_status == "complete").all()
     assert df[["lat_source_0_ms", "lat_source_1_ms", "lat_sources_ms", "lat_merge_ms"]].notna().all().all()
 
 
