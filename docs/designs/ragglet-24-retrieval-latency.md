@@ -7,7 +7,7 @@
 Существующая `lat_retrieve_ms` сохраняет смысл: полное время retrieval, включая merge.
 
 Дизайн согласован; реализация добавлена в этом же PR. Основание —
-[ragglet-24, «[Э3/C1] Отдельные per-source и merge latency»](https://vikunja.ksilisk-infra.com/tasks/1284),
+ragglet-24, «[Э3/C1] Отдельные per-source и merge latency»,
 дорожная карта `university/masters/ragglet/practice-2026-roadmap.md` в базе знаний Lumi
 (согласованный план от 15.10.2026), связанные дизайн-документы и код на
 `b0b10ad8b758cb6e4d53f5cb47d4f3745203c728`.
