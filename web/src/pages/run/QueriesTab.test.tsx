@@ -12,22 +12,42 @@ const { summary, scenario_yaml, manifest, ...light } = completed;
 void manifest;
 const routes = [{ path: "/runs/:id", Component: RunPage }];
 
-function serve(grades: { available: boolean; code: string | null; message: string | null } = detail.grades) {
+function serve(grades: { available: boolean; code: string | null; message: string | null } = detail.grades, partial = false) {
+  const diagnostics = { retrieval_status: "partial", source_0_status: "ok", source_1_status: "unavailable" };
   return mockApi((_req, url) => {
     if (url.pathname === `/v1/runs/${ID}`) {
       const include = url.searchParams.get("include");
-      if (include === "summary") return json({ ...light, summary });
-      if (include === "scenario") return json({ ...light, scenario_yaml });
+      if (include === "summary") return json({ ...light, summary: partial ? { ...summary, repeats: summary.repeats.map(row => ({ ...row, partial_count: 10, partial_rate: 0.25 })) } : summary });
+      if (include === "scenario") return json({ ...light, scenario_yaml: partial ? "retrieval:\n  strategy: fanout_merge\n  sources:\n    - name: primary\n    - name: secondary\n" : scenario_yaml });
       return json(light);
     }
-    if (url.pathname === `/v1/runs/${ID}/queries`) return json(page);
-    if (url.pathname.startsWith(`/v1/runs/${ID}/queries/`)) return json({ ...detail, grades });
+    if (url.pathname === `/v1/runs/${ID}/queries`) return json(partial ? { ...page, columns: [...page.columns, ...Object.keys(diagnostics)], items: page.items.map(row => ({ ...row, ...diagnostics })) } : page);
+    if (url.pathname.startsWith(`/v1/runs/${ID}/queries/`)) return json({ ...detail, grades, row: partial ? { ...detail.row, ...diagnostics } : detail.row });
     if (url.pathname === `/v1/runs/${ID}/artifacts`) return json([]);
     return undefined;
   });
 }
 
 describe("вкладка «Запросы»", () => {
+  it("отмечает частичный ответ и показывает статусы именованных источников", async () => {
+    serve(detail.grades, true);
+    renderRoutes(routes, `/runs/${ID}?tab=queries&qid=PLAIN-1161`);
+    const panel = await screen.findByRole("region", { name: "Запрос PLAIN-1161" });
+    expect(await within(panel).findByText("частичный ответ")).toBeInTheDocument();
+    const diagnostics = within(panel).getByRole("region", { name: "Состояние поиска" });
+    expect(await within(diagnostics).findByText("primary")).toBeInTheDocument();
+    expect(within(diagnostics).getByText("secondary")).toBeInTheDocument();
+    expect(within(diagnostics).getByText("unavailable")).toBeInTheDocument();
+  });
+
+  it("показывает долю частичных ответов в обзоре прогона", async () => {
+    serve(detail.grades, true);
+    renderRoutes(routes, `/runs/${ID}`);
+    const label = await screen.findByText("Частичные ответы");
+    expect(within(label.parentElement!).getByText(/25\s*%/)).toBeInTheDocument();
+    expect(within(label.parentElement!).getByText(/входят в ok/)).toBeInTheDocument();
+  });
+
   it("фильтры из URL уходят на сервер, клик по строке открывает панель", async () => {
     const { calls } = serve();
     renderRoutes(routes, `/runs/${ID}?tab=queries&outcome=timeout&sort=-lat_total_ms`);

@@ -69,6 +69,7 @@ export function RunOverview({ run }: { run: S["RunStatus"] }) {
   const qps = m("throughput_qps");
   const wall = m("wall_ms");
   const outcomes = outcomeTotals(summary);
+  const partial = m("partial_rate");
   // доля попаданий есть в summary и при выключенном кэше (0), поэтому слои берутся из snapshot
   const emb = facts.cache.emb ? m("emb_hit_rate").mean : null;
   const ret = facts.cache.ret ? m("ret_hit_rate").mean : null;
@@ -111,6 +112,7 @@ export function RunOverview({ run }: { run: S["RunStatus"] }) {
           muted={!outcomes}
           small={Boolean(outcomes)}
         />
+        {partial.mean !== null && <Tile label={t("Частичные ответы")} value={fmtPercent(partial.mean)} sub={sub(t("входят в ok"), repeatsLabel)} />}
         {emb === null && ret === null ? (
           <Tile label={t("Кэш")} value="—" sub={t("выключен")} muted />
         ) : (
@@ -142,6 +144,7 @@ export function RunOverview({ run }: { run: S["RunStatus"] }) {
               <th className="r">ok</th>
               <th className="r">timeout</th>
               <th className="r">error</th>
+              {partial.mean !== null && <th className="r">partial</th>}
               <th className="r">{t("wall, с")}</th>
               <th className="r">QPS</th>
               <th className="r">p50</th>
@@ -157,6 +160,7 @@ export function RunOverview({ run }: { run: S["RunStatus"] }) {
                 <td className="r num">{fmtNumber(num(row, "ok_count"))}</td>
                 <td className="r num">{fmtNumber(num(row, "timeout_count"))}</td>
                 <td className="r num">{fmtNumber(num(row, "error_count"))}</td>
+                {partial.mean !== null && <td className="r num">{fmtNumber(num(row, "partial_count"))}</td>}
                 <td className="r num">{fmtNumber((num(row, "wall_ms") ?? Number.NaN) / 1000, 1)}</td>
                 <td className="r num">{fmtQps(num(row, "throughput_qps"))}</td>
                 <td className="r num">{fmtMs(num(row, "lat_total_p50"))}</td>

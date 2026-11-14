@@ -8,6 +8,10 @@ class SourceNetworkTimeout(Exception):
     """Подтверждённый timeout HTTP-клиента поиска; отличается от отмены по бюджету."""
 
 
+class SourceUnavailable(Exception):
+    """Ожидаемый отказ источника во время поиска: соединение или HTTP 502/503/504."""
+
+
 class ServiceUnavailable(Exception):
     """Сервис (Qdrant, Redis) не ответил: соединение, таймаут. Ответ с ошибкой — не это."""
 

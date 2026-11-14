@@ -15,12 +15,13 @@ from ragglet.cache.manager import CacheManager, Lookup
 from ragglet.config.scenario import ScenarioConfig
 from ragglet.context.base import ContextResult
 from ragglet.context.engine import assemble_context
-from ragglet.core.errors import StageTimeout
+from ragglet.core.errors import SourceUnavailable, StageTimeout
 from ragglet.generation.base import Generator
 from ragglet.generation.engine import generate_answer
 from ragglet.rerank.base import Reranker
 from ragglet.rerank.engine import rerank_items
 from ragglet.retrieval.backends import BackendRegistry
+from ragglet.retrieval.diagnostics import RetrievalDiagnostics
 from ragglet.retrieval.engine import retrieve_items
 from ragglet.retrieval.merge import RetrievedItem
 from ragglet.retrieval.sources import active_sources
@@ -133,6 +134,7 @@ async def run_queries_once(
         emb_cache: Lookup = None
         ret_cache: Lookup = None
         retrieval_timings = RetrievalTimings()
+        retrieval_diagnostics = RetrievalDiagnostics()
 
         try:
             # бюджет идёт с планового момента: ожидание старта входит в него
@@ -145,8 +147,16 @@ async def run_queries_once(
                         vec = await embedder.embed_query(it.query)
                         await caches.set_embedding(it.query, vec)
                     t = _lap(lat, "embed", t)
-                    retrieved_items = await retrieve_items(cfg, backends, it.query, vec, timings=retrieval_timings)
-                    caches.set_retrieval(it.query, retrieved_items)
+                    retrieved_items = await retrieve_items(
+                        cfg, backends, it.query, vec, timings=retrieval_timings, diagnostics=retrieval_diagnostics,
+                    )
+                    # Синхронный merge может пересечь дедлайн до доставки отмены event loop.
+                    if anyio.current_time() >= planned_at + total_budget:
+                        raise StageTimeout("total")
+                    if retrieval_diagnostics.status == "complete":
+                        caches.set_retrieval(it.query, retrieved_items)
+                else:
+                    retrieval_diagnostics.status = "cache_hit"
                 retrieved_ids = [item.chunk_id for item in retrieved_items]
                 retrieved_doc_ids = project_to_docs(retrieved_items)
                 t = _lap(lat, "retrieve", t)
@@ -191,6 +201,10 @@ async def run_queries_once(
                         generation_error = str(e)
                         outcome = "error"
                 _lap(lat, "generation", t, cfg.generation.enabled and outcome == "ok")
+                if anyio.current_time() >= planned_at + total_budget:
+                    raise StageTimeout("total")
+        except SourceUnavailable:
+            outcome = "error"
         except StageTimeout as e:
             outcome = "timeout"
             timeout_stage = e.stage
@@ -230,6 +244,7 @@ async def run_queries_once(
             "t_start_ms": (planned_at - t0) * 1000.0,
             **{f"lat_{stage}_ms": lat.get(stage, math.nan) for stage in STAGES},
             **retrieval_timings.columns(source_count),
+            **retrieval_diagnostics.columns(source_count),
             "lat_total_ms": lat_total_ms,
             "emb_cache": emb_cache,
             "ret_cache": ret_cache,

@@ -7,9 +7,9 @@ from typing import Any
 import httpx
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.http import models as qm
-from qdrant_client.http.exceptions import ResponseHandlingException
+from qdrant_client.http.exceptions import ResponseHandlingException, UnexpectedResponse
 
-from ragglet.core.errors import ServiceUnavailable, SourceNetworkTimeout
+from ragglet.core.errors import ServiceUnavailable, SourceNetworkTimeout, SourceUnavailable
 from ragglet.indexing.metadata import chunk_point_id
 
 
@@ -52,10 +52,16 @@ class AsyncQdrantStore:
                 with_payload=True,
                 search_params=search_params,
             )
-        except (httpx.TimeoutException, ResponseHandlingException) as e:
+        except (httpx.TransportError, httpx.HTTPStatusError, ResponseHandlingException, UnexpectedResponse) as e:
             cause = e.source if isinstance(e, ResponseHandlingException) else e
             if isinstance(cause, httpx.TimeoutException):
                 raise SourceNetworkTimeout(f"{self.endpoint}: {type(cause).__name__}: {cause}") from e
+            status = (
+                cause.status_code if isinstance(cause, UnexpectedResponse)
+                else cause.response.status_code if isinstance(cause, httpx.HTTPStatusError) else None
+            )
+            if isinstance(cause, (httpx.NetworkError, httpx.RemoteProtocolError)) or status in (502, 503, 504):
+                raise SourceUnavailable(f"Search source unavailable: {type(cause).__name__}") from e
             raise
 
         points = res.points if hasattr(res, "points") else []

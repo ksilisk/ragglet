@@ -25,7 +25,7 @@ LIST_COLUMNS = (
     "final_doc_ids", "rerank_scores",
 )
 TEXT_COLUMNS = ("context_text", "prompt_text", "answer", "raw_generation_response")  # только в строке запроса
-STRING_COLUMNS = ("qid", "query", "outcome", "timeout_stage", "emb_cache", "ret_cache", "generation_error")
+STRING_COLUMNS = ("qid", "query", "outcome", "timeout_stage", "emb_cache", "ret_cache", "generation_error", "retrieval_status")
 RANK = "first_relevant_rank"
 FILE_NAME = re.compile(r"^per_query\.repeat(?P<repeat>\d+)\.(?P<ext>parquet|csv)$")
 

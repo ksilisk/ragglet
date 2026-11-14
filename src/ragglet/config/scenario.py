@@ -156,6 +156,7 @@ class RetrievalConfig(BaseModel):
     strategy: Literal["single", "fanout_merge", "cascade"] = "single"
     top_k: int = Field(30, ge=1)
     async_enabled: bool = Field(True, alias="async")
+    failure_policy: Literal["strict", "allow_partial"] = "strict"
     sources: list[RetrievalSourceConfig] = Field(default_factory=list)
     merge: RetrievalMergeConfig = Field(default_factory=RetrievalMergeConfig)
 

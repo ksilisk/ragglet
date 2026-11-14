@@ -47,6 +47,7 @@ embedding:
 
 retrieval:
   strategy: "fanout_merge"
+  failure_policy: "strict"  # allow_partial возвращает выдачу доступных источников при отказе остальных
   top_k: 30
   async: true
   sources:

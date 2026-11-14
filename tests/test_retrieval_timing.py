@@ -12,7 +12,7 @@ from pydantic import ValidationError
 from qdrant_client.http.exceptions import ResponseHandlingException
 
 from ragglet.config.scenario import ScenarioConfig
-from ragglet.core.errors import SourceNetworkTimeout, StageTimeout
+from ragglet.core.errors import SourceNetworkTimeout, SourceUnavailable, StageTimeout
 from ragglet.retrieval import engine, timing
 from ragglet.retrieval.backends import BackendRegistry
 from ragglet.retrieval.sources import active_sources
@@ -202,14 +202,19 @@ async def test_qdrant_transport_timeout_normalization(monkeypatch, wrapped, erro
 
 
 @pytest.mark.parametrize("wrapped", [False, True])
-async def test_qdrant_other_transport_errors_remain_fatal(monkeypatch, wrapped):
-    cause = httpx.ConnectError("connection refused")
+@pytest.mark.parametrize("error_type", [httpx.ConnectError, httpx.ReadError, httpx.WriteError, httpx.CloseError, httpx.RemoteProtocolError, httpx.LocalProtocolError, ValueError])
+async def test_qdrant_connection_errors_are_normalized_but_programming_errors_stay_fatal(monkeypatch, wrapped, error_type):
+    cause = error_type("test error")
     original = ResponseHandlingException(cause) if wrapped else cause
     store = AsyncQdrantStore("http://localhost:6333", "c")
     monkeypatch.setattr(store.client, "query_points", AsyncMock(side_effect=original))
     try:
-        with pytest.raises(type(original)) as exc:
+        expected = SourceUnavailable if isinstance(cause, (httpx.NetworkError, httpx.RemoteProtocolError)) else type(original)
+        with pytest.raises(expected) as exc:
             await store.search([1.0], 1)
-        assert exc.value is original
+        if expected is SourceUnavailable:
+            assert exc.value.__cause__ is original
+        else:
+            assert exc.value is original
     finally:
         await store.close()
