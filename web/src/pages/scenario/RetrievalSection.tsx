@@ -54,6 +54,13 @@ export function RetrievalSection() {
           options={meta.retrieval_strategies.map((v) => ({ value: v, label: v === "fanout_merge" ? t("fanout_merge — несколько источников") : v }))}
         />
         <NumberField path="retrieval.top_k" label="top_k" min={1} />
+        <SelectField
+          path="retrieval.failure_policy"
+          label={t("При отказе источника")}
+          options={enumAt(meta.json_schema, ["retrieval", "failure_policy"]).map((value) => ({
+            value, label: value === "allow_partial" ? t("Вернуть частичную выдачу") : t("Требовать все источники"),
+          }))}
+        />
         {fanout ? <CheckField path="retrieval.async" label={t("async — источники параллельно")} /> : <div />}
       </Grid>
 

@@ -22,6 +22,7 @@ export interface SnapshotFacts {
   datasetSplit: string | null;
   datasetLimit: number | null;
   contextEnabled: boolean;
+  sourceNames: string[];
 }
 
 type Obj = Record<string, unknown>;
@@ -39,6 +40,11 @@ export function snapshotFacts(yaml: string | null | undefined): SnapshotFacts {
   const metrics = obj(cfg.metrics);
   const dataset = obj(cfg.dataset);
   const enabled = (section: string) => boolOr(obj(cfg[section]).enabled);
+  const retrievalConfig = obj(cfg.retrieval);
+  const configuredSources = Array.isArray(retrievalConfig.sources) ? retrievalConfig.sources : [];
+  const activeSources = retrievalConfig.strategy === "single" ? configuredSources.slice(0, 1) : configuredSources;
+  const sourceNames = activeSources.map((s, i) => strOr(obj(s).name) ?? `source_${i}`);
+  if (retrievalConfig.strategy === "single" && sourceNames.length === 0) sourceNames.push("vec");
   const stagesOff: Stage[] = [];
   if (enabled("rerank") === false) stagesOff.push("rerank");
   if (enabled("context") === false) stagesOff.push("context");
@@ -68,5 +74,6 @@ export function snapshotFacts(yaml: string | null | undefined): SnapshotFacts {
     datasetSplit: strOr(dataset.split),
     datasetLimit: numOr(dataset.limit),
     contextEnabled: enabled("context") === true,
+    sourceNames,
   };
 }

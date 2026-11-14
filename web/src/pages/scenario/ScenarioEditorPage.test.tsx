@@ -103,6 +103,9 @@ it("настройки merge видны для своего метода и по
   });
   renderRoutes([{ path: "/scenarios/:id", Component: ScenarioEditorPage }], "/scenarios/nfcorpus_rerank");
   const normalization = await screen.findByLabelText("normalize");
+  const failurePolicy = screen.getByLabelText("При отказе источника");
+  expect(failurePolicy).toHaveValue("strict");
+  fireEvent.change(failurePolicy, { target: { value: "allow_partial" } });
   expect(normalization).toHaveValue("minmax");
   expect(screen.queryByLabelText("Учитывать веса источников")).toBeNull();
   fireEvent.change(normalization, { target: { value: "none" } });
@@ -114,6 +117,7 @@ it("настройки merge видны для своего метода и по
   await waitFor(() => expect(calls.some(c => c.method === "POST")).toBe(true));
   const posted = calls.find(c => c.method === "POST")!.body as { scenario: string };
   expect(posted.scenario).toContain("normalize: none");
+  expect(posted.scenario).toContain("failure_policy: allow_partial");
   expect(posted.scenario).toContain("interleave_weighted: true");
   expect(posted.scenario).toContain("method: interleave");
   expect(posted.scenario).toContain("# комментарий шаблона");

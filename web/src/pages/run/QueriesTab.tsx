@@ -357,8 +357,10 @@ function QueriesTable({ items, columns, k: kv, ks, sort, selected, stagesOn, onS
 }
 
 export function OutcomeChip({ row }: { row: Row }) {
+  const t = useT();
   const outcome = typeof row.outcome === "string" ? row.outcome : null;
   if (outcome === null) return <span className="muted">—</span>;
+  if (outcome === "ok" && row.retrieval_status === "partial") return <Chip tone="warn">{t("частичный ответ")}</Chip>;
   if (outcome === "ok") return <Chip tone="ok">ok</Chip>;
   const stage = typeof row.timeout_stage === "string" ? row.timeout_stage : null;
   return (

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { S } from "../../api/client";
-import { useQueryDetail } from "../../api/queries";
+import { useQueryDetail, useRunInclude } from "../../api/queries";
+import { snapshotFacts } from "../../analysis/snapshot";
 import { STAGES, num } from "../../analysis/summary";
 import { useT } from "../../i18n/i18n";
 import { fmtMs, fmtNumber } from "../../lib/format";
@@ -28,6 +29,8 @@ export function QueryPanel({ runId, qid, repeat, k: kv, onClose, onNext }: {
 }) {
   const t = useT();
   const detail = useQueryDetail(runId, qid, repeat);
+  const snapshot = useRunInclude(runId, "scenario");
+  const { sourceNames } = snapshotFacts(snapshot.data?.scenario_yaml);
   const d = detail.data;
   return (
     <Card
@@ -50,7 +53,7 @@ export function QueryPanel({ runId, qid, repeat, k: kv, onClose, onNext }: {
     >
       {detail.error && <ErrorBox error={detail.error} />}
       {!d && !detail.error && <span className="small muted">{t("Загрузка запроса…")}</span>}
-      {d && <PanelBody d={d} k={kv} />}
+      {d && <PanelBody d={d} k={kv} sourceNames={sourceNames} />}
       <div className={r.toolbar}>
         <Button small disabled={!onNext} onClick={() => onNext?.()}>
           {t("Следующий →")}
@@ -60,11 +63,15 @@ export function QueryPanel({ runId, qid, repeat, k: kv, onClose, onNext }: {
   );
 }
 
-function PanelBody({ d, k: kv }: { d: S["QueryDetail"]; k: number }) {
+function PanelBody({ d, k: kv, sourceNames }: { d: S["QueryDetail"]; k: number; sourceNames: string[] }) {
   const t = useT();
   const [allTruth, setAllTruth] = useState(false);
   const [open, setOpen] = useState<Set<number>>(new Set());
   const row = d.row;
+  const sourceStatuses = Object.keys(row).flatMap((key) => {
+    const match = /^source_(\d+)_status$/.exec(key);
+    return match ? [{ index: Number(match[1]), status: String(row[key]) }] : [];
+  }).sort((a, b) => a.index - b.index);
   const stages = [...STAGES, "total" as const].map((stage) => [stage, num(row, `lat_${stage}_ms`)] as const).filter(([, v]) => v !== null);
   // найденные — по рангу, ненайденные — по оценке
   const truth = [...d.truth].sort((a, b) => (a.doc_rank ?? Infinity) - (b.doc_rank ?? Infinity) || (b.grade ?? 0) - (a.grade ?? 0));
@@ -91,6 +98,18 @@ function PanelBody({ d, k: kv }: { d: S["QueryDetail"]; k: number }) {
         <span className="muted">{t("мс")}</span>
         {num(row, "t_start_ms") !== null && <span className="muted">{t("старт {t} с", { t: fmtNumber((num(row, "t_start_ms") ?? 0) / 1000, 2) })}</span>}
       </div>
+
+      {typeof row.retrieval_status === "string" && (
+        <section className={r.panelSection} aria-label={t("Состояние поиска")}>
+          <div className={r.sectionHead}>{t("Состояние поиска")} · {row.retrieval_status}</div>
+          {sourceStatuses.map(({ index, status }) => (
+            <div key={index} className={r.docRow}>
+              <span className="mono">{sourceNames[index] ?? `source_${index}`}</span>
+              <span>{status}</span>
+            </div>
+          ))}
+        </section>
+      )}
 
       <section className={r.panelSection}>
         <div className={r.sectionHead}>

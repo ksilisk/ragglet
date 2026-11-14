@@ -1,5 +1,12 @@
 /** Английские переводы: ключ — русский текст из кода (см. i18n.tsx). */
 export const en: Record<string, string> = {
+  "При отказе источника": "On source failure",
+  "Вернуть частичную выдачу": "Return partial results",
+  "Требовать все источники": "Require all sources",
+  "частичный ответ": "partial answer",
+  "Состояние поиска": "Retrieval status",
+  "Частичные ответы": "Partial answers",
+  "входят в ok": "included in ok",
   "входит в retrieve": "included in retrieve",
   // шапка и настройки
   "Стенд": "Stand",

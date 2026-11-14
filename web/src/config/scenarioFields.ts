@@ -27,7 +27,7 @@ const fields: Record<ScenarioSection, string[]> = {
     "embedding", "embedding.model", "embedding.normalize",
   ],
   retrieval: [
-    "retrieval", "retrieval.strategy", "retrieval.top_k", "retrieval.async",
+    "retrieval", "retrieval.strategy", "retrieval.top_k", "retrieval.async", "retrieval.failure_policy",
     "retrieval.sources", "retrieval.sources[]", "retrieval.sources[].name", "retrieval.sources[].kind", "retrieval.sources[].weight",
     "retrieval.sources[].params", "retrieval.sources[].params.ef_search", "retrieval.sources[].params.backend_ref",
     "retrieval.sources[].params.k1", "retrieval.sources[].params.b",
